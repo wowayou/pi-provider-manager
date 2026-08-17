@@ -100,6 +100,8 @@ test("writes router-style providers without exposing credentials", async () => {
     assert.equal(createResponse.status, 200);
     const createBody = await createResponse.json();
     assert.equal(JSON.stringify(createBody).includes("test-secret-not-real"), false);
+    assert.equal(createBody.state.compatibility.configDirSource, "PI_CODING_AGENT_DIR");
+    assert.equal(createBody.state.compatibility.servicePort, port);
     assert.equal(createBody.state.providers[0].models.length, 2);
     assert.equal(createBody.state.providers[0].credentialConfigured, true);
 

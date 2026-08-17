@@ -8,6 +8,8 @@
 - Added warnings for model IDs that may incorrectly encode thinking levels.
 - Preserved unknown provider, model, compatibility, and settings fields across edits.
 - Added installed Pi version detection and compatibility policy.
+- Added automatic config/project/Node/WSL discovery with explicit environment-variable overrides and a loopback-only host boundary.
+- Replaced the shared Vite port `4173` with identity-checked automatic selection from `43127-43146`, preventing stale Service Workers or unrelated apps from opening first.
 - Added open-source readiness documentation and CI.
 
 ## 0.1.0 - 2026-08-17

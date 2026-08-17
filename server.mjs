@@ -7,12 +7,22 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const HOST = "127.0.0.1";
-const PORT = Number(process.env.PI_PROVIDER_MANAGER_API_PORT || 43121);
 const SERVE_UI = process.env.PI_PROVIDER_MANAGER_SERVE_UI === "1";
+const PORT = Number(
+  process.env.PI_PROVIDER_MANAGER_PORT ||
+  process.env.PI_PROVIDER_MANAGER_API_PORT ||
+  (SERVE_UI ? 43127 : 43121),
+);
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+  throw new Error("PI_PROVIDER_MANAGER_PORT must be an integer between 1 and 65535.");
+}
 const PROJECT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIR = path.join(PROJECT_DIR, "dist", "client");
 const AGENT_DIR = path.resolve(
   process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), ".pi", "agent"),
+);
+const AGENT_DIR_SOURCE = process.env.PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE || (
+  process.env.PI_CODING_AGENT_DIR ? "PI_CODING_AGENT_DIR" : "default-home"
 );
 const AUTH_PATH = path.join(AGENT_DIR, "auth.json");
 const MODELS_PATH = path.join(AGENT_DIR, "models.json");
@@ -170,6 +180,10 @@ function publicState() {
       piVersion: PI_VERSION,
       supportedApis: [...ALLOWED_APIS],
       configMode: "preserve-unknown-fields",
+      configDirSource: AGENT_DIR_SOURCE,
+      nodeVersion: process.version,
+      servicePort: PORT,
+      serviceHost: HOST,
     },
   };
 }

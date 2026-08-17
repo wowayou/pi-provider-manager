@@ -39,9 +39,24 @@ install -m 700 bin/pi-provider-manager-ui ~/.pi/agent/bin/pi-provider-manager-ui
 ~/.pi/agent/bin/pi-provider-manager-ui
 ```
 
-启动器会自动运行本地服务，并用 Windows 默认浏览器打开 `http://127.0.0.1:4173/`。
+启动器会复用已运行的管理器，或在 `43127-43146` 中自动选择空闲端口，再用 Windows 默认浏览器打开。复用前会检查 `/api/state` 身份，不会把同端口的其他应用误认成本项目。
 
 如果仓库不在 `~/pi-provider-manager-ui`，请先把 `PI_PROVIDER_MANAGER_PROJECT_DIR` 设置为仓库绝对路径。
+
+### 自动识别与环境变量覆盖
+
+| 环境变量 | 自动默认值 | 用途 |
+|---|---|---|
+| `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi 的 auth/models/settings 配置目录 |
+| `PI_PROVIDER_MANAGER_PROJECT_DIR` | 当前匹配仓库，其次 `~/pi-provider-manager-ui` | 项目与构建产物位置 |
+| `PI_PROVIDER_MANAGER_PORT` | 从 `43127-43146` 自动选择 | 严格指定本地服务端口 |
+| `PI_PROVIDER_MANAGER_NODE` | 当前 `node` 可执行文件 | 隐藏 WSL 服务使用的 Node 路径 |
+| `PI_PROVIDER_MANAGER_OPEN_BROWSER` | `1` | 设为 `0` 时只启动服务，不自动打开浏览器 |
+| `WSL_DISTRO_NAME` | WSL 自动提供 | Windows 隐藏启动时使用的发行版 |
+
+监听地址固定为 `127.0.0.1`，不会自动开放到局域网或公网。
+
+专用端口段还可以避开 Vite 常用的 `4173` origin 上残留的旧 Service Worker 和站点缓存。
 
 ## 安全边界
 

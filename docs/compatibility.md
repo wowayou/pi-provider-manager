@@ -18,6 +18,8 @@ To reduce breakage:
 4. Unknown model-level compatibility properties are preserved except fields the user explicitly changes.
 5. Files are parsed and validated before replacement.
 6. Multi-file provider updates roll back if any write fails.
+7. The config directory follows Pi's own precedence: `PI_CODING_AGENT_DIR`, then `~/.pi/agent`.
+8. Project path, port, Node binary, browser opening, and WSL distribution are discovered or explicitly overridable; the network host remains loopback-only.
 
 ## Why updates may still be required
 

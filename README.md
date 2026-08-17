@@ -47,9 +47,24 @@ install -m 700 bin/pi-provider-manager-ui ~/.pi/agent/bin/pi-provider-manager-ui
 ~/.pi/agent/bin/pi-provider-manager-ui
 ```
 
-The launcher starts the local service when needed and opens `http://127.0.0.1:4173/` in the Windows default browser.
+The launcher reuses an existing manager instance or selects a free port from `43127-43146`, then opens it in the Windows default browser. It verifies `/api/state` before reuse, so another app on the same port is never mistaken for Pi Provider Manager.
 
 If the repository is cloned elsewhere, set `PI_PROVIDER_MANAGER_PROJECT_DIR` to that absolute path before running the launcher.
+
+### Runtime discovery and overrides
+
+| Variable | Auto-detected default | Purpose |
+|---|---|---|
+| `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi config directory used for auth, models, and settings |
+| `PI_PROVIDER_MANAGER_PROJECT_DIR` | current matching repo, then `~/pi-provider-manager-ui` | Project/build location |
+| `PI_PROVIDER_MANAGER_PORT` | auto-select from `43127-43146` | Strict local loopback port override |
+| `PI_PROVIDER_MANAGER_NODE` | current `node` executable | Node binary used by the detached WSL process |
+| `PI_PROVIDER_MANAGER_OPEN_BROWSER` | `1` | Set to `0` to start without opening a browser |
+| `WSL_DISTRO_NAME` | supplied automatically by WSL | Distribution used by the detached Windows launcher |
+
+The service host intentionally stays fixed at `127.0.0.1`; it is not configurable to a public/LAN address.
+
+The dedicated port range also avoids stale Service Workers and cached apps commonly left on Vite's default `4173` origin.
 
 ## Security boundary
 
