@@ -22,6 +22,28 @@ async function waitForServer(url) {
 
 test("writes router-style providers without exposing credentials", async () => {
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-provider-manager-"));
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
+    providers: {
+      "any-router": {
+        baseUrl: "https://old.example/v1",
+        api: "openai-completions",
+        futureProviderField: "keep-provider",
+        models: [
+          {
+            id: "anthropic/claude-opus",
+            name: "Old Claude",
+            reasoning: true,
+            input: ["text"],
+            contextWindow: 100000,
+            maxTokens: 8000,
+            cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+            futureModelField: "keep-model",
+          },
+        ],
+      },
+    },
+  }));
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ futureSetting: "keep-setting" }));
   const port = 44000 + (process.pid % 1000);
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
@@ -30,12 +52,17 @@ test("writes router-style providers without exposing credentials", async () => {
       ...process.env,
       PI_CODING_AGENT_DIR: agentDir,
       PI_PROVIDER_MANAGER_API_PORT: String(port),
+      PI_PROVIDER_MANAGER_SERVE_UI: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
   try {
     await waitForServer(`${baseUrl}/api/state`);
+    const uiResponse = await fetch(`${baseUrl}/`);
+    assert.equal(uiResponse.status, 200);
+    assert.match(uiResponse.headers.get("content-security-policy"), /default-src 'self'/);
+    assert.match(await uiResponse.text(), /<div id="root"><\/div>/);
     const createResponse = await fetch(`${baseUrl}/api/providers`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -82,6 +109,9 @@ test("writes router-style providers without exposing credentials", async () => {
     assert.equal(auth["any-router"].key, "test-secret-not-real");
     assert.equal(models.providers["any-router"].models.length, 2);
     assert.equal(models.providers["any-router"].models[0].api, "anthropic-messages");
+    assert.equal(models.providers["any-router"].futureProviderField, "keep-provider");
+    assert.equal(models.providers["any-router"].models[0].futureModelField, "keep-model");
+    assert.deepEqual(models.providers["any-router"].models[0].cost, { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 });
     assert.equal(settings.defaultProvider, "any-router");
     assert.equal(settings.defaultModel, "anthropic/claude-opus");
 
@@ -111,6 +141,26 @@ test("writes router-style providers without exposing credentials", async () => {
     assert.equal(migratedAuth["any-router"], undefined);
     assert.equal(migratedAuth["new-router"].key, "test-secret-not-real");
     assert.equal(JSON.stringify(await migrateResponse.json()).includes("test-secret-not-real"), false);
+
+    const settingsResponse = await fetch(`${baseUrl}/api/settings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        defaultProvider: "new-router",
+        defaultModel: "gpt-5.6-sol",
+        defaultThinkingLevel: "xhigh",
+        hideThinkingBlock: true,
+        transport: "websocket",
+      }),
+    });
+    assert.equal(settingsResponse.status, 200);
+    const updatedSettings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+    assert.equal(updatedSettings.defaultProvider, "new-router");
+    assert.equal(updatedSettings.defaultModel, "gpt-5.6-sol");
+    assert.equal(updatedSettings.defaultThinkingLevel, "xhigh");
+    assert.equal(updatedSettings.hideThinkingBlock, true);
+    assert.equal(updatedSettings.transport, "websocket");
+    assert.equal(updatedSettings.futureSetting, "keep-setting");
   } finally {
     child.kill("SIGTERM");
     fs.rmSync(agentDir, { recursive: true, force: true });

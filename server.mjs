@@ -3,9 +3,14 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.PI_PROVIDER_MANAGER_API_PORT || 43121);
+const SERVE_UI = process.env.PI_PROVIDER_MANAGER_SERVE_UI === "1";
+const PROJECT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const CLIENT_DIR = path.join(PROJECT_DIR, "dist", "client");
 const AGENT_DIR = path.resolve(
   process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), ".pi", "agent"),
 );
@@ -19,6 +24,50 @@ const ALLOWED_APIS = new Set([
   "google-generative-ai",
 ]);
 const ALLOWED_THINKING = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+const ALLOWED_TRANSPORTS = new Set(["auto", "sse", "websocket"]);
+const APP_VERSION = "0.1.1";
+
+function detectPiVersion() {
+  const nvmNodes = path.join(os.homedir(), ".nvm", "versions", "node");
+  if (fs.existsSync(nvmNodes)) {
+    const versions = [];
+    for (const nodeVersion of fs.readdirSync(nvmNodes)) {
+      const packagePath = path.join(
+        nvmNodes,
+        nodeVersion,
+        "lib",
+        "node_modules",
+        "@earendil-works",
+        "pi-coding-agent",
+        "package.json",
+      );
+      try {
+        const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+        if (typeof packageJson.version === "string") versions.push(packageJson.version);
+      } catch {}
+    }
+    if (versions.length > 0) {
+      return versions.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0];
+    }
+  }
+  const commands = process.platform === "win32"
+    ? [["pi", ["--version"]]]
+    : [["/bin/bash", ["-lic", "pi --version"]], ["pi", ["--version"]]];
+  for (const [command, args] of commands) {
+    try {
+      const output = execFileSync(command, args, {
+        encoding: "utf8",
+        timeout: 8000,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      const match = output.match(/\d+\.\d+\.\d+/);
+      if (match) return match[0];
+    } catch {}
+  }
+  return "unknown";
+}
+
+const PI_VERSION = detectPiVersion();
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -113,6 +162,14 @@ function publicState() {
       defaultProvider: settings.defaultProvider || "",
       defaultModel: settings.defaultModel || "",
       defaultThinkingLevel: settings.defaultThinkingLevel || "medium",
+      hideThinkingBlock: Boolean(settings.hideThinkingBlock),
+      transport: ALLOWED_TRANSPORTS.has(settings.transport) ? settings.transport : "auto",
+    },
+    compatibility: {
+      appVersion: APP_VERSION,
+      piVersion: PI_VERSION,
+      supportedApis: [...ALLOWED_APIS],
+      configMode: "preserve-unknown-fields",
     },
   };
 }
@@ -176,6 +233,26 @@ function cleanCompat(api, compat) {
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
+function mergeExistingModel(existing, normalized, submitted, providerApi) {
+  const merged = { ...(isObject(existing) ? existing : {}), ...normalized };
+  const inheritsProviderApi = !submitted.api || submitted.api === "inherit" || submitted.api === providerApi;
+  if (inheritsProviderApi) delete merged.api;
+  if (!normalized.thinkingLevelMap) delete merged.thinkingLevelMap;
+
+  const existingCompat = isObject(existing?.compat) ? existing.compat : {};
+  if (submitted.forceAdaptiveThinking) {
+    merged.compat = { ...existingCompat, forceAdaptiveThinking: true };
+  } else if (Object.keys(existingCompat).length > 0) {
+    const preservedCompat = { ...existingCompat };
+    delete preservedCompat.forceAdaptiveThinking;
+    if (Object.keys(preservedCompat).length > 0) merged.compat = preservedCompat;
+    else delete merged.compat;
+  } else {
+    delete merged.compat;
+  }
+  return merged;
+}
+
 function saveProvider(payload) {
   if (!isObject(payload)) throw new Error("请求内容无效。");
   const providerId = String(payload.providerId || "").trim().replace(/[\\/]+$/, "");
@@ -197,10 +274,17 @@ function saveProvider(payload) {
   if (models.providers === undefined) models.providers = {};
   if (!isObject(models.providers)) throw new Error("models.json 中的 providers 必须是对象。");
   const existingProvider = isObject(models.providers[providerId]) ? models.providers[providerId] : {};
-  const providerConfig = { ...existingProvider, baseUrl, api, models: normalizedModels };
+  const existingModels = new Map(
+    (Array.isArray(existingProvider.models) ? existingProvider.models : [])
+      .filter((model) => isObject(model) && typeof model.id === "string")
+      .map((model) => [model.id, model]),
+  );
+  const mergedModels = normalizedModels.map((model, index) =>
+    mergeExistingModel(existingModels.get(model.id), model, payload.models[index], api),
+  );
+  const providerConfig = { ...existingProvider, baseUrl, api, models: mergedModels };
   const compat = cleanCompat(api, payload.compat);
-  if (compat) providerConfig.compat = compat;
-  else delete providerConfig.compat;
+  if (compat) providerConfig.compat = { ...(isObject(existingProvider.compat) ? existingProvider.compat : {}), ...compat };
   models.providers[providerId] = providerConfig;
 
   const credential = isObject(payload.credential) ? payload.credential : { mode: "keep" };
@@ -242,6 +326,27 @@ function saveProvider(payload) {
   }
 }
 
+function saveSettings(payload) {
+  if (!isObject(payload)) throw new Error("设置内容无效。");
+  const models = readJson(MODELS_PATH);
+  const settings = readJson(SETTINGS_PATH);
+  const providers = isObject(models.providers) ? models.providers : {};
+  const defaultProvider = String(payload.defaultProvider || "");
+  const defaultModel = String(payload.defaultModel || "");
+  if (!providers[defaultProvider]) throw new Error("默认供应商不存在。");
+  const providerModels = Array.isArray(providers[defaultProvider].models) ? providers[defaultProvider].models : [];
+  if (!providerModels.some((model) => model?.id === defaultModel)) throw new Error("默认模型不属于该供应商。");
+
+  settings.defaultProvider = defaultProvider;
+  settings.defaultModel = defaultModel;
+  settings.defaultThinkingLevel = ALLOWED_THINKING.has(payload.defaultThinkingLevel)
+    ? payload.defaultThinkingLevel
+    : "medium";
+  settings.hideThinkingBlock = Boolean(payload.hideThinkingBlock);
+  settings.transport = ALLOWED_TRANSPORTS.has(payload.transport) ? payload.transport : "auto";
+  writeJsonAtomic(SETTINGS_PATH, settings);
+}
+
 function sendJson(response, status, value) {
   const body = JSON.stringify(value);
   response.writeHead(status, {
@@ -249,6 +354,43 @@ function sendJson(response, status, value) {
     "Content-Length": Buffer.byteLength(body),
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
+  });
+  response.end(body);
+}
+
+function contentType(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  return {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".json": "application/json; charset=utf-8",
+  }[extension] || "application/octet-stream";
+}
+
+function sendStatic(response, requestUrl) {
+  if (!fs.existsSync(path.join(CLIENT_DIR, "index.html"))) {
+    sendJson(response, 503, { error: "UI build not found. Run npm run build." });
+    return;
+  }
+  const url = new URL(requestUrl, "http://127.0.0.1");
+  const pathname = decodeURIComponent(url.pathname);
+  const requested = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
+  let filePath = path.resolve(CLIENT_DIR, requested);
+  if (!filePath.startsWith(`${path.resolve(CLIENT_DIR)}${path.sep}`) && filePath !== path.resolve(CLIENT_DIR, "index.html")) {
+    sendJson(response, 403, { error: "Forbidden" });
+    return;
+  }
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) filePath = path.join(CLIENT_DIR, "index.html");
+  const body = fs.readFileSync(filePath);
+  response.writeHead(200, {
+    "Content-Type": contentType(filePath),
+    "Content-Length": body.length,
+    "Cache-Control": path.basename(filePath) === "index.html" ? "no-store" : "public, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
   });
   response.end(body);
 }
@@ -275,6 +417,15 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, { ok: true, state: publicState() });
       return;
     }
+    if (request.method === "POST" && request.url === "/api/settings") {
+      saveSettings(await readBody(request));
+      sendJson(response, 200, { ok: true, state: publicState() });
+      return;
+    }
+    if (request.method === "GET" && SERVE_UI && !request.url.startsWith("/api/")) {
+      sendStatic(response, request.url);
+      return;
+    }
     sendJson(response, 404, { error: "Not found" });
   } catch (error) {
     sendJson(response, 400, { error: error.message });
@@ -284,4 +435,5 @@ const server = http.createServer(async (request, response) => {
 server.listen(PORT, HOST, () => {
   process.stdout.write(`Pi Provider Manager API listening on http://${HOST}:${PORT}\n`);
   process.stdout.write(`Pi agent directory: ${AGENT_DIR}\n`);
+  if (SERVE_UI) process.stdout.write(`Serving built UI from ${CLIENT_DIR}\n`);
 });

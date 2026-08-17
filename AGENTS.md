@@ -17,3 +17,8 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - The normal user should be able to finish setup without knowing context limits, cache settings, strict tools, or adaptive-thinking terminology.
 - Treat a provider as an API gateway/router similar to OpenRouter: one Base URL and credential can contain many upstream model families.
 - Keep a default wire protocol at provider level, while allowing an advanced per-model protocol override for gateways that expose mixed APIs.
+- Settings must be a real screen, not a placeholder. It owns Pi defaults, thinking level, transport, thinking-block visibility, and compatibility status.
+- After saving, show a dedicated success/next-step screen with the exact Pi model command and `/model` guidance; do not leave the user at the bottom of the edit form.
+- Treat Pi as provider-scoped configuration plus model-centric runtime selection. Preserve unknown provider/model/settings fields to reduce breakage across Pi upgrades.
+- Optimize long model catalogs with a sticky header, internal scrolling, compact rows, and bulk model-ID import.
+- Public screenshots and documentation must not expose machine-specific home paths or credentials.

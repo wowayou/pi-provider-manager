@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+project_dir="${PI_PROVIDER_MANAGER_PROJECT_DIR:-$HOME/pi-provider-manager-ui}"
+url="http://127.0.0.1:4173/"
+log_file="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-provider-manager-ui.log"
+
+if [[ ! -f "$project_dir/package.json" ]]; then
+  echo "Pi Provider Manager project not found: $project_dir" >&2
+  exit 1
+fi
+
+if [[ ! -f "$project_dir/dist/client/index.html" ]]; then
+  echo "Built UI not found. Run 'npm ci && npm run build' in: $project_dir" >&2
+  exit 1
+fi
+
+if ! curl --silent --fail --max-time 1 "$url" >/dev/null 2>&1; then
+  if [[ -n "${WSL_DISTRO_NAME:-}" ]] && command -v powershell.exe >/dev/null 2>&1; then
+    escaped_project_dir=${project_dir//\'/\'\'}
+    powershell.exe -NoProfile -Command \
+      "\$arguments = @('-d', '${WSL_DISTRO_NAME}', '--', 'env', 'PI_PROVIDER_MANAGER_API_PORT=4173', 'PI_PROVIDER_MANAGER_SERVE_UI=1', 'node', '${escaped_project_dir}/server.mjs'); Start-Process -FilePath 'wsl.exe' -ArgumentList \$arguments -WindowStyle Hidden" \
+      >/dev/null 2>&1
+  else
+    nohup env PI_PROVIDER_MANAGER_API_PORT=4173 PI_PROVIDER_MANAGER_SERVE_UI=1 \
+      node "$project_dir/server.mjs" \
+      >"$log_file" 2>&1 </dev/null &
+  fi
+
+  ready=0
+  for _ in $(seq 1 40); do
+    if curl --silent --fail --max-time 1 "$url" >/dev/null 2>&1; then
+      ready=1
+      break
+    fi
+    sleep 0.25
+  done
+
+  if [[ "$ready" -ne 1 ]]; then
+    echo "Pi Provider Manager failed to start." >&2
+    echo "Run manually: PI_PROVIDER_MANAGER_API_PORT=4173 PI_PROVIDER_MANAGER_SERVE_UI=1 node '$project_dir/server.mjs'" >&2
+    exit 1
+  fi
+fi
+
+if command -v wslview >/dev/null 2>&1; then
+  wslview "$url" >/dev/null 2>&1
+elif command -v powershell.exe >/dev/null 2>&1; then
+  powershell.exe -NoProfile -Command "Start-Process '$url'" >/dev/null 2>&1
+else
+  echo "Pi Provider Manager is ready: $url"
+fi
