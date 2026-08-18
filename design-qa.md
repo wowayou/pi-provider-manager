@@ -6,6 +6,7 @@
 - Settings screenshot: `qa/pi-provider-manager-v11-settings.png`
 - Success/next-step screenshot: `qa/pi-provider-manager-v11-success.png`
 - Responsive evidence: `qa/pi-provider-manager-v11-responsive-900.png`
+- Dark theme evidence: `qa/pi-provider-manager-v11-models-dark.png`, `-settings-dark.png`, `-success-dark.png`, `-responsive-900-dark.png`
 - Primary viewport: `1487 x 1058 CSS px`, device scale factor `1`
 - State: demo mode with generic paths and fake credentials only
 
@@ -82,5 +83,106 @@
 
 - Add licensed provider marks when available.
 - Add CSV/CC-Switch import only after a redacted fixture defines the source schema.
+
+## Interaction and UI Detail Pass
+
+Scope: interaction and visual detail only. Product structure, flows, backend contracts, and copy semantics are unchanged.
+
+**Design direction**
+
+- Signature: the machine face. Provider IDs, base URLs, model IDs, token counts, config paths, versions, and the `pi --model` command are now set in the monospace `--mono` stack; prose stays in Inter. The tool configures a CLI agent, so the values a user copies into a config file are typeset like a config file.
+- Tokens: added an ink ramp (`--ink`, `--ink-2`, `--ink-3`), `--line-strong`, `--orange-tint`, and motion tokens (`--fast` 110ms, `--base` 180ms, `--ease`). The orange brand values are unchanged.
+
+**Interaction fixes**
+
+- Focus: a single `:focus-visible` ring across every interactive element. Previously only text inputs had any focus styling, so keyboard users had no visible position.
+- Protocol picker: real `radiogroup` semantics with `aria-checked`, roving `tabIndex`, and arrow-key selection.
+- Dead affordances: the two blue link-styled `<span>` elements now do something. Step 1 opens a hint panel that maps documented endpoint suffixes to protocols; step 3 applies safe defaults to every model row.
+- Toast: single shared timer (overlapping toasts previously cut each other short), `role="status"`, a manual dismiss control, and a distinct error tone.
+- Copy: reports success only when `navigator.clipboard.writeText` resolves. On rejection it selects the command text and says so instead of claiming a copy that did not happen.
+- Bulk import: Escape and backdrop close, Cmd/Ctrl+Enter submits, a live count that separates new IDs from ones already in the list, and a disabled action when nothing new would be imported.
+- Delete: arms on first click, deletes on the second, and disarms on blur or after 3.2s.
+- Token fields: accept `200k` / `1.05m`, select-all on focus, commit on Enter, and expose the exact token count on hover.
+- Settings: tracks dirty state, disables the save action when nothing changed, and reports which state it is in.
+- Errors use `role="alert"`; the view scrolls to top on step and view changes.
+
+**Density and layout**
+
+- Model rows dropped from 112px to 66px by removing the duplicated per-field "safe value" links (both wrote both fields) in favour of one header action, and by moving the protocol-override note under the model ID it describes. Roughly six rows are now visible in the catalog instead of three.
+- Sticky table header gains a scroll shadow; a scroll hint appears at widths where the table scrolls horizontally.
+- Sidebar: provider count, a filter field past six providers, and empty states for both "no providers" and "no matches".
+- Loading is a skeleton rather than a line of text; saving actions show an inline spinner.
+
+**Responsive**
+
+- The provider list is no longer hidden below 860px; it becomes a horizontally scrollable rail, so provider switching stays reachable on phones.
+- Action buttons no longer wrap mid-word at 900px; the stepper connector is hidden below 1080px where it degenerated into a dash.
+- No page-level horizontal overflow at 1487px, 900px, or 420px.
+
+**Verification**
+
+- Playwright pass at 1487x1058, 900x1000, and 420x900: no console errors, no page errors, no page-level horizontal overflow.
+- Clipboard round-trip asserted against the real clipboard: `pi --model qa-router/gpt-5.6-sol:high`.
+- `npm run build`, `npm run test:server`, and `npm run test:sites` pass.
+- Screenshots in `qa/` regenerated from demo mode with generic paths and fake credentials.
+
+## Dark Theme
+
+Scope: a second set of token values. No layout, spacing, type, structure, or copy changed.
+
+**Method**
+
+- Every literal colour in `styles.css` was first lifted into a semantic token on `:root` (surfaces, derived ink, brand accents, status surfaces, overlays, shadows). Only `#fff` remains inline, as the label on a solid danger button, which is correct in both themes.
+- Dark redefines those tokens under `:root[data-theme="dark"]`. Orange fills keep the brand value `#f36a21`; `--orange-dark`, which serves both as button-hover fill and as orange text, lightens to `#ff8542` so it stays legible on dark panels.
+- The neutral ramp stays warm rather than switching to a cold slate, so the dark theme reads as the same product.
+- Overlays step one surface lighter than panels in dark via `--surface-overlay`, following normal dark elevation.
+
+**Theme control**
+
+- Three states: system (default), light, dark, exposed as a segmented radiogroup in the sidebar footer and persisted under the `ppm-theme` localStorage key. Choosing system clears the key.
+- A pre-paint inline script in `index.html` resolves the theme onto `document.documentElement.dataset.theme` before first paint, so there is no wrong-theme flash and the CSS needs only one dark block.
+- `color-scheme` is set per theme so native selects, scrollbars, and the search field's clear control follow.
+
+**Verification**
+
+- Light baseline regression: pixel diff of the 1487x1058 model editor against the pre-dark screenshot is 3,928 differing pixels, all inside x 33-303, y 866-1030, which is the sidebar footer where the new theme control sits. No drift anywhere else in the light theme.
+- Theme state machine asserted end to end: system resolves from the OS, choosing dark stores `dark` and survives reload, returning to system clears the key and re-resolves.
+- Dark pass over the model editor, settings, protocol step with hint panel, bulk modal, validation error, and the success screen including a real clipboard round trip: no console errors, no page errors.
+- No page-level horizontal overflow in dark at 1487px, 900px, or 420px.
+- `npm run build`, `npm run test:server`, and `npm run test:sites` pass.
+- Evidence: `qa/*-dark.png` alongside the existing light screenshots.
+
+## Custom Form Controls and Review Pass
+
+**Controls**
+
+- Radios and checkboxes now use `appearance: none` on the native input and are drawn from the same tokens as the rest of the UI, closing the dark-mode gap where unchecked controls read heavier than checked ones. The native input is kept, so keyboard interaction, radio grouping, and form semantics are unchanged; arrow-key movement within the model table's default-model group was asserted in both themes.
+- One implementation note: the radio's inner dot was first sized in percentages, which collapsed to nothing because a pseudo-element in a `display: grid` box resolves percentage sizing against an indefinite track. Fixed sizes in px.
+
+**Findings fixed in review**
+
+- Correctness: the bulk "safe defaults" action counted changed rows inside the `setForm` updater and read that count immediately afterwards. React only computed it in time because of its eager-state shortcut; with any pending update on the same state the count stayed zero. Reproduced by dispatching a model-ID edit and the action in one tick: the values changed from 200K to 128K while the toast claimed nothing had changed. The count is now derived from the rendered value before the update is dispatched, which also removes a side effect from a function React may run twice under StrictMode.
+- Consistency: the toast state is a nullable object but was being cleared with `""` in two places.
+- Duplication: `SettingsScreen` carried three copies of the saved-settings shape across a `useState` initializer, a sync effect, and the dirty check. Collapsed to one `saved` memo that feeds all three.
+- Accessibility: the theme switch declared `role="radiogroup"` without the roving tabindex and arrow-key movement that role implies. Both radiogroups now share one `createRadioKeyHandler` helper.
+- Dead code: an unused `panelRef` in the bulk modal and an unused `UploadSimple` import; the import list was re-sorted.
+
+**Findings from the review agent, all fixed**
+
+1. The bulk safe-defaults action was styled as a `.help-link`, visually identical to the purely informational disclosure on step 1, but it overwrote every model's context window and max output with 128K/16K. Combined with the removal of the per-row helpers, a user with eight accurately entered models could flatten all of them in one click with no undo. Now: it is a plain secondary button grouped with the other model actions, it reports how many rows it changed, and the toast carries an 撤销 action that restores exactly the two numeric fields it touched. The per-row correction is back as well, revealed on row hover or keyboard focus so rows stay compact.
+2. `TokenField` accepted characters its parser rejected, so `128kk` or `1.2.3` reverted silently on blur, and a bare `128.5` parsed successfully into a 129-token context window. The parser now only accepts a plain integer or a decimal carrying a k/m unit, invalid drafts are marked with `aria-invalid` and a red border while typing, and a ceiling of 100M rejects typos like `900m` that previously produced multi-trillion-token values.
+3. `dirty` compared the draft against client-side fallbacks rather than against settings.json. When the file omitted keys the screen owns, the footer claimed everything was written and the disabled Save button made those defaults impossible to persist. Missing keys now count as unwritten, and the footer says how many are outstanding.
+4. `.list-empty` collapsed to a one-character-wide column inside the new mobile provider rail, because it inherited flex-item shrinking. Given `flex: 1 1 100%` in that breakpoint.
+5. The sidebar filter kept its query across provider creation, so a stale filter could hide the gateway the user had just saved. The query clears when 添加供应商 is pressed.
+6. The clipboard fallback called `removeAllRanges()` on a possibly-null `getSelection()`, which would throw on exactly the path that exists to handle failure. Guarded.
+7. Two-click delete confirmation could be satisfied by a double-click on the trash icon. The confirming click is now ignored within 400ms of arming.
+
+**Verification**
+
+- Each finding re-tested against the behaviour it described: undo restores 200K after the bulk action writes 128K; the per-row button appears on focus; the parser matrix accepts `200000`/`200k`/`1.05m` and rejects `128.5`/`128kk`/`900m`/`0` while leaving the previous value intact; a double-click leaves the row count unchanged while a deliberate second click deletes; the filter query clears on add; the empty state renders 768px wide at an 800px viewport.
+- The reproduced counter bug re-tested after the fix: the pending-update case now reports the correct count, and the genuine no-op case still reports no change.
+- Settings dirty gate across its lifecycle in both themes. It now starts enabled against the demo state, which lacks `transport` and `hideThinkingBlock`, and disables once those are written. That is the point of finding 3.
+- Full wizard to success with a real clipboard round trip in both themes, no console or page errors, no horizontal overflow at 420px.
+- `npm run build`, `npm run test:server`, and `npm run test:sites` pass.
 
 final result: passed

@@ -22,3 +22,22 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - Treat Pi as provider-scoped configuration plus model-centric runtime selection. Preserve unknown provider/model/settings fields to reduce breakage across Pi upgrades.
 - Optimize long model catalogs with a sticky header, internal scrolling, compact rows, and bulk model-ID import.
 - Public screenshots and documentation must not expose machine-specific home paths or credentials.
+
+## Interaction and UI Conventions
+
+- Typeset every machine literal in the monospace `--mono` face: provider IDs, base URLs, model IDs, token counts, thinking levels, config paths, versions, and the `pi --model` command. Prose stays in Inter. This is the product's visual signature, so do not mix the two roles.
+- Use one focus treatment app-wide: a 2px `--orange` `:focus-visible` outline with 2px offset, and the `--ring` box-shadow on text fields. Never remove focus styling from an interactive element.
+- All motion uses the `--fast` / `--base` / `--ease` tokens and must degrade under `prefers-reduced-motion`; only progress indicators keep animating there.
+- Feedback must be truthful: a control may only show a success state after the underlying action actually succeeded. Clipboard writes can fail, so the copy control falls back to selecting the command and reports the failure in the error toast tone.
+- Destructive row actions arm on first click and delete on the second; they never delete on a single click and never open a dialog.
+- Keep repeated per-row helpers out of the model table. Bulk affordances belong in the section header so rows stay compact and long catalogs stay scannable.
+- Do not hide primary navigation at narrow widths. The provider list becomes a horizontally scrollable rail below 860px rather than disappearing.
+- Every colour lives in a token on `:root`. Do not write a literal hex value in a rule; add or reuse a semantic token instead, otherwise dark mode silently breaks.
+- Dark is the same design at a second set of token values, never a second design. Layout, spacing, type, and structure are identical; only the palette differs. Orange fills keep their brand value, while orange used as text lightens to `--orange-dark` so it stays legible on dark panels.
+- Theme has three states: `system` (default), `light`, and `dark`. The resolved value is written to `document.documentElement.dataset.theme` by a pre-paint inline script in `index.html`, so the CSS only needs a `[data-theme="dark"]` block and the app never flashes the wrong theme. Keep that script in sync with the `ppm-theme` localStorage key.
+- Set `color-scheme` per theme so native selects, scrollbars, and search fields follow. Overlays step one surface lighter in dark via `--surface-overlay`.
+- Radios and checkboxes are drawn from our own tokens with `appearance: none` on the native input, so the two themes match. Keep the native input: it carries keyboard support, radio grouping, and form semantics that a `div` would have to reimplement.
+- Never count or accumulate inside a `setState` updater. React may run it late, twice under StrictMode, or skip its eager path entirely, so anything read afterwards is unreliable. Derive counts from the currently rendered value before dispatching the update.
+- Blue link styling means an informational disclosure and nothing else. Anything that writes to the form is a button, and anything that overwrites values the user may have typed carries an undo action in its toast.
+- A field must not accept keystrokes its parser will reject. Mark invalid drafts with `aria-invalid` while typing rather than reverting silently on blur, and bound numeric input on both ends so a typo cannot become a plausible-looking value.
+- Treat a key that is absent from the config file as unwritten, not as saved. Filling a default in the UI and then reporting it as already persisted leaves the user unable to write it.
