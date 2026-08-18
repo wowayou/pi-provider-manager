@@ -82,6 +82,8 @@ The Pi release this manager is validated against is recorded once, as `piValidat
 
 Pi evolves independently, so every release runs the compatibility checklist in [docs/compatibility.md](docs/compatibility.md) and states the validated Pi version in its release notes.
 
+A separate daily repository workflow compares that baseline with Pi's latest stable GitHub Release and opens or refreshes a maintenance issue when review is needed. It is not part of the app: startup and builds do not contact upstream, no Pi package is added as a dependency, and the baseline never advances without manual compatibility validation.
+
 The manager intentionally preserves unknown fields, but a release may still be required when Pi changes:
 
 - config filenames or root structure
@@ -89,6 +91,10 @@ The manager intentionally preserves unknown fields, but a release may still be r
 - auth entry format
 - model capability fields or thinking-level semantics
 - settings names or allowed values
+
+## Project guide
+
+See [docs/architecture.md](docs/architecture.md) for the runtime shapes, component responsibilities, configuration ownership, security invariants, compatibility boundary, and change-specific verification matrix. Maintainers should also read [docs/compatibility.md](docs/compatibility.md) before changing Pi-facing schemas or processing an update reminder.
 
 ## Development
 
@@ -98,9 +104,12 @@ npm run dev -- --host 127.0.0.1 --port 4173 --strictPort
 npm run build
 npm run test:server
 npm run test:sites
+npm run test:pi-update
 ```
 
 Use `/?demo=1` for a non-writing visual and interaction demo.
+
+`npm run check:pi-update` performs an optional live, read-only comparison against Pi's latest stable GitHub Release.
 
 ## Open-source status
 
@@ -108,8 +117,8 @@ Released under the [MIT License](LICENSE). See [OPEN_SOURCE_CHECKLIST.md](OPEN_S
 
 ## Roadmap
 
-- V1.1: visual provider/model management, real settings, save handoff, compatibility-preserving writes
-- V2: CSV import and CC-Switch import after a redacted sample format is available
+- Completed V1.1: visual provider/model management, real settings, save handoff, compatibility-preserving writes
+- Planned V2: CSV import and CC-Switch import after a redacted sample format is available
 - Future: optional model-catalog discovery and provider connectivity checks with explicit user consent
 
 See `design-qa.md` and `qa/` for visual comparisons, interaction evidence, and QA history.

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Added a daily, maintenance-only Pi release monitor that opens or refreshes one owner-assigned compatibility issue without adding a Pi runtime dependency or advancing the validated baseline.
+- Added an architecture and ownership guide, expanded the Pi compatibility runbook, and linked both from the contributor and user documentation.
+- Demo mode now reads the manager and validated Pi versions from `package.json` at build time instead of carrying copies that can drift.
+
 ## 0.1.7 - 2026-08-18
 
 - Settings now shows the Pi release this manager was validated against, beside the Pi version detected on your machine, and says so plainly when the two differ. Previously the validated version only existed in documentation.
