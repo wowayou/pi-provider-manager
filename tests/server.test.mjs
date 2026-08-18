@@ -29,6 +29,24 @@ function rawStatus({ port, method, requestPath, headers, body }) {
   });
 }
 
+// server.mjs resolves PI_PROVIDER_MANAGER_PORT before PI_PROVIDER_MANAGER_API_PORT,
+// so a developer who exported the former, as the README suggests, would make the
+// child ignore the port the test just picked. AGENT_DIR_SOURCE would likewise
+// break the configDirSource assertion.
+const INHERITED_OVERRIDES = [
+  "PI_PROVIDER_MANAGER_PORT",
+  "PI_PROVIDER_MANAGER_API_PORT",
+  "PI_PROVIDER_MANAGER_SERVE_UI",
+  "PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE",
+  "PI_CODING_AGENT_DIR",
+];
+
+function serverEnv(overrides) {
+  const env = { ...process.env };
+  for (const key of INHERITED_OVERRIDES) delete env[key];
+  return { ...env, ...overrides };
+}
+
 function freePort() {
   return new Promise((resolve, reject) => {
     const probe = net.createServer();
@@ -42,12 +60,18 @@ function freePort() {
 }
 
 async function waitForServer(url) {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  // detectPiVersion() runs before listen() and, with no nvm-installed pi, falls
+  // back to `bash -lic "pi --version"` with an 8s timeout. A budget shorter than
+  // that fails on any machine with a heavy shell profile.
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, { cache: "no-store" });
       if (response.ok) return;
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    } catch {
+      // not listening yet
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error("Test server did not start.");
 }
@@ -80,12 +104,11 @@ test("writes router-style providers without exposing credentials", async () => {
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
     cwd: projectRoot,
-    env: {
-      ...process.env,
+    env: serverEnv({
       PI_CODING_AGENT_DIR: agentDir,
       PI_PROVIDER_MANAGER_API_PORT: String(port),
       PI_PROVIDER_MANAGER_SERVE_UI: "1",
-    },
+    }),
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -211,7 +234,7 @@ test("rejects cross-origin and rebound requests, and bogus credential sources", 
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
     cwd: projectRoot,
-    env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) },
+    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
     stdio: ["ignore", "pipe", "pipe"],
   });
   const provider = {
@@ -298,12 +321,11 @@ test("reports which settings keys exist and allows the theme bootstrap through C
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
     cwd: projectRoot,
-    env: {
-      ...process.env,
+    env: serverEnv({
       PI_CODING_AGENT_DIR: agentDir,
       PI_PROVIDER_MANAGER_API_PORT: String(port),
       PI_PROVIDER_MANAGER_SERVE_UI: "1",
-    },
+    }),
     stdio: ["ignore", "pipe", "pipe"],
   });
 

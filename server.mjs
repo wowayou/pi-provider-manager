@@ -198,7 +198,15 @@ function publicState() {
 
 function normalizeUrl(value) {
   const normalized = String(value || "").trim().replace(/\/+$/, "");
-  const parsed = new URL(normalized);
+  if (!normalized) throw new Error("请输入 API 地址。");
+  let parsed;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    // new URL throws a bare English TypeError, and "api.example.com/v1" without a
+    // scheme is a very common way to land here.
+    throw new Error("API 地址格式无效，请填写完整地址，例如 https://api.example.com/v1。");
+  }
   if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("API 地址必须使用 http 或 https。");
   if (
     parsed.protocol === "http:" &&
@@ -262,7 +270,9 @@ function mergeExistingModel(existing, normalized, submitted, providerApi) {
   if (!normalized.thinkingLevelMap) delete merged.thinkingLevelMap;
 
   const existingCompat = isObject(existing?.compat) ? existing.compat : {};
-  if (submitted.forceAdaptiveThinking) {
+  // normalizeModel only sets this for reasoning models; the merge has to agree,
+  // otherwise a model saved as 推理能力 = 不支持 still gets the flag written.
+  if (submitted.forceAdaptiveThinking && normalized.reasoning) {
     merged.compat = { ...existingCompat, forceAdaptiveThinking: true };
   } else if (Object.keys(existingCompat).length > 0) {
     const preservedCompat = { ...existingCompat };
@@ -305,8 +315,13 @@ function saveProvider(payload) {
     mergeExistingModel(existingModels.get(model.id), model, payload.models[index], api),
   );
   const providerConfig = { ...existingProvider, baseUrl, api, models: mergedModels };
-  const compat = cleanCompat(api, payload.compat);
-  if (compat) providerConfig.compat = { ...(isObject(existingProvider.compat) ? existingProvider.compat : {}), ...compat };
+  // Switching protocols leaves the previous protocol's flags behind, and
+  // cleanCompat would reject them for the new api, so filter what we keep too.
+  const keptCompat = cleanCompat(api, existingProvider.compat) || {};
+  const submittedCompat = cleanCompat(api, payload.compat) || {};
+  const mergedCompat = { ...keptCompat, ...submittedCompat };
+  if (Object.keys(mergedCompat).length > 0) providerConfig.compat = mergedCompat;
+  else delete providerConfig.compat;
   models.providers[providerId] = providerConfig;
 
   const credential = isObject(payload.credential) ? payload.credential : { mode: "keep" };
