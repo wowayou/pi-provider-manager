@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
@@ -281,6 +282,51 @@ test("rejects cross-origin and rebound requests, and bogus credential sources", 
     assert.equal(legitimate.status, 200);
     const finalAuth = JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"));
     assert.equal(finalAuth.mirror.key, "real-key-not-a-secret");
+  } finally {
+    child.kill();
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+test("reports which settings keys exist and allows the theme bootstrap through CSP", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-state-"));
+  fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({}));
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({ providers: {} }));
+  // Only one of the five keys this screen owns is actually stored.
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultModel: "only-this-one" }));
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+    cwd: projectRoot,
+    env: {
+      ...process.env,
+      PI_CODING_AGENT_DIR: agentDir,
+      PI_PROVIDER_MANAGER_API_PORT: String(port),
+      PI_PROVIDER_MANAGER_SERVE_UI: "1",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+    const state = await (await fetch(`${baseUrl}/api/state`)).json();
+    // Every value is normalized, so presence cannot be inferred from the values.
+    assert.equal(state.settings.transport, "auto");
+    assert.equal(state.settings.defaultThinkingLevel, "medium");
+    assert.deepEqual(state.settingsPresent, ["defaultModel"]);
+
+    // The theme bootstrap must run before first paint, so it is inline and the
+    // policy has to name it by hash rather than block it.
+    const uiResponse = await fetch(`${baseUrl}/`);
+    const policy = uiResponse.headers.get("content-security-policy");
+    const html = await uiResponse.text();
+    const inline = [...html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/gi)];
+    assert.ok(inline.length > 0, "index.html should still carry the inline theme bootstrap");
+    for (const [, source] of inline) {
+      const digest = crypto.createHash("sha256").update(source, "utf8").digest("base64");
+      assert.ok(policy.includes(`'sha256-${digest}'`), "CSP must allow the inline bootstrap by hash");
+    }
+    assert.ok(!policy.includes("unsafe-inline") || !/script-src[^;]*unsafe-inline/.test(policy));
   } finally {
     child.kill();
     fs.rmSync(agentDir, { recursive: true, force: true });
