@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3 - 2026-08-18
+
+- Updated `vite` to 6.4.3, `postcss` to 8.5.26, and `nanoid` to 3.3.18, clearing all six Dependabot advisories. `npm audit` reports no vulnerabilities. All three are build-time only; neither the local server nor the Sites worker imports them.
+- Moved `vite` and `@vitejs/plugin-react` to `devDependencies`, so build tooling is no longer reported as a runtime dependency. Every documented install path uses a plain `npm ci`, which still installs them.
+- Fixed a flaky port in the server test, which derived its port from the process id and collided with concurrent runs or an already-bound port.
+- Read the reported manager version from `package.json` instead of a second hardcoded copy in the server, and report `unknown` rather than a stale literal when compatibility data is unavailable.
+
 ## 0.1.2 - 2026-08-18
 
 - Set every machine literal — provider IDs, base URLs, model IDs, token counts, config paths, versions, and the `pi --model` command — in a monospace face, so values that belong in a config file are typeset like one.
