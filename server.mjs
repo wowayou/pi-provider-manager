@@ -35,7 +35,9 @@ const ALLOWED_APIS = new Set([
 ]);
 const ALLOWED_THINKING = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 const ALLOWED_TRANSPORTS = new Set(["auto", "sse", "websocket"]);
-const APP_VERSION = "0.1.1";
+const APP_VERSION = JSON.parse(
+  fs.readFileSync(path.join(PROJECT_DIR, "package.json"), "utf8"),
+).version;
 
 function detectPiVersion() {
   const nvmNodes = path.join(os.homedir(), ".nvm", "versions", "node");
