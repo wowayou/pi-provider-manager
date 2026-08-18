@@ -61,6 +61,7 @@
 
 - Installed Pi version detected as `0.84.2`.
 - Manager version reported as `0.1.7`.
+- 2026-08-18 production-shape smoke: with `PI_PROVIDER_MANAGER_SERVE_UI=1` and an isolated `PI_CODING_AGENT_DIR`, the manager wrote a fixture provider and Pi `0.84.2` listed `compat-fixture/fixture-model` with the expected context, output, thinking, and image capabilities. The fixture used a non-routable URL and a dummy key; no real credential or home config was touched.
 - Real state shows providers `any-codex` and `sota`, default `sota/claude-opus-5:high`, with no key field in API responses.
 - Single-process production launcher remains available after the launching shell exits.
 - Launcher identity-checks `/api/state`, automatically selects `43127-43146`, and does not reuse unrelated apps or stale Service Worker origins on Vite's common `4173` port.
