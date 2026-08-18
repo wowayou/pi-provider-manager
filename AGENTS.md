@@ -48,13 +48,22 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 Read this section first, then `design-qa.md` for how the UI got to its current
 form and what has already been reviewed.
 
-**Where things are.** `main` is at `v0.1.7`. Releases `v0.1.2` through `v0.1.7`
-are tagged and published. The sequence was: interaction and UI polish plus a
-dark theme, a dependency and test-infrastructure release, a security release,
-two releases closing the findings of a full code review, and one surfacing the
-validated Pi version in the app. Every checklist item required before the first
-public push is now done; two optional ones remain in
-`OPEN_SOURCE_CHECKLIST.md`.
+**Where things are.** The latest published release is `v0.1.7`; releases
+`v0.1.2` through `v0.1.7` are tagged and published. `main` is ahead of that tag
+with the work listed under `CHANGELOG.md`'s `Unreleased` section: structured
+issue forms, the architecture and compatibility documentation, decoupled Pi
+update monitoring, dated real-Pi evidence, and Node 24-based GitHub Actions.
+`package.json.version` intentionally remains `0.1.7` until the next release.
+Every checklist item required before the first public push is done. The source
+of truth for remaining publication work and its prerequisites is
+`OPEN_SOURCE_CHECKLIST.md`; do not copy its item count here.
+
+**Use one project vocabulary and one source for live facts.** The vocabulary and
+documentation ownership table are in `docs/architecture.md`. In particular, a
+provider is an API gateway entry that may contain several upstream model
+families, `models-store.json` is never read or written, GitHub Releases define
+what shipped, and `main` may carry unreleased work. Keep the English and Chinese
+READMEs aligned.
 
 **How to land changes.** `main` is protected and the rules apply to
 administrators, so there is no direct push. Open a branch, open a pull request,
@@ -87,6 +96,12 @@ Settings shows it beside the Pi version detected on the machine, saying plainly
 when the two differ. Release notes quote it. The full procedure after a Pi
 upgrade is in `docs/compatibility.md`.
 
+**Latest real-Pi evidence.** On 2026-08-18, the production-shaped server wrote a
+fake provider into an isolated `PI_CODING_AGENT_DIR`, and Pi `0.84.2` listed its
+model with the expected context, output, thinking, and image capabilities. No
+real endpoint, credential, or normal home config was used. The dated record is
+in `design-qa.md`; the live baseline remains only in `package.json`.
+
 **Pi updates are monitored outside the product runtime.** A daily/manual
 workflow compares `piValidatedVersion` with the latest stable
 `earendil-works/pi` GitHub Release and maintains one owner-assigned compatibility
@@ -101,14 +116,17 @@ are documented in `docs/compatibility.md`.
   `v0.1.4` release notes.
 - The `local-history` branch holds pre-publication history and may exist in an
   older checkout. It must never be pushed; the GitHub remote must not contain it.
+- Remaining Recommended publication tasks and their authorization/sample
+  prerequisites are tracked only in `OPEN_SOURCE_CHECKLIST.md`.
 
 **Quick check that everything is where this section says.**
 
 ```bash
-git -C . log --oneline -1 && node -e "console.log(require('./package.json').version)"
+git -C . log --oneline -1 && node -e "const p=require('./package.json'); console.log({version:p.version, piValidatedVersion:p.piValidatedVersion})"
 npm ci && npm run build && npm run test:server && npm run test:sites && npm run test:pi-update
 npm run check:pi-update
 gh pr list --state open
+gh issue list --state open
 gh api repos/wowayou/pi-provider-manager/branches --jq '.[].name'
 gh api repos/wowayou/pi-provider-manager/security-advisories --jq '.[] | "\(.ghsa_id) \(.cve_id // "pending")"'
 ```

@@ -26,9 +26,17 @@ Pi 在运行时以模型为中心，但配置不是“只有模型”：
 - **保存后有明确闭环**：显示准确的 `pi --model provider/model:thinking` 命令，并指导用户用 `/model` 验证。
 - **适合长模型清单**：表头吸顶、内部滚动、批量粘贴模型 ID，并提示 `-max/-xhigh` 可能只是 thinking level。
 - **真实设置页**：可修改默认 provider/model/thinking、传输方式、thinking 显示，并查看 Pi 版本和兼容状态。
-- **不锁定数据**：Pi 自己的配置文件始终是唯一事实来源，程序不会修改 `models-store.json`。
+- **不锁定数据**：Pi 自己的配置文件始终是唯一事实来源，程序不会读取或写入 `models-store.json`。
 
-## 启动
+## 管理的文件
+
+- `~/.pi/agent/auth.json`
+- `~/.pi/agent/models.json`
+- `~/.pi/agent/settings.json`
+
+`models-store.json` 不在本管理器的职责范围内，程序既不读取也不写入它。
+
+## 在 Linux 或 WSL 本地启动
 
 ```bash
 git clone https://github.com/wowayou/pi-provider-manager.git ~/pi-provider-manager-ui
@@ -39,7 +47,7 @@ install -m 700 bin/pi-provider-manager-ui ~/.pi/agent/bin/pi-provider-manager-ui
 ~/.pi/agent/bin/pi-provider-manager-ui
 ```
 
-启动器会复用已运行的管理器，或在 `43127-43146` 中自动选择空闲端口，再用 Windows 默认浏览器打开。复用前会检查 `/api/state` 身份，不会把同端口的其他应用误认成本项目。
+启动器会复用已运行的管理器，或在 `43127-43146` 中自动选择空闲端口。在 WSL 下会打开 Windows 默认浏览器；其他环境会使用可用的 WSL/PowerShell 浏览器桥接，若都不存在则输出本地 URL。复用前会检查 `/api/state` 身份，不会把同端口的其他应用误认成本项目。
 
 如果仓库不在 `~/pi-provider-manager-ui`，请先把 `PI_PROVIDER_MANAGER_PROJECT_DIR` 设置为仓库绝对路径。
 
@@ -50,7 +58,7 @@ install -m 700 bin/pi-provider-manager-ui ~/.pi/agent/bin/pi-provider-manager-ui
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi 的 auth/models/settings 配置目录 |
 | `PI_PROVIDER_MANAGER_PROJECT_DIR` | 当前匹配仓库，其次 `~/pi-provider-manager-ui` | 项目与构建产物位置 |
 | `PI_PROVIDER_MANAGER_PORT` | 从 `43127-43146` 自动选择 | 严格指定本地服务端口 |
-| `PI_PROVIDER_MANAGER_NODE` | 当前 `node` 可执行文件 | 隐藏 WSL 服务使用的 Node 路径 |
+| `PI_PROVIDER_MANAGER_NODE` | 当前 `node` 可执行文件 | 后台服务使用的 Node 路径 |
 | `PI_PROVIDER_MANAGER_OPEN_BROWSER` | `1` | 设为 `0` 时只启动服务，不自动打开浏览器 |
 | `WSL_DISTRO_NAME` | WSL 自动提供 | Windows 隐藏启动时使用的发行版 |
 
@@ -61,10 +69,13 @@ install -m 700 bin/pi-provider-manager-ui ~/.pi/agent/bin/pi-provider-manager-ui
 ## 安全边界
 
 - 服务只监听 `127.0.0.1`
+- API 请求必须携带白名单内的 loopback `Host`；写请求还必须使用 `application/json`，防止外部网页通过跨域简单请求修改配置
 - 已有 key 不会出现在浏览器响应中
 - 新 key 仅在保存动作中提交
 - 后端测试全部使用临时目录和假 key
 - 禁止在 GitHub Issue 中上传 `auth.json`、真实 key 或私有供应商导出
+
+漏洞披露方式和完整威胁边界见 [SECURITY.md](SECURITY.md)。
 
 ## Pi 兼容性
 
@@ -74,11 +85,34 @@ install -m 700 bin/pi-provider-manager-ui ~/.pi/agent/bin/pi-provider-manager-ui
 
 仓库另有一个每日运行的维护 workflow，只比较该基线与 Pi 最新稳定 GitHub Release；需要复核时，它会创建或更新维护 issue。监测不进入应用运行链：启动和构建不会访问上游，不引入 Pi npm 依赖，也不会自动推进兼容性基线。
 
+程序会保留未知字段，但出现以下变化时仍可能需要发布兼容更新：
+
+- 配置文件名或根结构
+- API 类型标识
+- 认证条目格式
+- 模型能力字段或 thinking level 语义
+- 设置项名称或允许值
+
 ## 项目结构与维护
 
-[docs/architecture.md](docs/architecture.md) 说明本地产品、Vite 开发环境、Sites 静态产物和更新监测之间的边界，以及各组件职责、配置所有权、安全约束和验证矩阵。处理 Pi 更新或修改 Pi 配置 schema 前，先读 [docs/compatibility.md](docs/compatibility.md)。
+[docs/architecture.md](docs/architecture.md) 统一项目术语和事实来源，并说明本地产品、Vite 开发环境、Sites 静态产物和更新监测之间的边界，以及各组件职责、配置所有权、安全约束和验证矩阵。处理 Pi 更新或修改 Pi 配置 schema 前，先读 [docs/compatibility.md](docs/compatibility.md)。
 
 维护者可运行 `npm run check:pi-update` 做一次只读上游比较；监测逻辑的本地测试是 `npm run test:pi-update`。
+
+## 开发
+
+```bash
+npm ci
+npm run dev -- --host 127.0.0.1 --port 4173 --strictPort
+npm run build
+npm run test:server
+npm run test:sites
+npm run test:pi-update
+```
+
+使用 `/?demo=1` 进入不会写配置的视觉和交互 demo。
+
+普通开发命令会启动真实、可写的 API；如果不希望修改日常 Pi 配置，请先把 `PI_CODING_AGENT_DIR` 指向临时目录。只有 demo 模式和 Sites 产物是不可写路径。
 
 ## 开源状态
 
@@ -87,5 +121,7 @@ install -m 700 bin/pi-provider-manager-ui ~/.pi/agent/bin/pi-provider-manager-ui
 ## 路线图
 
 - 已完成 V1.1：可视化 provider/model 管理、真实设置页、保存闭环、保留未知字段
-- 计划 V2：CSV 导入和 CC-Switch 配置导入
+- 计划 V2：取得真实脱敏样本格式后，再实现 CSV 和 CC-Switch 配置导入
 - 后续：经用户明确授权的模型目录发现与连接测试
+
+视觉对照、交互验证和历史 QA 记录见 `design-qa.md` 与 `qa/`。

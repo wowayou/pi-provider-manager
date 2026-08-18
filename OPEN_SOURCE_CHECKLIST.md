@@ -20,9 +20,9 @@
 
 ## Recommended
 
-- [ ] Add release archives for Linux/WSL and Windows launchers.
+- [ ] Add release archives for Linux/WSL and Windows launchers. Publishing packages or binaries requires explicit owner authorization; do not infer it from ordinary maintenance work.
 - [x] Add issue templates for bugs, Pi compatibility reports, and provider schema requests.
-- [ ] Add a redacted CC-Switch/CSV fixture before implementing import.
+- [ ] Add a redacted CC-Switch/CSV fixture before implementing import. Start from a real sample supplied or approved for publication; do not invent a format or sanitize private data without review.
 - [x] Document the supported Pi version in every release. Declared once as `piValidatedVersion` in `package.json`, shown in Settings beside the detected version, and stated in the notes of every published release.
 
 ## Owner-authorized for the first publication
@@ -31,4 +31,4 @@
 - Public repository creation at `wowayou/pi-provider-manager`
 - Initial public push
 
-Publishing packages or binaries remains out of scope until explicitly requested.
+Publishing packages or binaries remains out of scope until explicitly requested. The unchecked archive item above is a recommendation, not standing publication authorization.

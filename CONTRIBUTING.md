@@ -12,6 +12,16 @@ Thanks for helping improve Pi Provider Manager.
 
 Read [docs/architecture.md](docs/architecture.md) before changing component boundaries, the local API, or build/hosting behavior. Read [docs/compatibility.md](docs/compatibility.md) before changing Pi-facing schemas or processing an automated Pi update reminder.
 
+Use the vocabulary in the architecture guide consistently: a provider is one Pi API gateway entry and may contain several upstream model families; a model is selected as `provider/model`; API means the wire-protocol identifier; thinking level is separate from the model ID.
+
+## Documentation consistency
+
+- Update `README.md` and `README.zh-CN.md` together when user-facing behavior, setup, safety, compatibility, or roadmap wording changes.
+- Read manager version and validated Pi version from `package.json`. Do not add another live copy; release notes and dated QA evidence may quote the values they actually tested.
+- Treat Git tags and GitHub Releases as shipped state. Put work merged after the latest release under `CHANGELOG.md`'s `Unreleased` section.
+- Describe `models-store.json` as out of scope: the manager neither reads nor writes it.
+- Keep dated visual and compatibility evidence in `design-qa.md`; do not present historical fixture state as the current state of a user's machine.
+
 ## Development checks
 
 ```bash
@@ -22,9 +32,11 @@ npm run test:sites
 npm run test:pi-update
 ```
 
-For UI changes, also run the local Playwright flow against `/?demo=1` and update `design-qa.md` when the visible product changes materially. Any change touching the served page or API must also be exercised against `PI_PROVIDER_MANAGER_SERVE_UI=1 node server.mjs` with a temporary `PI_CODING_AGENT_DIR`; Vite alone does not cover production CSP or the real API boundary.
+For UI changes, repeat the relevant browser scenarios in `design-qa.md` against `/?demo=1` with Playwright or equivalent browser automation, and update the evidence when the visible product changes materially. The repository does not currently bundle a browser-test command. Any change touching the served page or API must also be exercised against `PI_PROVIDER_MANAGER_SERVE_UI=1 node server.mjs` with a temporary `PI_CODING_AGENT_DIR`; Vite alone does not cover production CSP or the real API boundary.
 
 ## Pull requests
+
+`main` is protected. Land changes through a branch and pull request, wait for the required aggregate `ci-passed` check, and use rebase merge so history remains linear.
 
 Describe:
 
