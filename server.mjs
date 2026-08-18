@@ -35,6 +35,7 @@ const ALLOWED_APIS = new Set([
 ]);
 const ALLOWED_THINKING = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 const ALLOWED_TRANSPORTS = new Set(["auto", "sse", "websocket"]);
+const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 const APP_VERSION = JSON.parse(
   fs.readFileSync(path.join(PROJECT_DIR, "package.json"), "utf8"),
 ).version;
@@ -272,7 +273,7 @@ function mergeExistingModel(existing, normalized, submitted, providerApi) {
 function saveProvider(payload) {
   if (!isObject(payload)) throw new Error("请求内容无效。");
   const providerId = String(payload.providerId || "").trim().replace(/[\\/]+$/, "");
-  if (!/^[a-z0-9][a-z0-9._-]*$/.test(providerId)) {
+  if (!PROVIDER_ID_PATTERN.test(providerId)) {
     throw new Error("供应商 ID 只能使用小写字母、数字、点、下划线和连字符。");
   }
   const api = String(payload.api || "");
@@ -310,7 +311,11 @@ function saveProvider(payload) {
     auth[providerId] = { type: "api_key", key };
   } else if (credential.mode === "migrate") {
     const source = String(credential.fromProvider || "");
-    if (!auth[source]) throw new Error("选择的已有凭据不存在。");
+    // "__proto__", "constructor" and friends resolve through the prototype chain,
+    // so a bare truthiness check accepts them and then overwrites a real key with {}.
+    if (!PROVIDER_ID_PATTERN.test(source) || !Object.hasOwn(auth, source) || !isObject(auth[source])) {
+      throw new Error("选择的已有凭据不存在。");
+    }
     auth[providerId] = auth[source];
     if (credential.move && source !== providerId) delete auth[source];
   } else if (!auth[providerId]) {
@@ -349,7 +354,9 @@ function saveSettings(payload) {
   const providers = isObject(models.providers) ? models.providers : {};
   const defaultProvider = String(payload.defaultProvider || "");
   const defaultModel = String(payload.defaultModel || "");
-  if (!providers[defaultProvider]) throw new Error("默认供应商不存在。");
+  if (!Object.hasOwn(providers, defaultProvider) || !isObject(providers[defaultProvider])) {
+    throw new Error("默认供应商不存在。");
+  }
   const providerModels = Array.isArray(providers[defaultProvider].models) ? providers[defaultProvider].models : [];
   if (!providerModels.some((model) => model?.id === defaultModel)) throw new Error("默认模型不属于该供应商。");
 
@@ -422,8 +429,42 @@ async function readBody(request) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
 }
 
+// This API is reachable by any page the user's browser is pointed at, and it can
+// write credentials, so requests have to prove they came from this app's origin.
+const ALLOWED_HOSTS = new Set([
+  `127.0.0.1:${PORT}`,
+  `localhost:${PORT}`,
+  `[::1]:${PORT}`,
+]);
+
+// Defeats DNS rebinding: an attacker who points their own name at 127.0.0.1
+// becomes same-origin, so CORS never applies, but the Host header still carries
+// their name.
+function hostAllowed(request) {
+  const host = request.headers.host;
+  return typeof host === "string" && ALLOWED_HOSTS.has(host.toLowerCase());
+}
+
+// A cross-origin POST only escapes CORS preflight while it stays a "simple
+// request", and application/json is not one. Requiring it forces any
+// cross-origin attempt to preflight, and we answer no preflight.
+function jsonContentType(request) {
+  const value = request.headers["content-type"];
+  return typeof value === "string"
+    && value.split(";")[0].trim().toLowerCase() === "application/json";
+}
+
 const server = http.createServer(async (request, response) => {
   try {
+    const isApi = typeof request.url === "string" && request.url.startsWith("/api/");
+    if (isApi && !hostAllowed(request)) {
+      sendJson(response, 403, { error: "Forbidden host." });
+      return;
+    }
+    if (isApi && request.method === "POST" && !jsonContentType(request)) {
+      sendJson(response, 415, { error: "Content-Type must be application/json." });
+      return;
+    }
     if (request.method === "GET" && request.url === "/api/state") {
       sendJson(response, 200, publicState());
       return;

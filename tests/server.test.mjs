@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -13,6 +14,20 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 // Deriving the port from the pid collides whenever two runs land on pids that are
 // congruent mod 1000, or when something else already holds that port. Ask the OS
 // for a free one instead.
+// fetch() refuses to set Host, which is a forbidden header name, so rebinding
+// has to be simulated with a raw request.
+function rawStatus({ port, method, requestPath, headers, body }) {
+  return new Promise((resolve, reject) => {
+    const request = http.request({ host: "127.0.0.1", port, method, path: requestPath, headers }, (response) => {
+      response.resume();
+      response.on("end", () => resolve(response.statusCode));
+    });
+    request.on("error", reject);
+    if (body) request.write(body);
+    request.end();
+  });
+}
+
 function freePort() {
   return new Promise((resolve, reject) => {
     const probe = net.createServer();
@@ -181,6 +196,93 @@ test("writes router-style providers without exposing credentials", async () => {
     assert.equal(updatedSettings.futureSetting, "keep-setting");
   } finally {
     child.kill("SIGTERM");
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+
+test("rejects cross-origin and rebound requests, and bogus credential sources", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-security-"));
+  fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({ acme: { type: "api_key", key: "real-key-not-a-secret" } }));
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({ providers: {} }));
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({}));
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+    cwd: projectRoot,
+    env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const provider = {
+    providerId: "attacker",
+    baseUrl: "https://gateway.attacker.example/v1",
+    api: "openai-responses",
+    models: [{ id: "m", name: "m", contextWindow: 128000, maxTokens: 8192 }],
+    setDefault: true,
+    defaultModelId: "m",
+  };
+
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+
+    // A form-style cross-origin POST stays a "simple request" only without
+    // application/json, which is exactly what must not be accepted.
+    const simpleRequest = await fetch(`${baseUrl}/api/providers`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=UTF-8", Origin: "https://evil.example" },
+      body: JSON.stringify({ ...provider, credential: { mode: "migrate", fromProvider: "acme" } }),
+    });
+    assert.equal(simpleRequest.status, 415);
+
+    // DNS rebinding makes the attacker same-origin, so only the Host header is left to catch it.
+    const reboundBody = JSON.stringify({ ...provider, credential: { mode: "migrate", fromProvider: "acme" } });
+    const rebound = await rawStatus({
+      port,
+      method: "POST",
+      requestPath: "/api/providers",
+      headers: { Host: "evil.example", "Content-Type": "application/json", "Content-Length": Buffer.byteLength(reboundBody) },
+      body: reboundBody,
+    });
+    assert.equal(rebound, 403);
+    assert.equal(await rawStatus({ port, method: "GET", requestPath: "/api/state", headers: { Host: "evil.example" } }), 403);
+    // The allowlisted names must still work.
+    assert.equal(await rawStatus({ port, method: "GET", requestPath: "/api/state", headers: { Host: `localhost:${port}` } }), 200);
+
+    // Neither attempt may have touched the stored credential.
+    const auth = JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"));
+    assert.deepEqual(Object.keys(auth), ["acme"]);
+    assert.equal(auth.acme.key, "real-key-not-a-secret");
+
+    // A prototype-chain name must not pass as a migration source and blank the real key.
+    for (const fromProvider of ["__proto__", "constructor", "toString"]) {
+      const response = await fetch(`${baseUrl}/api/providers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...provider, providerId: "acme", credential: { mode: "migrate", fromProvider } }),
+      });
+      assert.equal(response.status, 400, `${fromProvider} must be rejected`);
+    }
+    const afterProto = JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"));
+    assert.equal(afterProto.acme.key, "real-key-not-a-secret");
+
+    const settingsProto = await fetch(`${baseUrl}/api/settings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ defaultProvider: "__proto__", defaultModel: "m" }),
+    });
+    assert.equal(settingsProto.status, 400);
+
+    // The app's own requests still work.
+    const legitimate = await fetch(`${baseUrl}/api/providers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...provider, providerId: "mirror", credential: { mode: "migrate", fromProvider: "acme", move: false } }),
+    });
+    assert.equal(legitimate.status, 200);
+    const finalAuth = JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"));
+    assert.equal(finalAuth.mirror.key, "real-key-not-a-secret");
+  } finally {
+    child.kill();
     fs.rmSync(agentDir, { recursive: true, force: true });
   }
 });
