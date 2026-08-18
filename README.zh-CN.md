@@ -68,9 +68,9 @@ install -m 700 bin/pi-provider-manager-ui ~/.pi/agent/bin/pi-provider-manager-ui
 
 ## Pi 兼容性
 
-当前本地验证版本：Pi `0.84.2`。
+本管理器验证过的 Pi 版本只记录在一处 —— `package.json` 的 `piValidatedVersion`，并在设置页与实际检测到的 Pi 版本并列显示；两者不一致时设置页会直接说明。
 
-未知字段会被保留，但 Pi 如果修改配置结构、API 类型、认证格式、模型能力字段或设置名称，本项目仍需要发布对应兼容更新。详见 [docs/compatibility.md](docs/compatibility.md)。
+未知字段会被保留，但 Pi 如果修改配置结构、API 类型、认证格式、模型能力字段或设置名称，本项目仍需要发布对应兼容更新。每个版本都会跑 [docs/compatibility.md](docs/compatibility.md) 里的兼容性清单，并在 release notes 中写明验证过的 Pi 版本。
 
 ## 开源前
 

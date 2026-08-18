@@ -77,6 +77,12 @@ and is invisible on inspection; it showed up only once a real cross-origin
 request was actually sent. The same applies to header handling: `fetch()`
 silently refuses to set `Host`, so rebinding checks need a raw `http.request`.
 
+**Every release states the Pi version it was validated against.** The number
+lives once, as `piValidatedVersion` in `package.json`; the server reads it and
+Settings shows it beside the Pi version detected on the machine, saying plainly
+when the two differ. Release notes quote it. The full procedure after a Pi
+upgrade is in `docs/compatibility.md`.
+
 **Open items.**
 
 - CVE identifiers were requested for both advisories and accepted with HTTP 202,

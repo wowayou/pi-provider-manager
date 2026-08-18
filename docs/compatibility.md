@@ -2,7 +2,7 @@
 
 ## Supported baseline
 
-- Latest locally validated Pi version: `0.84.2`
+- Latest locally validated Pi version: `piValidatedVersion` in `package.json`, currently `0.84.2`. That field is the only copy; the server reads it and reports it as `compatibility.validatedPiVersion`, and Settings shows it beside the Pi version detected on the machine. Do not restate the number anywhere else.
 - Managed files: `auth.json`, `models.json`, `settings.json`
 - Read-only Pi file: `models-store.json`
 
@@ -42,7 +42,8 @@ Forward preservation cannot solve semantic or structural changes. A manager rele
 4. Run `npm run build` and `npm run test:sites`.
 5. Run the Playwright flow against `/?demo=1`.
 6. In a temporary `PI_CODING_AGENT_DIR`, add a provider and verify it appears in Pi's `/model` selector.
-7. Update the validated Pi version in the README and compatibility screen.
+7. Update `piValidatedVersion` in `package.json`, and refresh the number quoted in the baseline above. The field is what the code reads; the baseline line is prose quoting it.
+8. State the validated Pi version in the release notes. Every release says which Pi it was checked against, so a user on a newer Pi can tell how far ahead they are.
 
 ## Versioning proposal
 

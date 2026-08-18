@@ -219,7 +219,7 @@ function blankForm() {
 
 const DEMO_STATE = {
   agentDir: "~/.pi/agent",
-  compatibility: { appVersion: "0.1.6", piVersion: "0.84.2", configMode: "preserve-unknown-fields", configDirSource: "default-home", nodeVersion: "v22.0.0", serviceHost: "127.0.0.1", servicePort: 43127 },
+  compatibility: { appVersion: "0.1.6", piVersion: "0.84.2", validatedPiVersion: "0.84.2", configMode: "preserve-unknown-fields", configDirSource: "default-home", nodeVersion: "v22.0.0", serviceHost: "127.0.0.1", servicePort: 43127 },
   authProviders: ["any-claude", "openai", "deepseek", "moonshot", "qwen", "gemini", "minimax"],
   settings: { defaultProvider: "any-claude", defaultModel: "claude-3-5-sonnet", defaultThinkingLevel: "high" },
   providers: [
@@ -804,6 +804,10 @@ function SettingsScreen({ state, saving, error, onSave, onBack }) {
     .filter((key) => !present.has(key));
   const edited = JSON.stringify(saved) !== JSON.stringify(draft);
   const dirty = edited || unwritten.length > 0;
+  const installedPi = state.compatibility?.piVersion;
+  const validatedPi = state.compatibility?.validatedPiVersion;
+  const piVersionDiffers = Boolean(installedPi) && installedPi !== "unknown"
+    && Boolean(validatedPi) && validatedPi !== "unknown" && installedPi !== validatedPi;
   const selectedProvider = state.providers.find((provider) => provider.id === draft.defaultProvider);
   const availableModels = selectedProvider?.models || [];
   // Keep whatever is currently selected in the list, even with no models, so the
@@ -831,7 +835,13 @@ function SettingsScreen({ state, saving, error, onSave, onBack }) {
           <label className="setting-toggle"><input type="checkbox" checked={draft.hideThinkingBlock} onChange={(event) => setDraft((current) => ({ ...current, hideThinkingBlock: event.target.checked }))} /><span><strong>隐藏 thinking 内容块</strong><small>只隐藏显示，不会关闭模型推理。</small></span></label>
         </section>
         <section className="settings-card compatibility-card">
-          <h2>兼容状态</h2><dl><div><dt>Pi 版本</dt><dd className="mono">{state.compatibility?.piVersion || "unknown"}</dd></div><div><dt>管理器版本</dt><dd className="mono">{state.compatibility?.appVersion || "unknown"}</dd></div><div><dt>配置策略</dt><dd>保留未知字段</dd></div><div><dt>配置目录</dt><dd className="mono" title={state.agentDir}>{state.agentDir}</dd></div><div><dt>路径来源</dt><dd>{state.compatibility?.configDirSource === "PI_CODING_AGENT_DIR" ? "PI_CODING_AGENT_DIR" : "自动识别 · 用户主目录"}</dd></div><div><dt>Node</dt><dd className="mono">{state.compatibility?.nodeVersion || "unknown"}</dd></div><div><dt>本地服务</dt><dd className="mono">{state.compatibility?.serviceHost || "127.0.0.1"}:{state.compatibility?.servicePort || 43127}</dd></div></dl>
+          <h2>兼容状态</h2><dl><div><dt>Pi 版本</dt><dd className="mono">{state.compatibility?.piVersion || "unknown"}</dd></div><div><dt>已验证兼容</dt><dd className="mono">Pi {state.compatibility?.validatedPiVersion || "unknown"}</dd></div><div><dt>管理器版本</dt><dd className="mono">{state.compatibility?.appVersion || "unknown"}</dd></div><div><dt>配置策略</dt><dd>保留未知字段</dd></div><div><dt>配置目录</dt><dd className="mono" title={state.agentDir}>{state.agentDir}</dd></div><div><dt>路径来源</dt><dd>{state.compatibility?.configDirSource === "PI_CODING_AGENT_DIR" ? "PI_CODING_AGENT_DIR" : "自动识别 · 用户主目录"}</dd></div><div><dt>Node</dt><dd className="mono">{state.compatibility?.nodeVersion || "unknown"}</dd></div><div><dt>本地服务</dt><dd className="mono">{state.compatibility?.serviceHost || "127.0.0.1"}:{state.compatibility?.servicePort || 43127}</dd></div></dl>
+          {piVersionDiffers && (
+            <p className="compat-note is-warning">
+              <WarningCircle size={20} weight="fill" />
+              你安装的 Pi 是 {state.compatibility.piVersion}，本版本验证过的是 {state.compatibility.validatedPiVersion}。未知字段仍会保留，但若 Pi 改动了配置结构，请对照兼容性说明确认。
+            </p>
+          )}
           <p className="compat-note"><ShieldCheck size={20} weight="duotone" />Pi 更新后若出现新字段，本程序会保留未识别字段；涉及字段改名或 API 类型变化时仍需发布兼容更新。</p>
         </section>
       </div>
