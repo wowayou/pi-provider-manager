@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.6 - 2026-08-18
+
+- Switching a provider's protocol no longer leaves the previous protocol's compatibility flags in `models.json`. Flags that both protocols accept are kept; ones the new protocol rejects are dropped.
+- Models saved with 推理能力 = 不支持 no longer get `forceAdaptiveThinking` written into their compatibility block. The value was validated on the way in but reapplied unconditionally when merging with the stored model.
+- An API address that cannot be parsed now explains the expected form instead of surfacing the runtime's own `Invalid URL` text, and an empty address is reported as empty rather than as a parse failure.
+- The server test no longer inherits environment variables that override its own settings. `PI_PROVIDER_MANAGER_PORT` takes precedence over `PI_PROVIDER_MANAGER_API_PORT`, so a developer with the former exported made the spawned server bind elsewhere while the test polled a dead port.
+- The server test waits long enough for installed-Pi detection, which can spend up to eight seconds in a login shell before the server binds.
+
 ## 0.1.5 - 2026-08-18
 
 - Editing a model ID no longer clears its default selection. The default was tracked by the model ID, which is an editable field, so correcting a typo in the default row silently unticked it and made saving fail with no indication why.
