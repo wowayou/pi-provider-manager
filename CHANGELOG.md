@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.2 - 2026-08-18
+
+- Set every machine literal — provider IDs, base URLs, model IDs, token counts, config paths, versions, and the `pi --model` command — in a monospace face, so values that belong in a config file are typeset like one.
+- Added a dark theme with three states: follow system, light, and dark. The choice persists and is resolved before first paint, so the app never flashes the wrong theme.
+- Lifted every colour into a semantic token, so the two themes are one design at two sets of values.
+- Added a visible keyboard focus ring to every interactive element; previously only text inputs had one.
+- Made the protocol picker and theme switch real radio groups with arrow-key selection.
+- Replaced two link-styled labels that did nothing with a protocol hint panel and a safe-defaults action.
+- Made the copy button report success only when the clipboard write actually succeeds, falling back to selecting the command.
+- Added undo to the bulk safe-defaults action, which overwrites context and output limits the user may have typed.
+- Required a deliberate second click to delete a model, so a double-click cannot remove a row.
+- Accepted `200k` and `1.05m` in token fields, marked invalid input while typing, and bounded values so a typo cannot become a plausible number.
+- Reported settings keys missing from `settings.json` as unwritten instead of saved, which previously left them impossible to persist.
+- Compacted model rows from 112px to 66px, roughly doubling how much of a long catalog is visible.
+- Kept the provider list reachable below 860px as a scrollable rail instead of hiding it.
+- Added Escape, backdrop close, Cmd/Ctrl+Enter, and a duplicate-aware count to bulk model import.
+- Drew radios and checkboxes from the app's own tokens so both themes match.
+- Read the reported manager version from `package.json` instead of a second hardcoded copy.
+
 ## 0.1.1 - 2026-08-17
 
 - Replaced the placeholder Settings action with a real Pi settings and compatibility screen.
