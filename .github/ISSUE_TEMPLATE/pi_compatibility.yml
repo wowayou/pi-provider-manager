@@ -1,0 +1,118 @@
+name: Pi compatibility report
+description: Report behavior that changed with a Pi version or config schema
+title: "[Pi compatibility]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when a Pi release changes config files, supported API identifiers, runtime model selection, or settings behavior. See the [compatibility policy and verification checklist](https://github.com/wowayou/pi-provider-manager/blob/main/docs/compatibility.md).
+
+        Do not include API keys, `auth.json`, private provider exports, or account-specific Base URLs. Report security problems through [private vulnerability reporting](https://github.com/wowayou/pi-provider-manager/security/advisories/new).
+
+  - type: input
+    id: pi-version
+    attributes:
+      label: Affected Pi version
+      description: Paste the exact output of `pi --version`.
+      placeholder: "x.y.z"
+    validations:
+      required: true
+
+  - type: input
+    id: manager-version
+    attributes:
+      label: Pi Provider Manager version
+      description: Use the version shown in Settings or in package.json.
+      placeholder: "x.y.z"
+    validations:
+      required: true
+
+  - type: input
+    id: last-working-version
+    attributes:
+      label: Last known working Pi version
+      description: Leave blank if this is not a regression or the previous working version is unknown.
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - WSL on Windows
+        - Linux
+        - macOS
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surfaces
+    attributes:
+      label: Affected compatibility surface
+      description: Select every area that changed.
+      multiple: true
+      options:
+        - models.json provider or model schema
+        - auth.json credential schema
+        - settings.json keys or values
+        - /model runtime selection or thinking levels
+        - API type identifiers or protocol behavior
+        - Pi version detection
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction and observed behavior
+      description: Explain how the config was created, what the manager wrote or displayed, and what Pi did with it.
+      placeholder: |
+        1. Use a temporary PI_CODING_AGENT_DIR ...
+        2. Add or edit ...
+        3. Open Pi and select ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Describe the Pi behavior or schema the manager should support.
+    validations:
+      required: true
+
+  - type: textarea
+    id: upstream-reference
+    attributes:
+      label: Upstream release notes or documentation
+      description: Link the Pi release, pull request, or documentation that defines the changed behavior, if available.
+      placeholder: "https://github.com/earendil-works/pi/..."
+
+  - type: textarea
+    id: redacted-config
+    attributes:
+      label: Minimal redacted config excerpt
+      description: Include only the fields needed to demonstrate the schema change. Use fake values and omit auth.json entirely.
+      render: json
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: Checks already performed
+      description: Note which relevant steps from docs/compatibility.md you ran and their results.
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I reproduced this with the affected Pi version, rather than inferring it only from source code or documentation.
+          required: true
+        - label: I used a temporary config directory or a backup when reproduction could modify Pi configuration.
+          required: true
+        - label: I removed all credentials, private endpoints, account identifiers, and machine-specific paths from this report.
+          required: true

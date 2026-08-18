@@ -1,0 +1,97 @@
+name: Provider schema request
+description: Request support for a documented provider or gateway schema
+title: "[Provider schema]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Pi Provider Manager treats a provider as an API gateway: one Base URL and credential may expose many model families, with a provider-level default protocol and optional per-model overrides.
+
+        Provide public documentation and sanitized examples. Do not include API keys, `auth.json`, private provider exports, account-specific Base URLs, or screenshots containing credentials.
+
+  - type: input
+    id: provider
+    attributes:
+      label: Provider or gateway
+      description: Use the public product or project name.
+      placeholder: "Example Gateway"
+    validations:
+      required: true
+
+  - type: textarea
+    id: documentation
+    attributes:
+      label: Public schema documentation
+      description: Link the provider API documentation and any relevant Pi documentation or working example.
+      placeholder: |
+        Provider API: https://example.com/docs/api
+        Pi configuration reference: https://github.com/earendil-works/pi/...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: protocols
+    attributes:
+      label: Wire protocols
+      description: Select every protocol the gateway exposes.
+      multiple: true
+      options:
+        - openai-responses
+        - openai-completions
+        - anthropic-messages
+        - google-generative-ai
+        - Other or not yet supported by Pi
+    validations:
+      required: true
+
+  - type: input
+    id: base-url
+    attributes:
+      label: Public or placeholder Base URL
+      description: Use a documented public endpoint or a sanitized placeholder, never a private account-specific URL.
+      placeholder: "https://api.example.com/v1"
+    validations:
+      required: true
+
+  - type: textarea
+    id: schema-gap
+    attributes:
+      label: Schema or behavior gap
+      description: Explain what cannot be represented correctly in the manager today, including provider-level and per-model differences.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Requested manager behavior
+      description: Describe the fields, validation, defaults, or editing behavior needed. Avoid prescribing UI unless it is essential to the schema.
+    validations:
+      required: true
+
+  - type: textarea
+    id: redacted-provider
+    attributes:
+      label: Minimal working provider definition
+      description: If you already configured this directly in Pi, include a minimal redacted models.json provider object. Use fake model IDs where needed and omit auth.json.
+      render: json
+
+  - type: textarea
+    id: catalog-details
+    attributes:
+      label: Model catalog details
+      description: Note whether the gateway has many models, mixed upstream families, per-model protocols, custom headers, or other catalog characteristics.
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing issues for this provider or schema.
+          required: true
+        - label: The linked schema documentation is public and sufficient to verify the request.
+          required: true
+        - label: I removed all credentials, private endpoints, account identifiers, and machine-specific paths from this request.
+          required: true

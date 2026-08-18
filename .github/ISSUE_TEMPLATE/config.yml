@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/wowayou/pi-provider-manager/security/advisories/new
+    about: Privately report credential disclosure, unsafe network exposure, path traversal, cross-origin writes, or config corruption.

@@ -1,0 +1,116 @@
+name: Bug report
+description: Report a reproducible problem in Pi Provider Manager
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem.
+
+        Do not include API keys, `auth.json`, private provider exports, account-specific Base URLs, or screenshots containing credentials. For a security vulnerability, use [private vulnerability reporting](https://github.com/wowayou/pi-provider-manager/security/advisories/new) instead.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - User interface
+        - Local server or API
+        - WSL launcher
+        - Configuration read or write
+        - Build or installation
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: manager-version
+    attributes:
+      label: Pi Provider Manager version
+      description: Use the version shown in Settings or in package.json.
+      placeholder: "x.y.z"
+    validations:
+      required: true
+
+  - type: input
+    id: pi-version
+    attributes:
+      label: Pi version
+      description: Paste the output of `pi --version`, or say `not installed` or `unknown`.
+      placeholder: "x.y.z"
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      description: Paste the output of `node --version`.
+      placeholder: "vXX.YY.ZZ"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - WSL on Windows
+        - Linux
+        - macOS
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Start from a clean launch and include the smallest sequence that consistently triggers the problem.
+      placeholder: |
+        1. Start the manager with ...
+        2. Open ...
+        3. Change ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the exact error text if one appears.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted logs or configuration shape
+      description: Remove credentials, private URLs, account IDs, usernames, and machine-specific home paths. Never attach auth.json.
+      render: shell
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add sanitized screenshots or other details that may help isolate the problem.
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: I removed all credentials, private endpoints, account identifiers, and machine-specific paths from this report.
+          required: true
