@@ -26,7 +26,7 @@ Pi Provider Manager makes that relationship visible instead of forcing users to 
 - **Beginner save handoff** — after saving, the app gives the exact `pi --model provider/model:thinking` command and `/model` verification steps.
 - **Large catalog UX** — sticky model header, internal scrolling, bulk model-ID import, and warnings when `-max`/`-xhigh` may be thinking levels rather than real model IDs.
 - **Real Pi settings** — default provider/model/thinking, transport, thinking-block visibility, installed Pi version, and compatibility status.
-- **No database lock-in** — Pi remains the source of truth; the app edits Pi's own documented files and never modifies `models-store.json`.
+- **No database lock-in** — Pi remains the source of truth; the app edits Pi's own documented files and never reads or writes `models-store.json`.
 
 ## Files managed
 
@@ -34,9 +34,9 @@ Pi Provider Manager makes that relationship visible instead of forcing users to 
 - `~/.pi/agent/models.json`
 - `~/.pi/agent/settings.json`
 
-`models-store.json` is read-only and is never modified.
+`models-store.json` is outside the manager's scope and is never read or written.
 
-## Start in WSL
+## Start locally on Linux or WSL
 
 ```bash
 git clone https://github.com/wowayou/pi-provider-manager.git ~/pi-provider-manager-ui
@@ -47,7 +47,7 @@ install -m 700 bin/pi-provider-manager-ui ~/.pi/agent/bin/pi-provider-manager-ui
 ~/.pi/agent/bin/pi-provider-manager-ui
 ```
 
-The launcher reuses an existing manager instance or selects a free port from `43127-43146`, then opens it in the Windows default browser. It verifies `/api/state` before reuse, so another app on the same port is never mistaken for Pi Provider Manager.
+The launcher reuses an existing manager instance or selects a free port from `43127-43146`. Under WSL it opens the Windows default browser; otherwise it uses an available WSL/PowerShell browser bridge or prints the local URL. It verifies `/api/state` before reuse, so another app on the same port is never mistaken for Pi Provider Manager.
 
 If the repository is cloned elsewhere, set `PI_PROVIDER_MANAGER_PROJECT_DIR` to that absolute path before running the launcher.
 
@@ -58,7 +58,7 @@ If the repository is cloned elsewhere, set `PI_PROVIDER_MANAGER_PROJECT_DIR` to 
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi config directory used for auth, models, and settings |
 | `PI_PROVIDER_MANAGER_PROJECT_DIR` | current matching repo, then `~/pi-provider-manager-ui` | Project/build location |
 | `PI_PROVIDER_MANAGER_PORT` | auto-select from `43127-43146` | Strict local loopback port override |
-| `PI_PROVIDER_MANAGER_NODE` | current `node` executable | Node binary used by the detached WSL process |
+| `PI_PROVIDER_MANAGER_NODE` | current `node` executable | Node binary used by the detached service |
 | `PI_PROVIDER_MANAGER_OPEN_BROWSER` | `1` | Set to `0` to start without opening a browser |
 | `WSL_DISTRO_NAME` | supplied automatically by WSL | Distribution used by the detached Windows launcher |
 
@@ -69,6 +69,7 @@ The dedicated port range also avoids stale Service Workers and cached apps commo
 ## Security boundary
 
 - The API binds to `127.0.0.1` only.
+- API requests require an allowlisted loopback `Host`; writes additionally require `application/json`, so a foreign page cannot use a simple cross-origin request to mutate configuration.
 - Existing API keys are never serialized into browser responses.
 - New keys are accepted only on save and written to `auth.json` with private permissions.
 - Backend tests use temporary directories and fake keys.
@@ -94,7 +95,7 @@ The manager intentionally preserves unknown fields, but a release may still be r
 
 ## Project guide
 
-See [docs/architecture.md](docs/architecture.md) for the runtime shapes, component responsibilities, configuration ownership, security invariants, compatibility boundary, and change-specific verification matrix. Maintainers should also read [docs/compatibility.md](docs/compatibility.md) before changing Pi-facing schemas or processing an update reminder.
+See [docs/architecture.md](docs/architecture.md) for the shared vocabulary, sources of truth, runtime shapes, component responsibilities, configuration ownership, security invariants, compatibility boundary, and change-specific verification matrix. Maintainers should also read [docs/compatibility.md](docs/compatibility.md) before changing Pi-facing schemas or processing an update reminder.
 
 ## Development
 
@@ -108,6 +109,8 @@ npm run test:pi-update
 ```
 
 Use `/?demo=1` for a non-writing visual and interaction demo.
+
+The normal development command starts the real writable API. Set `PI_CODING_AGENT_DIR` to a temporary directory before using it when you do not intend to edit your normal Pi configuration. Demo mode and the Sites artifact are the non-writing paths.
 
 `npm run check:pi-update` performs an optional live, read-only comparison against Pi's latest stable GitHub Release.
 

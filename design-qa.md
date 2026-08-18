@@ -1,5 +1,7 @@
 # Design QA
 
+- Evidence date: `2026-08-18`
+- Evidence scope: historical acceptance and compatibility results, not live repository or machine state
 - Product version: `0.1.7`
 - Source visual truth: `design-reference.png` plus user acceptance screenshots for the settings, long-model-list, and post-save problems
 - Model editor screenshot: `qa/pi-provider-manager-v11-models.png`

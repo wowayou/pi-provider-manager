@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Aligned the English and Chinese project guides, architecture vocabulary, security boundary, Pi compatibility runbook, contribution rules, and handoff around shared sources of truth.
 - Updated the GitHub checkout and Node setup actions to their Node 24-based releases after GitHub deprecated the actions' Node 20 runtime.
 - Added a daily, maintenance-only Pi release monitor that opens or refreshes one owner-assigned compatibility issue without adding a Pi runtime dependency or advancing the validated baseline.
 - Added an architecture and ownership guide, expanded the Pi compatibility runbook, and linked both from the contributor and user documentation.
