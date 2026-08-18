@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -n "${PI_PROVIDER_MANAGER_PROJECT_DIR:-}" ]]; then
+  project_dir="$PI_PROVIDER_MANAGER_PROJECT_DIR"
+elif [[ -f "$PWD/package.json" ]] && grep --quiet '"name"[[:space:]]*:[[:space:]]*"pi-provider-manager-ui"' "$PWD/package.json"; then
+  project_dir="$PWD"
+else
+  project_dir="$HOME/pi-provider-manager-ui"
+fi
+
+if [[ -n "${PI_CODING_AGENT_DIR:-}" ]]; then
+  agent_dir="$PI_CODING_AGENT_DIR"
+  agent_dir_source="PI_CODING_AGENT_DIR"
+else
+  agent_dir="$HOME/.pi/agent"
+  agent_dir_source="default-home"
+fi
+node_bin="${PI_PROVIDER_MANAGER_NODE:-}"
+if [[ -z "$node_bin" ]]; then
+  node_bin="$(command -v node || true)"
+fi
+open_browser="${PI_PROVIDER_MANAGER_OPEN_BROWSER:-1}"
+log_file="$agent_dir/pi-provider-manager-ui.log"
+
+if [[ -z "$node_bin" || ! -x "$node_bin" ]]; then
+  echo "Node.js executable not found. Set PI_PROVIDER_MANAGER_NODE explicitly." >&2
+  exit 1
+fi
+
+if [[ ! -f "$project_dir/package.json" ]]; then
+  echo "Pi Provider Manager project not found: $project_dir" >&2
+  exit 1
+fi
+
+if [[ ! -f "$project_dir/dist/client/index.html" ]]; then
+  echo "Built UI not found. Run 'npm ci && npm run build' in: $project_dir" >&2
+  exit 1
+fi
+
+is_manager_port() {
+  curl --silent --fail --max-time 1 "http://127.0.0.1:$1/api/state" 2>/dev/null |
+    grep --quiet '"configMode":"preserve-unknown-fields"'
+}
+
+port_in_use() {
+  (echo >"/dev/tcp/127.0.0.1/$1") >/dev/null 2>&1
+}
+
+if [[ -n "${PI_PROVIDER_MANAGER_PORT:-}" ]]; then
+  port="$PI_PROVIDER_MANAGER_PORT"
+  if [[ ! "$port" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
+    echo "PI_PROVIDER_MANAGER_PORT must be an integer between 1 and 65535." >&2
+    exit 1
+  fi
+  if port_in_use "$port" && ! is_manager_port "$port"; then
+    echo "Port $port is already used by another application. Choose a different PI_PROVIDER_MANAGER_PORT." >&2
+    exit 1
+  fi
+else
+  port=""
+  for candidate in $(seq 43127 43146); do
+    if port_in_use "$candidate" && is_manager_port "$candidate"; then
+      port="$candidate"
+      break
+    fi
+  done
+  if [[ -z "$port" ]]; then
+    for candidate in $(seq 43127 43146); do
+      if ! port_in_use "$candidate"; then
+        port="$candidate"
+        break
+      fi
+    done
+  fi
+  if [[ -z "$port" ]]; then
+    echo "No free port found in 43127-43146. Set PI_PROVIDER_MANAGER_PORT explicitly." >&2
+    exit 1
+  fi
+fi
+
+url="http://127.0.0.1:${port}/"
+
+if ! is_manager_port "$port"; then
+  if [[ -n "${WSL_DISTRO_NAME:-}" ]] && command -v powershell.exe >/dev/null 2>&1; then
+    escaped_project_dir=${project_dir//\'/\'\'}
+    escaped_agent_dir=${agent_dir//\'/\'\'}
+    escaped_node_bin=${node_bin//\'/\'\'}
+    powershell.exe -NoProfile -Command \
+      "\$arguments = @('-d', '${WSL_DISTRO_NAME}', '--', 'env', 'PI_PROVIDER_MANAGER_PORT=${port}', 'PI_PROVIDER_MANAGER_SERVE_UI=1', 'PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE=${agent_dir_source}', 'PI_CODING_AGENT_DIR=${escaped_agent_dir}', '${escaped_node_bin}', '${escaped_project_dir}/server.mjs'); Start-Process -FilePath 'wsl.exe' -ArgumentList \$arguments -WindowStyle Hidden" \
+      >/dev/null 2>&1
+  else
+    nohup env PI_PROVIDER_MANAGER_PORT="$port" PI_PROVIDER_MANAGER_SERVE_UI=1 PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE="$agent_dir_source" PI_CODING_AGENT_DIR="$agent_dir" \
+      "$node_bin" "$project_dir/server.mjs" \
+      >"$log_file" 2>&1 </dev/null &
+  fi
+
+  ready=0
+  for _ in $(seq 1 40); do
+    if is_manager_port "$port"; then
+      ready=1
+      break
+    fi
+    sleep 0.25
+  done
+
+  if [[ "$ready" -ne 1 ]]; then
+    echo "Pi Provider Manager failed to start." >&2
+    echo "Run manually: PI_PROVIDER_MANAGER_PORT='$port' PI_PROVIDER_MANAGER_SERVE_UI=1 PI_CODING_AGENT_DIR='$agent_dir' '$node_bin' '$project_dir/server.mjs'" >&2
+    exit 1
+  fi
+fi
+
+if [[ "$open_browser" == "0" ]]; then
+  echo "Pi Provider Manager is ready: $url"
+elif command -v wslview >/dev/null 2>&1; then
+  wslview "$url" >/dev/null 2>&1
+elif command -v powershell.exe >/dev/null 2>&1; then
+  powershell.exe -NoProfile -Command "Start-Process '$url'" >/dev/null 2>&1
+else
+  echo "Pi Provider Manager is ready: $url"
+fi

@@ -1,0 +1,29 @@
+# Open-source Publication Checklist
+
+## Required before the first public push
+
+- [x] Choose a license: MIT.
+- [x] Choose the final GitHub owner and repository name: `wowayou/pi-provider-manager`.
+- [x] Use a GitHub noreply identity for the clean public commit.
+- [x] Confirm all screenshots use generic paths such as `~/.pi/agent`.
+- [x] Create a clean single-commit public history; retain early local QA history only on the local `local-history` branch.
+- [x] Run a secret scan over the public candidate tree.
+- [x] Confirm no real provider keys, private exports, or account-specific URLs exist.
+- [ ] Enable GitHub Private Vulnerability Reporting.
+- [ ] Enable branch protection and required CI checks.
+- [ ] Add repository topics such as `pi`, `pi-agent`, `model-manager`, `api-gateway`, and `local-first`.
+
+## Recommended
+
+- [ ] Add release archives for Linux/WSL and Windows launchers.
+- [ ] Add issue templates for bugs, Pi compatibility reports, and provider schema requests.
+- [ ] Add a redacted CC-Switch/CSV fixture before implementing import.
+- [ ] Document the supported Pi version in every release.
+
+## Owner-authorized for the first publication
+
+- MIT license
+- Public repository creation at `wowayou/pi-provider-manager`
+- Initial public push
+
+Publishing packages or binaries remains out of scope until explicitly requested.
