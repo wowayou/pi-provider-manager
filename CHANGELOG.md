@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Updated the GitHub checkout and Node setup actions to their Node 24-based releases after GitHub deprecated the actions' Node 20 runtime.
 - Added a daily, maintenance-only Pi release monitor that opens or refreshes one owner-assigned compatibility issue without adding a Pi runtime dependency or advancing the validated baseline.
 - Added an architecture and ownership guide, expanded the Pi compatibility runbook, and linked both from the contributor and user documentation.
 - Demo mode now reads the manager and validated Pi versions from `package.json` at build time instead of carrying copies that can drift.
