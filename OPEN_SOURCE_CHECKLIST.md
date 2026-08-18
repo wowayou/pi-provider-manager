@@ -11,7 +11,7 @@
 - [x] Confirm no real provider keys, private exports, or account-specific URLs exist.
 - [x] Enable GitHub Private Vulnerability Reporting.
 - [x] Enable branch protection and required CI checks.
-- [ ] Add repository topics such as `pi`, `pi-agent`, `model-manager`, `api-gateway`, and `local-first`. (Still open; needs repository settings access.)
+- [x] Add repository topics: `pi`, `pi-agent`, `model-manager`, `api-gateway`, `local-first`.
 
 ## Also enabled after the first publication
 

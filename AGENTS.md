@@ -82,7 +82,6 @@ silently refuses to set `Host`, so rebinding checks need a raw `http.request`.
 - CVE identifiers were requested for both advisories and accepted with HTTP 202,
   but not yet assigned. When they arrive, add them to the advisories and to the
   `v0.1.4` release notes.
-- Repository topics are still unset; see `OPEN_SOURCE_CHECKLIST.md`.
 - The `local-history` branch holds pre-publication history. It does not exist on
   this machine and must never be pushed.
 
