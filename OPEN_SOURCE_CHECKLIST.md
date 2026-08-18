@@ -23,7 +23,7 @@
 - [ ] Add release archives for Linux/WSL and Windows launchers.
 - [ ] Add issue templates for bugs, Pi compatibility reports, and provider schema requests.
 - [ ] Add a redacted CC-Switch/CSV fixture before implementing import.
-- [ ] Document the supported Pi version in every release.
+- [x] Document the supported Pi version in every release. Declared once as `piValidatedVersion` in `package.json`, shown in Settings beside the detected version, and stated in the notes of every published release.
 
 ## Owner-authorized for the first publication
 
