@@ -41,3 +41,60 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - Blue link styling means an informational disclosure and nothing else. Anything that writes to the form is a button, and anything that overwrites values the user may have typed carries an undo action in its toast.
 - A field must not accept keystrokes its parser will reject. Mark invalid drafts with `aria-invalid` while typing rather than reverting silently on blur, and bound numeric input on both ends so a typo cannot become a plausible-looking value.
 - Treat a key that is absent from the config file as unwritten, not as saved. Filling a default in the UI and then reporting it as already persisted leaves the user unable to write it.
+
+## Handoff — current state as of 2026-08-18
+
+Read this section first, then `design-qa.md` for how the UI got to its current
+form and what has already been reviewed.
+
+**Where things are.** `main` is at `v0.1.6`. Releases `v0.1.2` through `v0.1.6`
+are tagged and published. The published sequence was: interaction and UI polish
+plus a dark theme, a dependency and test-infrastructure release, a security
+release, then two releases closing the findings of a full code review.
+
+**How to land changes.** `main` is protected and the rules apply to
+administrators, so there is no direct push. Open a branch, open a pull request,
+let the required `ci-passed` check go green, then merge with a rebase to keep
+history linear. `ci-passed` is a single aggregate job that depends on the whole
+Node matrix; require that check and never the individual matrix jobs, because a
+required check naming a Node version disappears the moment the matrix changes
+and then blocks every pull request with no visible cause.
+
+**Verify against the shape the product actually ships in.** Two shipped bugs
+came from verifying somewhere the product does not run. An indicator for
+unwritten settings was only ever exercised in demo mode, where the fixture omits
+keys, while the real server normalizes every key before the client sees it, so
+the branch could never fire. The pre-paint theme script was only checked against
+`vite dev`, which sends no CSP, while the packaged server sends one that blocked
+the script outright. Anything touching the served page or the API has to be run
+against `server.mjs` with `PI_PROVIDER_MANAGER_SERVE_UI=1`, not only against the
+dev server or `?demo=1`.
+
+**Exercise the boundary, do not read it.** The most serious defect found so far
+was a cross-origin write that let any visited page copy a stored API key onto an
+attacker-controlled gateway. It had been present since the first public commit
+and is invisible on inspection; it showed up only once a real cross-origin
+request was actually sent. The same applies to header handling: `fetch()`
+silently refuses to set `Host`, so rebinding checks need a raw `http.request`.
+
+**Open items.**
+
+- CVE identifiers were requested for both advisories and accepted with HTTP 202,
+  but not yet assigned. When they arrive, add them to the advisories and to the
+  `v0.1.4` release notes.
+- Repository topics are still unset; see `OPEN_SOURCE_CHECKLIST.md`.
+- The `local-history` branch holds pre-publication history. It does not exist on
+  this machine and must never be pushed.
+
+**Quick check that everything is where this section says.**
+
+```bash
+git -C . log --oneline -1 && node -e "console.log(require('./package.json').version)"
+npm ci && npm run build && npm run test:server && npm run test:sites
+gh pr list --state open
+gh api repos/wowayou/pi-provider-manager/security-advisories --jq '.[] | "\(.ghsa_id) \(.cve_id // "pending")"'
+```
+
+Note that the working directory differs per machine. The original handoff named
+`/home/forbackup/pi-provider-manager-ui`; this checkout lives elsewhere. Trust
+the git remote, `wowayou/pi-provider-manager`, rather than any absolute path.

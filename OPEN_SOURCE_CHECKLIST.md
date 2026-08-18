@@ -9,9 +9,14 @@
 - [x] Create a clean single-commit public history; retain early local QA history only on the local `local-history` branch.
 - [x] Run a secret scan over the public candidate tree.
 - [x] Confirm no real provider keys, private exports, or account-specific URLs exist.
-- [ ] Enable GitHub Private Vulnerability Reporting.
-- [ ] Enable branch protection and required CI checks.
-- [ ] Add repository topics such as `pi`, `pi-agent`, `model-manager`, `api-gateway`, and `local-first`.
+- [x] Enable GitHub Private Vulnerability Reporting.
+- [x] Enable branch protection and required CI checks.
+- [ ] Add repository topics such as `pi`, `pi-agent`, `model-manager`, `api-gateway`, and `local-first`. (Still open; needs repository settings access.)
+
+## Also enabled after the first publication
+
+- [x] Dependabot alerts and Dependabot security updates.
+- [x] Published security advisories for the vulnerabilities fixed in 0.1.4.
 
 ## Recommended
 
