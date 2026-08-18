@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -8,6 +9,21 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+// Deriving the port from the pid collides whenever two runs land on pids that are
+// congruent mod 1000, or when something else already holds that port. Ask the OS
+// for a free one instead.
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.unref();
+    probe.on("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
+}
 
 async function waitForServer(url) {
   for (let attempt = 0; attempt < 50; attempt += 1) {
@@ -44,7 +60,7 @@ test("writes router-style providers without exposing credentials", async () => {
     },
   }));
   fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ futureSetting: "keep-setting" }));
-  const port = 44000 + (process.pid % 1000);
+  const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
     cwd: projectRoot,
