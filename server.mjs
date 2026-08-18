@@ -38,9 +38,11 @@ const ALLOWED_THINKING = new Set(["off", "minimal", "low", "medium", "high", "xh
 const ALLOWED_TRANSPORTS = new Set(["auto", "sse", "websocket"]);
 const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 const SETTINGS_KEYS = ["defaultProvider", "defaultModel", "defaultThinkingLevel", "hideThinkingBlock", "transport"];
-const APP_VERSION = JSON.parse(
-  fs.readFileSync(path.join(PROJECT_DIR, "package.json"), "utf8"),
-).version;
+const PACKAGE_MANIFEST = JSON.parse(fs.readFileSync(path.join(PROJECT_DIR, "package.json"), "utf8"));
+const APP_VERSION = PACKAGE_MANIFEST.version;
+// The Pi release this manager was last validated against. Single source of truth:
+// docs and release notes quote this, they do not carry their own copy.
+const PI_VALIDATED_VERSION = PACKAGE_MANIFEST.piValidatedVersion || "unknown";
 
 function detectPiVersion() {
   const nvmNodes = path.join(os.homedir(), ".nvm", "versions", "node");
@@ -186,6 +188,7 @@ function publicState() {
     compatibility: {
       appVersion: APP_VERSION,
       piVersion: PI_VERSION,
+      validatedPiVersion: PI_VALIDATED_VERSION,
       supportedApis: [...ALLOWED_APIS],
       configMode: "preserve-unknown-fields",
       configDirSource: AGENT_DIR_SOURCE,

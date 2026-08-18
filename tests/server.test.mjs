@@ -337,6 +337,12 @@ test("reports which settings keys exist and allows the theme bootstrap through C
     assert.equal(state.settings.defaultThinkingLevel, "medium");
     assert.deepEqual(state.settingsPresent, ["defaultModel"]);
 
+    // The validated Pi version has exactly one home; the payload must quote it
+    // rather than carry a copy that can drift from package.json.
+    const manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"));
+    assert.ok(manifest.piValidatedVersion, "package.json must declare piValidatedVersion");
+    assert.equal(state.compatibility.validatedPiVersion, manifest.piValidatedVersion);
+
     // The theme bootstrap must run before first paint, so it is inline and the
     // policy has to name it by hash rather than block it.
     const uiResponse = await fetch(`${baseUrl}/`);

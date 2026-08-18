@@ -78,7 +78,9 @@ See [SECURITY.md](SECURITY.md) for the disclosure policy and threat boundary.
 
 ## Compatibility
 
-Validated locally against Pi `0.84.2`. Pi can evolve independently, so every release should run the compatibility checklist in [docs/compatibility.md](docs/compatibility.md).
+The Pi release this manager is validated against is recorded once, as `piValidatedVersion` in `package.json`, and surfaced in Settings next to the Pi version actually detected on your machine. Settings says so plainly when the two differ.
+
+Pi evolves independently, so every release runs the compatibility checklist in [docs/compatibility.md](docs/compatibility.md) and states the validated Pi version in its release notes.
 
 The manager intentionally preserves unknown fields, but a release may still be required when Pi changes:
 
