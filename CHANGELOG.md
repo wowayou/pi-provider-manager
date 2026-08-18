@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4 - 2026-08-18
+
+Security release. Upgrade if you have ever run the manager while browsing the web.
+
+- **Fixed credential theft through cross-origin writes.** The local API accepted any POST regardless of `Origin`, `Host`, or `Content-Type`. A page the user visited could submit a `text/plain` form post — a CORS simple request, so never preflighted — and use `credential.mode: "migrate"` to copy the user's stored API key onto a provider with an attacker-controlled `baseUrl`, then mark it default. The next `pi` session would send the real key to the attacker. Requests to `/api/` now require a loopback `Host` on the service port, which also blocks DNS rebinding, and mutating requests must send `Content-Type: application/json`, which forces a preflight that is never answered.
+- **Fixed silent destruction of a stored credential.** `credential.fromProvider` was unvalidated, so `__proto__`, `constructor`, and `toString` passed an existence check by resolving on `Object.prototype`, overwrote a real key with `{}`, and returned success while the UI still showed the credential as configured. Migration sources must now be an own, object-valued entry matching the provider-id pattern. The same unguarded lookup in the settings endpoint is fixed too.
+- Added regression tests for cross-origin writes, DNS rebinding, prototype-chain credential sources, and the legitimate paths that must keep working.
+- The dev proxy now sets `changeOrigin`, so proxied requests present the API's own host.
+
 ## 0.1.3 - 2026-08-18
 
 - Updated `vite` to 6.4.3, `postcss` to 8.5.26, and `nanoid` to 3.3.18, clearing all six Dependabot advisories. `npm audit` reports no vulnerabilities. All three are build-time only; neither the local server nor the Sites worker imports them.

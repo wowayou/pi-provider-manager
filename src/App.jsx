@@ -216,7 +216,7 @@ function blankForm() {
 
 const DEMO_STATE = {
   agentDir: "~/.pi/agent",
-  compatibility: { appVersion: "0.1.3", piVersion: "0.84.2", configMode: "preserve-unknown-fields", configDirSource: "default-home", nodeVersion: "v22.0.0", serviceHost: "127.0.0.1", servicePort: 43127 },
+  compatibility: { appVersion: "0.1.4", piVersion: "0.84.2", configMode: "preserve-unknown-fields", configDirSource: "default-home", nodeVersion: "v22.0.0", serviceHost: "127.0.0.1", servicePort: 43127 },
   authProviders: ["any-claude", "openai", "deepseek", "moonshot", "qwen", "gemini", "minimax"],
   settings: { defaultProvider: "any-claude", defaultModel: "claude-3-5-sonnet", defaultThinkingLevel: "high" },
   providers: [
