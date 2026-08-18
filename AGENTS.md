@@ -52,7 +52,7 @@ are tagged and published. The sequence was: interaction and UI polish plus a
 dark theme, a dependency and test-infrastructure release, a security release,
 two releases closing the findings of a full code review, and one surfacing the
 validated Pi version in the app. Every checklist item required before the first
-public push is now done; three optional ones remain in
+public push is now done; two optional ones remain in
 `OPEN_SOURCE_CHECKLIST.md`.
 
 **How to land changes.** `main` is protected and the rules apply to
