@@ -1,0 +1,29 @@
+name: Pi update monitor
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: pi-update-monitor
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.repository == 'wowayou/pi-provider-manager'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Compare the validated baseline with the latest stable Pi release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/check-pi-update.mjs --sync-issue

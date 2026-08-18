@@ -14,9 +14,7 @@ Pi Provider Manager handles local API credentials and edits Pi configuration fil
 
 ## Reporting a vulnerability
 
-Before the GitHub repository is published, report privately to the repository owner.
-
-Use GitHub Private Vulnerability Reporting after it is enabled for the repository:
+Use GitHub Private Vulnerability Reporting:
 <https://github.com/wowayou/pi-provider-manager/security/advisories/new>
 
 Do not include any of the following in a public issue:

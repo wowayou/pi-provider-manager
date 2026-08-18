@@ -20,6 +20,7 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - Settings must be a real screen, not a placeholder. It owns Pi defaults, thinking level, transport, thinking-block visibility, and compatibility status.
 - After saving, show a dedicated success/next-step screen with the exact Pi model command and `/model` guidance; do not leave the user at the bottom of the edit form.
 - Treat Pi as provider-scoped configuration plus model-centric runtime selection. Preserve unknown provider/model/settings fields to reduce breakage across Pi upgrades.
+- Keep Pi update detection in repository maintenance automation. It may compare stable release metadata and open a reminder, but must not add a Pi runtime dependency, make application startup depend on upstream availability, or advance `piValidatedVersion` without manual validation.
 - Optimize long model catalogs with a sticky header, internal scrolling, compact rows, and bulk model-ID import.
 - Public screenshots and documentation must not expose machine-specific home paths or credentials.
 
@@ -86,23 +87,32 @@ Settings shows it beside the Pi version detected on the machine, saying plainly
 when the two differ. Release notes quote it. The full procedure after a Pi
 upgrade is in `docs/compatibility.md`.
 
+**Pi updates are monitored outside the product runtime.** A daily/manual
+workflow compares `piValidatedVersion` with the latest stable
+`earendil-works/pi` GitHub Release and maintains one owner-assigned compatibility
+issue when review is needed. It does not import Pi code, run during application
+startup or builds, or update the baseline. Current behavior and triage ownership
+are documented in `docs/compatibility.md`.
+
 **Open items.**
 
 - CVE identifiers were requested for both advisories and accepted with HTTP 202,
   but not yet assigned. When they arrive, add them to the advisories and to the
   `v0.1.4` release notes.
-- The `local-history` branch holds pre-publication history. It does not exist on
-  this machine and must never be pushed.
+- The `local-history` branch holds pre-publication history and may exist in an
+  older checkout. It must never be pushed; the GitHub remote must not contain it.
 
 **Quick check that everything is where this section says.**
 
 ```bash
 git -C . log --oneline -1 && node -e "console.log(require('./package.json').version)"
-npm ci && npm run build && npm run test:server && npm run test:sites
+npm ci && npm run build && npm run test:server && npm run test:sites && npm run test:pi-update
+npm run check:pi-update
 gh pr list --state open
+gh api repos/wowayou/pi-provider-manager/branches --jq '.[].name'
 gh api repos/wowayou/pi-provider-manager/security-advisories --jq '.[] | "\(.ghsa_id) \(.cve_id // "pending")"'
 ```
 
-Note that the working directory differs per machine. The original handoff named
-`/home/forbackup/pi-provider-manager-ui`; this checkout lives elsewhere. Trust
-the git remote, `wowayou/pi-provider-manager`, rather than any absolute path.
+The working directory differs per machine. Trust the git remote,
+`wowayou/pi-provider-manager`, rather than any absolute path recorded in an old
+handoff or shell history.

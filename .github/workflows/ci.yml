@@ -24,6 +24,7 @@ jobs:
       - run: npm run build
       - run: npm run test:server
       - run: npm run test:sites
+      - run: npm run test:pi-update
 
   # Single stable gate for branch protection. Requiring the matrix jobs directly
   # would pin protection to specific Node versions, so changing the matrix later

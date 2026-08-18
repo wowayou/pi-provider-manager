@@ -72,12 +72,20 @@ install -m 700 bin/pi-provider-manager-ui ~/.pi/agent/bin/pi-provider-manager-ui
 
 未知字段会被保留，但 Pi 如果修改配置结构、API 类型、认证格式、模型能力字段或设置名称，本项目仍需要发布对应兼容更新。每个版本都会跑 [docs/compatibility.md](docs/compatibility.md) 里的兼容性清单，并在 release notes 中写明验证过的 Pi 版本。
 
-## 开源前
+仓库另有一个每日运行的维护 workflow，只比较该基线与 Pi 最新稳定 GitHub Release；需要复核时，它会创建或更新维护 issue。监测不进入应用运行链：启动和构建不会访问上游，不引入 Pi npm 依赖，也不会自动推进兼容性基线。
+
+## 项目结构与维护
+
+[docs/architecture.md](docs/architecture.md) 说明本地产品、Vite 开发环境、Sites 静态产物和更新监测之间的边界，以及各组件职责、配置所有权、安全约束和验证矩阵。处理 Pi 更新或修改 Pi 配置 schema 前，先读 [docs/compatibility.md](docs/compatibility.md)。
+
+维护者可运行 `npm run check:pi-update` 做一次只读上游比较；监测逻辑的本地测试是 `npm run test:pi-update`。
+
+## 开源状态
 
 项目使用 [MIT License](LICENSE) 开源。首次推送后的仓库加固事项见 [OPEN_SOURCE_CHECKLIST.md](OPEN_SOURCE_CHECKLIST.md)。
 
 ## 路线图
 
-- V1.1：可视化 provider/model 管理、真实设置页、保存闭环、保留未知字段
-- V2：CSV 导入和 CC-Switch 配置导入
+- 已完成 V1.1：可视化 provider/model 管理、真实设置页、保存闭环、保留未知字段
+- 计划 V2：CSV 导入和 CC-Switch 配置导入
 - 后续：经用户明确授权的模型目录发现与连接测试

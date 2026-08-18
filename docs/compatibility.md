@@ -2,7 +2,7 @@
 
 ## Supported baseline
 
-- Latest locally validated Pi version: `piValidatedVersion` in `package.json`, currently `0.84.2`. That field is the only copy; the server reads it and reports it as `compatibility.validatedPiVersion`, and Settings shows it beside the Pi version detected on the machine. Do not restate the number anywhere else.
+- The latest locally validated Pi version is `piValidatedVersion` in `package.json`. That field is the only live baseline; the build and server read it, and Settings shows it beside the Pi version detected on the machine. Do not maintain a second current-baseline copy in code, documentation, or automation. Release notes and dated QA evidence may quote the version they actually tested.
 - Managed files: `auth.json`, `models.json`, `settings.json`
 - Read-only Pi file: `models-store.json`
 
@@ -20,6 +20,31 @@ To reduce breakage:
 6. Multi-file provider updates roll back if any write fails.
 7. The config directory follows Pi's own precedence: `PI_CODING_AGENT_DIR`, then `~/.pi/agent`.
 8. Project path, port, Node binary, browser opening, and WSL distribution are discovered or explicitly overridable; the network host remains loopback-only.
+
+## Update monitoring
+
+The `Pi update monitor` workflow runs daily and can also be dispatched manually. It calls `scripts/check-pi-update.mjs`, reads the latest published stable release from `earendil-works/pi`, and compares its tag with `piValidatedVersion`.
+
+The monitor is intentionally outside the product runtime:
+
+- no Pi package is added to this project's dependencies
+- application startup and builds make no upstream network request
+- prereleases, tags without a GitHub Release, and upstream `main` commits do not create reminders
+- the monitor never changes `piValidatedVersion` or declares compatibility
+- a failed upstream request fails the workflow instead of guessing
+- a baseline newer than the latest stable Release is treated as an error and never closes or edits a reminder
+
+GitHub may delay scheduled jobs, and scheduled workflows on inactive public repositories can be disabled. The manual `workflow_dispatch` entry and `npm run check:pi-update` command remain the fallback; Actions failures must not be treated as proof that Pi is current.
+
+When the stable release is newer, the workflow creates one `enhancement` issue assigned to the repository owner. Later Pi releases refresh that same issue and add a comment rather than creating a queue of duplicates. Once the validated baseline catches up, the workflow closes the reminder.
+
+Run a read-only comparison locally with:
+
+```bash
+npm run check:pi-update
+```
+
+The official release source is GitHub Releases. Pi's npm package scope has changed before, so package-registry names are only a cross-check and are not used by the monitor.
 
 ## Why updates may still be required
 
@@ -41,9 +66,10 @@ Forward preservation cannot solve semantic or structural changes. A manager rele
 3. Run `npm run test:server` and confirm unknown fields survive an edit.
 4. Run `npm run build` and `npm run test:sites`.
 5. Run the Playwright flow against `/?demo=1`.
-6. In a temporary `PI_CODING_AGENT_DIR`, add a provider and verify it appears in Pi's `/model` selector.
-7. Update `piValidatedVersion` in `package.json`, and refresh the number quoted in the baseline above. The field is what the code reads; the baseline line is prose quoting it.
-8. State the validated Pi version in the release notes. Every release says which Pi it was checked against, so a user on a newer Pi can tell how far ahead they are.
+6. Serve the built page with `PI_PROVIDER_MANAGER_SERVE_UI=1 node server.mjs` and exercise the real page/API boundary with a temporary `PI_CODING_AGENT_DIR`.
+7. With the released Pi installed, add a provider in that temporary directory and verify it appears in Pi's `/model` selector.
+8. Update only `piValidatedVersion` in `package.json` after the checks pass.
+9. State the validated Pi version in the release notes. Every release says which Pi it was checked against, so a user on a newer Pi can tell how far ahead they are.
 
 ## Versioning proposal
 
@@ -53,6 +79,8 @@ Forward preservation cannot solve semantic or structural changes. A manager rele
 
 ## Upstream references
 
+- Pi releases: <https://github.com/earendil-works/pi/releases>
+- Pi coding-agent changelog: <https://github.com/earendil-works/pi/blob/main/packages/coding-agent/CHANGELOG.md>
 - Pi custom models: <https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md>
 - Pi settings: <https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/settings.md>
 - Pi providers: <https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/providers.md>
