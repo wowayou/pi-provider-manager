@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.5 - 2026-08-18
+
+- Editing a model ID no longer clears its default selection. The default was tracked by the model ID, which is an editable field, so correcting a typo in the default row silently unticked it and made saving fail with no indication why.
+- Editing a provider no longer takes over Pi's global default. The single save action always set the provider as default, so opening a non-default gateway just to fix a model ID rewrote `settings.defaultProvider`. Existing non-default providers now offer "保存更改" alongside "保存并设为默认", and the success screen says which one happened.
+- Renaming a provider no longer claims to keep a credential it never had. The "保留现有 key" mode persisted after the ID stopped matching a stored credential, leaving no tab selected while the panel still reported the credential as saved.
+- Settings now reports how many defaults are still absent from `settings.json` rather than claiming everything is written. The server sends which keys the file actually holds, because every value it returns is normalized and a fallback was indistinguishable from a stored value.
+- The default-provider list keeps the provider it is displaying. Providers without models were filtered out, so a default with none rendered as a different provider; it now stays listed and labelled, with the model field disabled and explained.
+- The theme is applied before first paint again in the packaged app. The pre-paint script was blocked by the server's `script-src 'self'`, so the wrong-theme flash it prevents had returned whenever the UI was served by `server.mjs`. The policy now allows it by hash.
+
 ## 0.1.4 - 2026-08-18
 
 Security release. Upgrade if you have ever run the manager while browsing the web.
