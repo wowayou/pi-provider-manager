@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.7 - 2026-08-18
+
+- Settings now shows the Pi release this manager was validated against, beside the Pi version detected on your machine, and says so plainly when the two differ. Previously the validated version only existed in documentation.
+- The validated Pi version is declared once, as `piValidatedVersion` in `package.json`, instead of being restated in the READMEs and compatibility notes where nothing read it and the copies could drift.
+
 ## 0.1.6 - 2026-08-18
 
 - Switching a provider's protocol no longer leaves the previous protocol's compatibility flags in `models.json`. Flags that both protocols accept are kept; ones the new protocol rejects are dropped.

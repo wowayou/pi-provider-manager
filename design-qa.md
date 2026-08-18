@@ -1,6 +1,6 @@
 # Design QA
 
-- Product version: `0.1.6`
+- Product version: `0.1.7`
 - Source visual truth: `design-reference.png` plus user acceptance screenshots for the settings, long-model-list, and post-save problems
 - Model editor screenshot: `qa/pi-provider-manager-v11-models.png`
 - Settings screenshot: `qa/pi-provider-manager-v11-settings.png`
@@ -60,7 +60,7 @@
 **Compatibility Evidence**
 
 - Installed Pi version detected as `0.84.2`.
-- Manager version reported as `0.1.6`.
+- Manager version reported as `0.1.7`.
 - Real state shows providers `any-codex` and `sota`, default `sota/claude-opus-5:high`, with no key field in API responses.
 - Single-process production launcher remains available after the launching shell exits.
 - Launcher identity-checks `/api/state`, automatically selects `43127-43146`, and does not reuse unrelated apps or stale Service Worker origins on Vite's common `4173` port.
