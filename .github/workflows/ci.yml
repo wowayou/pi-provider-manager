@@ -24,3 +24,17 @@ jobs:
       - run: npm run build
       - run: npm run test:server
       - run: npm run test:sites
+
+  # Single stable gate for branch protection. Requiring the matrix jobs directly
+  # would pin protection to specific Node versions, so changing the matrix later
+  # would leave a required check that never reports and block every pull request.
+  ci-passed:
+    if: always()
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any test job did not succeed
+        if: needs.test.result != 'success'
+        run: |
+          echo "test matrix result: ${{ needs.test.result }}"
+          exit 1
