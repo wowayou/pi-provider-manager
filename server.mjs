@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -36,6 +37,7 @@ const ALLOWED_APIS = new Set([
 const ALLOWED_THINKING = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 const ALLOWED_TRANSPORTS = new Set(["auto", "sse", "websocket"]);
 const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
+const SETTINGS_KEYS = ["defaultProvider", "defaultModel", "defaultThinkingLevel", "hideThinkingBlock", "transport"];
 const APP_VERSION = JSON.parse(
   fs.readFileSync(path.join(PROJECT_DIR, "package.json"), "utf8"),
 ).version;
@@ -178,6 +180,9 @@ function publicState() {
       hideThinkingBlock: Boolean(settings.hideThinkingBlock),
       transport: ALLOWED_TRANSPORTS.has(settings.transport) ? settings.transport : "auto",
     },
+    // Every settings value above is normalized, so a fallback is indistinguishable
+    // from a stored value. Say which keys settings.json actually carries.
+    settingsPresent: SETTINGS_KEYS.filter((key) => Object.hasOwn(settings, key)),
     compatibility: {
       appVersion: APP_VERSION,
       piVersion: PI_VERSION,
@@ -381,6 +386,34 @@ function sendJson(response, status, value) {
   response.end(body);
 }
 
+// The theme bootstrap has to run before first paint, so it cannot be bundled or
+// deferred, which means the CSP has to name it by hash rather than allow inline
+// scripts wholesale.
+let cachedScriptSrc = { mtimeMs: -1, value: "'self'" };
+function scriptSrc() {
+  const indexPath = path.join(CLIENT_DIR, "index.html");
+  let mtimeMs = -1;
+  try {
+    mtimeMs = fs.statSync(indexPath).mtimeMs;
+  } catch {
+    return "'self'";
+  }
+  if (cachedScriptSrc.mtimeMs === mtimeMs) return cachedScriptSrc.value;
+  let value = "'self'";
+  try {
+    const html = fs.readFileSync(indexPath, "utf8");
+    const hashes = [];
+    for (const match of html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/gi)) {
+      hashes.push(`'sha256-${crypto.createHash("sha256").update(match[1], "utf8").digest("base64")}'`);
+    }
+    if (hashes.length > 0) value = `'self' ${hashes.join(" ")}`;
+  } catch {
+    value = "'self'";
+  }
+  cachedScriptSrc = { mtimeMs, value };
+  return value;
+}
+
 function contentType(filePath) {
   const extension = path.extname(filePath).toLowerCase();
   return {
@@ -413,7 +446,7 @@ function sendStatic(response, requestUrl) {
     "Content-Length": body.length,
     "Cache-Control": path.basename(filePath) === "index.html" ? "no-store" : "public, max-age=31536000, immutable",
     "X-Content-Type-Options": "nosniff",
-    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+    "Content-Security-Policy": `default-src 'self'; script-src ${scriptSrc()}; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`,
   });
   response.end(body);
 }

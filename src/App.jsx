@@ -199,6 +199,7 @@ function blankModel(id = "") {
 }
 
 function blankForm() {
+  const firstModel = blankModel("gpt-5.6-sol");
   return {
     providerId: "",
     baseUrl: "",
@@ -207,8 +208,10 @@ function blankForm() {
     apiKey: "",
     migrateFrom: "",
     moveCredential: true,
-    models: [blankModel("gpt-5.6-sol")],
-    defaultModelId: "gpt-5.6-sol",
+    models: [firstModel],
+    // Keyed by row, not by model id: the id is an editable field, and keying on it
+    // silently dropped the default the moment a user corrected a typo.
+    defaultRowId: firstModel.rowId,
     defaultThinkingLevel: "high",
     compat: {},
   };
@@ -272,10 +275,10 @@ function providerToForm(provider, state) {
     migrateFrom: state.authProviders.find((id) => id !== provider.id) || "",
     moveCredential: true,
     models: convertedModels,
-    defaultModelId:
-      state.settings.defaultProvider === provider.id && convertedModels.some((model) => model.id === state.settings.defaultModel)
-        ? state.settings.defaultModel
-        : convertedModels[0].id,
+    defaultRowId: (
+      convertedModels.find((model) => state.settings.defaultProvider === provider.id && model.id === state.settings.defaultModel)
+      || convertedModels[0]
+    ).rowId,
     defaultThinkingLevel: state.settings.defaultThinkingLevel || "high",
     compat: provider.compat || {},
   };
@@ -397,7 +400,8 @@ function ProtocolStep({ form, setForm, onNext }) {
   const choose = (optionId) => setForm((current) => {
     const hasOnlyGptPreset = current.models.length === 1 && current.models[0].id === "gpt-5.6-sol";
     if (optionId !== "openai-responses" && hasOnlyGptPreset) {
-      return { ...current, api: optionId, models: [blankModel()], defaultModelId: "" };
+      const replacement = blankModel();
+      return { ...current, api: optionId, models: [replacement], defaultRowId: replacement.rowId };
     }
     return { ...current, api: optionId };
   });
@@ -463,7 +467,12 @@ function CredentialsStep({ form, setForm, state, error, onBack, onNext }) {
     <section className="step-content form-step">
       <div className="section-heading"><div><h1>填写网关地址与凭据</h1><p>key 只会写入 Pi 的 auth.json，保存后不会再显示。</p></div></div>
       <div className="form-grid">
-        <label><span>供应商 ID</span><small>例如 any-router；用于 Pi 内部识别</small><input className="mono" value={form.providerId} onChange={(event) => setForm((current) => ({ ...current, providerId: event.target.value.toLowerCase().replace(/\s+/g, "-") }))} placeholder="any-router" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" /></label>
+        <label><span>供应商 ID</span><small>例如 any-router；用于 Pi 内部识别</small><input className="mono" value={form.providerId} onChange={(event) => setForm((current) => {
+          const providerId = event.target.value.toLowerCase().replace(/\s+/g, "-");
+          // "keep" only means something while the id still names a stored credential.
+          const keepStillValid = state.authProviders.includes(providerId);
+          return { ...current, providerId, credentialMode: current.credentialMode === "keep" && !keepStillValid ? "new" : current.credentialMode };
+        })} placeholder="any-router" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" /></label>
         <label><span>API 地址</span><small>填写接口根地址，不要包含具体模型路径</small><input className="mono" type="url" inputMode="url" value={form.baseUrl} onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))} placeholder="https://api.example.com/v1" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" /></label>
       </div>
       <fieldset className="credential-box">
@@ -585,15 +594,15 @@ function ModelRow({ model, isDefault, onChange, onDefault, onRemove, onSafeDefau
   );
 }
 
-function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify }) {
+function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify, isExistingProvider, isCurrentDefault }) {
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [scrolled, setScrolled] = useState(false);
   const updateModel = (rowId, value) => setForm((current) => ({ ...current, models: current.models.map((model) => model.rowId === rowId ? value : model) }));
-  const addModel = () => setForm((current) => ({ ...current, models: [...current.models, blankModel()], defaultModelId: current.defaultModelId || current.models[0]?.id || "" }));
+  const addModel = () => setForm((current) => ({ ...current, models: [...current.models, blankModel()], defaultRowId: current.defaultRowId || current.models[0]?.rowId || "" }));
   const removeModel = (rowId) => setForm((current) => {
     const models = current.models.filter((model) => model.rowId !== rowId);
-    return { ...current, models, defaultModelId: models.some((model) => model.id === current.defaultModelId) ? current.defaultModelId : models[0]?.id || "" };
+    return { ...current, models, defaultRowId: models.some((model) => model.rowId === current.defaultRowId) ? current.defaultRowId : models[0]?.rowId || "" };
   });
   const applySafeToAll = () => {
     const previous = form.models;
@@ -631,7 +640,8 @@ function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify }) 
       const additions = bulkIds.filter((id) => !existingIds.has(id)).map((id) => blankModel(id));
       const hasOnlyBlank = current.models.length === 1 && !current.models[0].id;
       const models = [...(hasOnlyBlank ? [] : current.models), ...additions];
-      return { ...current, models, defaultModelId: current.defaultModelId || models[0]?.id || "" };
+      const defaultRowId = models.some((model) => model.rowId === current.defaultRowId) ? current.defaultRowId : models[0]?.rowId || "";
+      return { ...current, models, defaultRowId };
     });
     setBulkText("");
     setShowBulk(false);
@@ -660,7 +670,7 @@ function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify }) 
       {thinkingAliasModels.length > 0 && <div className="model-warning"><WarningCircle size={20} weight="fill" /><span><strong>发现疑似思考档位后缀：</strong>{thinkingAliasModels.map((model) => model.id).join("、")}。只有网关真的把它们作为模型 ID 时才应保留；否则用右侧“推理能力”和 Pi 的 Shift+Tab 切换。</span></div>}
       <div className={`models-table ${scrolled ? "is-scrolled" : ""}`} onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 2)}>
         <div className="model-table-head"><span /><span>模型 ID</span><span>上下文容量</span><span>最大输出</span><span>图像能力</span><span>推理能力</span><span>默认模型</span><span /></div>
-        {form.models.map((model) => <ModelRow key={model.rowId} model={model} isDefault={form.defaultModelId === model.id && Boolean(model.id)} onChange={(value) => updateModel(model.rowId, value)} onSafeDefaults={() => updateModel(model.rowId, { ...model, ...safeDefaults(model.id) })} onDefault={() => setForm((current) => ({ ...current, defaultModelId: model.id }))} onRemove={() => removeModel(model.rowId)} canRemove={form.models.length > 1} />)}
+        {form.models.map((model) => <ModelRow key={model.rowId} model={model} isDefault={form.defaultRowId === model.rowId && Boolean(model.id.trim())} onChange={(value) => updateModel(model.rowId, value)} onSafeDefaults={() => updateModel(model.rowId, { ...model, ...safeDefaults(model.id) })} onDefault={() => setForm((current) => ({ ...current, defaultRowId: model.rowId }))} onRemove={() => removeModel(model.rowId)} canRemove={form.models.length > 1} />)}
       </div>
       <p className="scroll-hint">表格可左右滑动，查看上下文容量、图像与推理能力等字段。</p>
       <div className="models-note"><ShieldCheck size={21} weight="duotone" />未指定的能力项将使用保守默认值，不影响正常使用。</div>
@@ -674,7 +684,14 @@ function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify }) 
       {error && <div className="error-banner" role="alert"><WarningCircle size={20} weight="fill" />{error}</div>}
       <footer className="wizard-footer">
         <button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={19} />上一步</button>
-        <button type="button" className="primary-button" disabled={saving} onClick={() => onSave(true)}>{saving ? <><Spinner />正在保存…</> : "保存并设为默认"}</button>
+        {isExistingProvider && !isCurrentDefault ? (
+          <div className="footer-actions">
+            <button type="button" className="outline-button" disabled={saving} onClick={() => onSave(true)}>保存并设为默认</button>
+            <button type="button" className="primary-button" disabled={saving} onClick={() => onSave(false)}>{saving ? <><Spinner />正在保存…</> : "保存更改"}</button>
+          </div>
+        ) : (
+          <button type="button" className="primary-button" disabled={saving} onClick={() => onSave(true)}>{saving ? <><Spinner />正在保存…</> : "保存并设为默认"}</button>
+        )}
       </footer>
       {showBulk && <BulkModal text={bulkText} ids={bulkIds} newIds={newBulkIds} onText={setBulkText} onClose={() => setShowBulk(false)} onImport={importModels} />}
     </section>
@@ -743,7 +760,11 @@ function SuccessScreen({ result, onCopy, onReturn, onAdd }) {
       <div className="success-mark"><CheckCircle size={72} weight="fill" /></div>
       <p className="success-eyebrow">配置已写入 Pi</p>
       <h1>{titleFromId(result.providerId)} 已保存</h1>
-      <p className="success-summary">Pi 已识别 {result.modelCount} 个模型，默认模型是 <code>{result.defaultModelId}</code>。</p>
+      <p className="success-summary">
+        {result.setDefault
+          ? <>Pi 已识别 {result.modelCount} 个模型，默认模型是 <code>{result.defaultModelId}</code>。</>
+          : <>Pi 已识别 {result.modelCount} 个模型。全局默认模型没有改动。</>}
+      </p>
       <div className="next-step-card">
         <div className="next-step-heading"><TerminalWindow size={28} weight="duotone" /><div><h2>下一步：在 Pi 中验证模型</h2><p>无需重启。回到 Pi 打开 <code>/model</code>，或直接运行下面的命令。</p></div></div>
         <div className="command-row">
@@ -753,7 +774,7 @@ function SuccessScreen({ result, onCopy, onReturn, onAdd }) {
           </button>
         </div>
         <ol>
-          <li>选择刚保存的 <code>{result.defaultModelId}</code></li>
+          <li>选择刚保存的 <code>{result.defaultModelId}</code>{result.setDefault ? "" : "（本次没有改动全局默认，用上面的命令直接指定）"}</li>
           <li>确认底部显示 provider 为 <code>{result.providerId}</code></li>
           <li>发送一句简单测试消息；通道限流或 500 属于上游服务状态，不代表配置文件未保存</li>
         </ol>
@@ -774,12 +795,22 @@ function SettingsScreen({ state, saving, error, onSave, onBack }) {
   const [draft, setDraft] = useState(saved);
   useEffect(() => { setDraft(saved); }, [saved]);
   // Anything this screen owns but settings.json does not carry yet is unwritten, not "saved".
+  // publicState normalizes every key, so a fallback looks identical to a stored
+  // value. settingsPresent is the server telling us what settings.json really has.
+  const present = new Set(
+    Array.isArray(state.settingsPresent) ? state.settingsPresent : Object.keys(state.settings || {}),
+  );
   const unwritten = ["defaultProvider", "defaultModel", "defaultThinkingLevel", "hideThinkingBlock", "transport"]
-    .filter((key) => state.settings[key] === undefined);
+    .filter((key) => !present.has(key));
   const edited = JSON.stringify(saved) !== JSON.stringify(draft);
   const dirty = edited || unwritten.length > 0;
   const selectedProvider = state.providers.find((provider) => provider.id === draft.defaultProvider);
   const availableModels = selectedProvider?.models || [];
+  // Keep whatever is currently selected in the list, even with no models, so the
+  // control never displays a different provider from the one it holds.
+  const selectableProviders = state.providers.filter(
+    (provider) => provider.models.length > 0 || provider.id === draft.defaultProvider,
+  );
   const changeProvider = (providerId) => {
     const provider = state.providers.find((item) => item.id === providerId);
     setDraft((current) => ({ ...current, defaultProvider: providerId, defaultModel: provider?.models?.[0]?.id || "" }));
@@ -790,8 +821,8 @@ function SettingsScreen({ state, saving, error, onSave, onBack }) {
       <div className="settings-grid">
         <section className="settings-card">
           <h2>默认模型</h2><p>Pi 启动新会话时优先使用这里的 provider/model。</p>
-          <label><span>默认供应商</span><select value={draft.defaultProvider} onChange={(event) => changeProvider(event.target.value)}>{state.providers.filter((provider) => provider.models.length > 0).map((provider) => <option key={provider.id} value={provider.id}>{titleFromId(provider.id)} · {provider.id}</option>)}</select></label>
-          <label><span>默认模型</span><select value={draft.defaultModel} onChange={(event) => setDraft((current) => ({ ...current, defaultModel: event.target.value }))}>{availableModels.map((model) => <option key={model.id} value={model.id}>{model.name || model.id}</option>)}</select></label>
+          <label><span>默认供应商</span><select value={draft.defaultProvider} onChange={(event) => changeProvider(event.target.value)}>{selectableProviders.map((provider) => <option key={provider.id} value={provider.id}>{titleFromId(provider.id)} · {provider.id}{provider.models.length === 0 ? "（无模型）" : ""}</option>)}</select></label>
+          <label><span>默认模型</span><select value={draft.defaultModel} disabled={availableModels.length === 0} onChange={(event) => setDraft((current) => ({ ...current, defaultModel: event.target.value }))}>{availableModels.map((model) => <option key={model.id} value={model.id}>{model.name || model.id}</option>)}</select>{availableModels.length === 0 && <small>该供应商还没有模型。先为它添加模型，才能设为默认。</small>}</label>
           <label><span>默认思考强度</span><select value={draft.defaultThinkingLevel} onChange={(event) => setDraft((current) => ({ ...current, defaultThinkingLevel: event.target.value }))}>{["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((level) => <option key={level} value={level}>{level}</option>)}</select></label>
         </section>
         <section className="settings-card">
@@ -813,7 +844,7 @@ function SettingsScreen({ state, saving, error, onSave, onBack }) {
               ? `有 ${unwritten.length} 项默认值还没写入 settings.json`
               : "所有修改已写入 settings.json"}
         </span>
-        <button type="button" className="primary-button" disabled={saving || !dirty || !draft.defaultModel} onClick={() => onSave(draft)}>{saving ? <><Spinner />正在保存…</> : "保存设置"}</button>
+        <button type="button" className="primary-button" disabled={saving || !dirty || !draft.defaultModel || availableModels.length === 0} onClick={() => onSave(draft)}>{saving ? <><Spinner />正在保存…</> : "保存设置"}</button>
       </footer>
     </section>
   );
@@ -920,7 +951,8 @@ export function App() {
         forceAdaptiveThinking: model.forceAdaptiveThinking,
       })),
       setDefault,
-      defaultModelId: form.defaultModelId || form.models[0]?.id,
+      defaultModelId: (form.models.find((model) => model.rowId === form.defaultRowId && model.id.trim())
+        || form.models.find((model) => model.id.trim()))?.id.trim(),
       defaultThinkingLevel: form.defaultThinkingLevel,
       compat: form.compat,
     };
@@ -933,7 +965,7 @@ export function App() {
           baseUrl: payload.baseUrl,
           api: payload.api,
           credentialConfigured: true,
-          isDefault: true,
+          isDefault: setDefault,
           compat: payload.compat || {},
           models: payload.models.map((model) => ({
             id: model.id,
@@ -947,9 +979,16 @@ export function App() {
         };
         const demoState = {
           ...state,
-          providers: [...state.providers.filter((provider) => provider.id !== payload.providerId).map((provider) => ({ ...provider, isDefault: false })), demoProvider],
+          providers: [
+            ...state.providers
+              .filter((provider) => provider.id !== payload.providerId)
+              .map((provider) => ({ ...provider, isDefault: setDefault ? false : provider.isDefault })),
+            demoProvider,
+          ],
           authProviders: [...new Set([...state.authProviders, payload.providerId])],
-          settings: { ...state.settings, defaultProvider: payload.providerId, defaultModel: payload.defaultModelId, defaultThinkingLevel: payload.defaultThinkingLevel },
+          settings: setDefault
+            ? { ...state.settings, defaultProvider: payload.providerId, defaultModel: payload.defaultModelId, defaultThinkingLevel: payload.defaultThinkingLevel }
+            : state.settings,
         };
         setState(demoState);
         setSelectedId(payload.providerId);
@@ -959,6 +998,7 @@ export function App() {
           modelCount: payload.models.length,
           defaultModelId: payload.defaultModelId,
           defaultThinkingLevel: payload.defaultThinkingLevel,
+          setDefault,
           command: `pi --model ${payload.providerId}/${payload.defaultModelId}:${payload.defaultThinkingLevel}`,
         };
         setSaveResult(result);
@@ -976,6 +1016,7 @@ export function App() {
         modelCount: payload.models.length,
         defaultModelId: payload.defaultModelId,
         defaultThinkingLevel: payload.defaultThinkingLevel,
+        setDefault,
         command: `pi --model ${payload.providerId}/${payload.defaultModelId}:${payload.defaultThinkingLevel}`,
       });
       setView("success");
@@ -1036,7 +1077,7 @@ export function App() {
             <span className="skeleton skeleton-block" />
             <p>正在读取 Pi 配置…</p>
           </div>
-        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} />}</>}
+        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} />}</>}
       </section>
       <div className="toast-region" role="status" aria-live="polite">
         {toast && (
