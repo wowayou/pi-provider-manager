@@ -1,6 +1,6 @@
 # Design QA
 
-- Product version: `0.1.4`
+- Product version: `0.1.5`
 - Source visual truth: `design-reference.png` plus user acceptance screenshots for the settings, long-model-list, and post-save problems
 - Model editor screenshot: `qa/pi-provider-manager-v11-models.png`
 - Settings screenshot: `qa/pi-provider-manager-v11-settings.png`
@@ -60,7 +60,7 @@
 **Compatibility Evidence**
 
 - Installed Pi version detected as `0.84.2`.
-- Manager version reported as `0.1.4`.
+- Manager version reported as `0.1.5`.
 - Real state shows providers `any-codex` and `sota`, default `sota/claude-opus-5:high`, with no key field in API responses.
 - Single-process production launcher remains available after the launching shell exits.
 - Launcher identity-checks `/api/state`, automatically selects `43127-43146`, and does not reuse unrelated apps or stale Service Worker origins on Vite's common `4173` port.
@@ -184,5 +184,18 @@ Scope: a second set of token values. No layout, spacing, type, structure, or cop
 - Settings dirty gate across its lifecycle in both themes. It now starts enabled against the demo state, which lacks `transport` and `hideThinkingBlock`, and disables once those are written. That is the point of finding 3.
 - Full wizard to success with a real clipboard round trip in both themes, no console or page errors, no horizontal overflow at 420px.
 - `npm run build`, `npm run test:server`, and `npm run test:sites` pass.
+
+## Second Review Round
+
+A `/code-review high` pass over the whole of `main` (no diff to review, so the source itself was the target) returned twelve findings. Two were security issues shipped in 0.1.4 and recorded in GHSA-wqcr-r9hp-xrcx and GHSA-78m8-7gh8-qr33. Six functional findings were fixed in 0.1.5.
+
+**Root cause worth recording**
+
+Two of the six existed only because verification ran somewhere the product does not:
+
+- The "unwritten settings" indicator was checked in demo mode, where the fixture omits keys. Against the real server every key is normalized before it reaches the client, so the branch could never fire.
+- The pre-paint theme bootstrap was verified against the vite dev server, which sends no CSP. The production launcher does, and `script-src 'self'` blocked the script outright, restoring the wrong-theme flash it exists to prevent.
+
+Both now have server-side tests, so the gap is closed by CI rather than by remembering to switch environments. Verification of anything that touches the served page or the API should run against `server.mjs`, not only against `vite dev`.
 
 final result: passed
