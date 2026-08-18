@@ -18,6 +18,7 @@
     "dev:ui": "vite",
     "server": "node server.mjs",
     "check:pi-update": "node scripts/check-pi-update.mjs",
+    "test": "npm run test:server && npm run test:sites && npm run test:pi-update",
     "test:server": "node --test tests/server.test.mjs",
     "test:pi-update": "node --test tests/pi-update-monitor.test.mjs",
     "build": "vite build && node scripts/prepare-sites-build.mjs",

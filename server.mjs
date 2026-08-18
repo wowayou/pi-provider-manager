@@ -38,6 +38,9 @@ const ALLOWED_THINKING = new Set(["off", "minimal", "low", "medium", "high", "xh
 const ALLOWED_TRANSPORTS = new Set(["auto", "sse", "websocket"]);
 const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 const SETTINGS_KEYS = ["defaultProvider", "defaultModel", "defaultThinkingLevel", "hideThinkingBlock", "transport"];
+const CATALOG_TIMEOUT_MS = 8_000;
+const CATALOG_BODY_LIMIT = 2_000_000;
+const CATALOG_MODEL_LIMIT = 500;
 const PACKAGE_MANIFEST = JSON.parse(fs.readFileSync(path.join(PROJECT_DIR, "package.json"), "utf8"));
 const APP_VERSION = PACKAGE_MANIFEST.version;
 // The Pi release this manager was last validated against. Single source of truth:
@@ -243,6 +246,8 @@ function normalizeModel(model, providerApi) {
   if (model.api && ALLOWED_APIS.has(model.api) && model.api !== providerApi) {
     normalized.api = model.api;
   }
+  const modelBaseUrl = String(model.baseUrl || "").trim();
+  if (modelBaseUrl) normalized.baseUrl = normalizeUrl(modelBaseUrl);
   if (reasoning && maximumThinking === "xhigh") normalized.thinkingLevelMap = { xhigh: "xhigh" };
   if (reasoning && maximumThinking === "max") {
     normalized.thinkingLevelMap = { xhigh: "xhigh", max: "max" };
@@ -270,6 +275,7 @@ function mergeExistingModel(existing, normalized, submitted, providerApi) {
   const merged = { ...(isObject(existing) ? existing : {}), ...normalized };
   const inheritsProviderApi = !submitted.api || submitted.api === "inherit" || submitted.api === providerApi;
   if (inheritsProviderApi) delete merged.api;
+  if (!normalized.baseUrl) delete merged.baseUrl;
   if (!normalized.thinkingLevelMap) delete merged.thinkingLevelMap;
 
   const existingCompat = isObject(existing?.compat) ? existing.compat : {};
@@ -391,6 +397,213 @@ function saveSettings(payload) {
   settings.hideThinkingBlock = Boolean(payload.hideThinkingBlock);
   settings.transport = ALLOWED_TRANSPORTS.has(payload.transport) ? payload.transport : "auto";
   writeJsonAtomic(SETTINGS_PATH, settings);
+}
+
+function deleteProvider(providerIdInput) {
+  const providerId = String(providerIdInput || "").trim();
+  if (!PROVIDER_ID_PATTERN.test(providerId)) {
+    throw new Error("供应商 ID 无效。");
+  }
+  const auth = readJson(AUTH_PATH);
+  const models = readJson(MODELS_PATH);
+  const settings = readJson(SETTINGS_PATH);
+  const providers = isObject(models.providers) ? models.providers : {};
+  const hasProvider = Object.hasOwn(providers, providerId);
+  const hasCredential = Object.hasOwn(auth, providerId);
+  if (!hasProvider && !hasCredential) throw new Error("供应商不存在。");
+
+  if (hasProvider) delete providers[providerId];
+  if (hasCredential) delete auth[providerId];
+  models.providers = providers;
+
+  // Keep Pi's default pointed at a real model, or remove only the stale
+  // provider/model keys when the last configured gateway is deleted.
+  if (settings.defaultProvider === providerId) {
+    const fallback = Object.entries(providers).find(([, provider]) =>
+      isObject(provider) && Array.isArray(provider.models) && provider.models.some((model) => isObject(model) && typeof model.id === "string" && model.id.trim()),
+    );
+    const fallbackModel = fallback?.[1]?.models?.find((model) => isObject(model) && typeof model.id === "string" && model.id.trim());
+    if (fallback && fallbackModel) {
+      settings.defaultProvider = fallback[0];
+      settings.defaultModel = fallbackModel.id;
+    } else {
+      delete settings.defaultProvider;
+      delete settings.defaultModel;
+    }
+  }
+
+  const originals = new Map([
+    [MODELS_PATH, snapshot(MODELS_PATH)],
+    [AUTH_PATH, snapshot(AUTH_PATH)],
+    [SETTINGS_PATH, snapshot(SETTINGS_PATH)],
+  ]);
+  try {
+    writeJsonAtomic(MODELS_PATH, models);
+    writeJsonAtomic(AUTH_PATH, auth);
+    writeJsonAtomic(SETTINGS_PATH, settings);
+  } catch (error) {
+    for (const [filePath, bytes] of originals) restore(filePath, bytes);
+    throw error;
+  }
+}
+
+function catalogCredential(payload, auth) {
+  const providerId = String(payload.providerId || "").trim();
+  const credential = isObject(payload.credential) ? payload.credential : { mode: "keep" };
+  if (credential.mode === "new") {
+    const key = String(credential.apiKey || "").trim();
+    if (!key) throw new Error("请输入 API Key 后再检测连接。");
+    return key;
+  }
+  const source = credential.mode === "migrate"
+    ? String(credential.fromProvider || "")
+    : providerId;
+  if (!PROVIDER_ID_PATTERN.test(source) || !Object.hasOwn(auth, source) || !isObject(auth[source])) {
+    throw new Error("找不到可用于连接检测的已保存凭据。");
+  }
+  const key = String(auth[source].key || "").trim();
+  if (!key) throw new Error("已保存的凭据格式不支持连接检测，请输入新 key。");
+  return key;
+}
+
+function catalogEndpoint(api, baseUrlInput) {
+  const url = new URL(normalizeUrl(baseUrlInput));
+  let pathname = url.pathname.replace(/\/+$/, "");
+  if (/\/models$/i.test(pathname)) return url;
+  if (api === "anthropic-messages" && !/\/v\d+(?:beta)?$/i.test(pathname)) pathname += "/v1";
+  if (api === "google-generative-ai" && !/\/v\d+(?:beta)?$/i.test(pathname)) pathname += "/v1beta";
+  url.pathname = `${pathname}/models`.replace(/\/{2,}/g, "/");
+  return url;
+}
+
+function catalogHeaders(api, key) {
+  const headers = { Accept: "application/json" };
+  if (api === "anthropic-messages") {
+    headers["x-api-key"] = key;
+    headers["anthropic-version"] = "2023-06-01";
+  } else if (api === "google-generative-ai") {
+    headers["x-goog-api-key"] = key;
+  } else {
+    headers.Authorization = `Bearer ${key}`;
+  }
+  return headers;
+}
+
+async function readCatalogJson(response, controller) {
+  if (!response.body) throw new Error("网关返回了空响应。");
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > CATALOG_BODY_LIMIT) {
+        controller.abort();
+        throw new Error("模型目录响应超过 2 MB，已停止读取。");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new Error("网关的模型目录不是有效 JSON。");
+  }
+}
+
+function normalizeCatalogModels(value, api) {
+  const entries = Array.isArray(value?.data)
+    ? value.data
+    : Array.isArray(value?.models)
+      ? value.models
+      : [];
+  const seen = new Set();
+  const models = [];
+  for (const entry of entries) {
+    const sourceId = typeof entry === "string"
+      ? entry
+      : typeof entry?.id === "string"
+        ? entry.id
+        : typeof entry?.name === "string"
+          ? entry.name
+          : "";
+    const id = (api === "google-generative-ai" ? sourceId.replace(/^models\//, "") : sourceId).trim();
+    if (!id || id.length > 300 || seen.has(id)) continue;
+    seen.add(id);
+    const displayName = typeof entry?.displayName === "string"
+      ? entry.displayName
+      : typeof entry?.display_name === "string"
+        ? entry.display_name
+        : "";
+    models.push({ id, name: displayName.trim() || id });
+    if (models.length === CATALOG_MODEL_LIMIT) break;
+  }
+  return { models, truncated: entries.length > models.length && models.length === CATALOG_MODEL_LIMIT };
+}
+
+async function discoverCatalog(payload) {
+  if (!isObject(payload)) throw new Error("连接检测内容无效。");
+  const api = String(payload.api || "");
+  if (!ALLOWED_APIS.has(api)) throw new Error("请选择受支持的接口协议。");
+  const auth = readJson(AUTH_PATH);
+  const key = catalogCredential(payload, auth);
+  const endpoint = catalogEndpoint(api, payload.baseUrl);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CATALOG_TIMEOUT_MS);
+  const startedAt = Date.now();
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      method: "GET",
+      headers: catalogHeaders(api, key),
+      redirect: "manual",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    clearTimeout(timer);
+    if (error?.name === "AbortError") throw new Error("连接检测超过 8 秒，已停止请求。");
+    throw new Error(`无法连接网关：${error?.cause?.code || error.message}`);
+  }
+  if (response.status >= 300 && response.status < 400) {
+    await response.body?.cancel();
+    clearTimeout(timer);
+    throw new Error("网关返回了重定向；为避免转发凭据，请填写重定向后的最终 HTTPS 地址。");
+  }
+  if (response.status === 401 || response.status === 403) {
+    await response.body?.cancel();
+    clearTimeout(timer);
+    throw new Error("网关拒绝了凭据，请检查 API Key 和接口协议。");
+  }
+  if (response.status === 404) {
+    await response.body?.cancel();
+    clearTimeout(timer);
+    throw new Error("网关未提供该协议的模型目录；这不代表已手动配置的模型不可调用。");
+  }
+  if (!response.ok) {
+    await response.body?.cancel();
+    clearTimeout(timer);
+    throw new Error(`网关模型目录返回 HTTP ${response.status}。`);
+  }
+  let body;
+  try {
+    body = await readCatalogJson(response, controller);
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error("连接检测超过 8 秒，已停止请求。");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+  const result = normalizeCatalogModels(body, api);
+  return {
+    api,
+    endpoint: endpoint.toString(),
+    latencyMs: Date.now() - startedAt,
+    ...result,
+  };
 }
 
 function sendJson(response, status, value) {
@@ -525,9 +738,27 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, { ok: true, state: publicState() });
       return;
     }
+    if (request.method === "POST" && request.url === "/api/providers/discover") {
+      sendJson(response, 200, { ok: true, ...(await discoverCatalog(await readBody(request))) });
+      return;
+    }
+    if (request.method === "DELETE" && typeof request.url === "string") {
+      const parsed = new URL(request.url, "http://127.0.0.1");
+      const match = parsed.pathname.match(/^\/api\/providers\/([^/]+)$/);
+      if (match) {
+        deleteProvider(decodeURIComponent(match[1]));
+        sendJson(response, 200, { ok: true, state: publicState() });
+        return;
+      }
+    }
     if (request.method === "POST" && request.url === "/api/settings") {
       saveSettings(await readBody(request));
       sendJson(response, 200, { ok: true, state: publicState() });
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/service/stop") {
+      sendJson(response, 200, { ok: true });
+      setImmediate(() => server.close());
       return;
     }
     if (request.method === "GET" && SERVE_UI && !request.url.startsWith("/api/")) {

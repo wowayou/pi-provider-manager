@@ -16,12 +16,14 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - Never return an existing API key to the browser. The UI may show only whether a credential is configured.
 - The normal user should be able to finish setup without knowing context limits, cache settings, strict tools, or adaptive-thinking terminology.
 - Treat a provider as an API gateway/router similar to OpenRouter: one Base URL and credential can contain many upstream model families.
-- Keep a default wire protocol at provider level, while allowing an advanced per-model protocol override for gateways that expose mixed APIs.
+- Keep a default wire protocol and Base URL at provider level, while allowing advanced per-model protocol and Base URL overrides for gateways that expose mixed APIs or protocol-specific roots (for example OpenAI with `/v1` and Anthropic without it).
+- The detached launcher must provide and document `status` and clean `stop` commands; users should never need to discover or kill the process manually.
 - Settings must be a real screen, not a placeholder. It owns Pi defaults, thinking level, transport, thinking-block visibility, and compatibility status.
 - After saving, show a dedicated success/next-step screen with the exact Pi model command and `/model` guidance; do not leave the user at the bottom of the edit form.
 - Treat Pi as provider-scoped configuration plus model-centric runtime selection. Preserve unknown provider/model/settings fields to reduce breakage across Pi upgrades.
 - Keep Pi update detection in repository maintenance automation. It may compare stable release metadata and open a reminder, but must not add a Pi runtime dependency, make application startup depend on upstream availability, or advance `piValidatedVersion` without manual validation.
 - Optimize long model catalogs with a sticky header, internal scrolling, compact rows, and bulk model-ID import.
+- Remote connection checks and model-catalog discovery are explicit user actions only. They must never run during startup, config reads, builds, or saves, and they must not return credentials to the browser.
 - Public screenshots and documentation must not expose machine-specific home paths or credentials.
 
 ## Interaction and UI Conventions
@@ -30,11 +32,16 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - Use one focus treatment app-wide: a 2px `--orange` `:focus-visible` outline with 2px offset, and the `--ring` box-shadow on text fields. Never remove focus styling from an interactive element.
 - All motion uses the `--fast` / `--base` / `--ease` tokens and must degrade under `prefers-reduced-motion`; only progress indicators keep animating there.
 - Feedback must be truthful: a control may only show a success state after the underlying action actually succeeded. Clipboard writes can fail, so the copy control falls back to selecting the command and reports the failure in the error toast tone.
-- Destructive row actions arm on first click and delete on the second; they never delete on a single click and never open a dialog.
-- Keep repeated per-row helpers out of the model table. Bulk affordances belong in the section header so rows stay compact and long catalogs stay scannable.
+- Destructive model-row actions arm on first click and delete on the second. Provider-gateway deletion is the deliberate exception: it opens an accessible confirmation dialog that names the gateway and explains that its models and credential will be removed; the cancel action receives initial focus.
+- In the model catalog, every primary row control uses the same 42px top-aligned control rail and the header/rows share one grid template. Secondary annotations or contextual actions must never move one field off that rail.
+- Render all native selects through the shared `SelectControl` wrapper with the Phosphor `CaretDown`; do not recreate carets with CSS triangles or mix platform and product arrows. The native select remains the actual interactive element.
+- Keep repeated explanatory helper copy out of the model table. Bulk affordances belong in the section header; a row-specific corrective action may appear as a compact, titled icon inside its field so it does not change row metrics.
+- Keep the product inside one `100dvh` application frame: the document itself never scrolls, provider navigation and active-screen content scroll independently, and wizard/settings actions remain pinned inside the frame. On short phones, preserve the provider rail and yield space by removing only the optional provider filter.
+- Keep native `select` elements rather than simulated menu popovers so keyboard, screen-reader, and mobile picker behavior stays intact. Optimize their closed, hover, focus, open, disabled, and dark-theme visuals with shared tokens.
 - Do not hide primary navigation at narrow widths. The provider list becomes a horizontally scrollable rail below 860px rather than disappearing.
 - Every colour lives in a token on `:root`. Do not write a literal hex value in a rule; add or reuse a semantic token instead, otherwise dark mode silently breaks.
 - Dark is the same design at a second set of token values, never a second design. Layout, spacing, type, and structure are identical; only the palette differs. Orange fills keep their brand value, while orange used as text lightens to `--orange-dark` so it stays legible on dark panels.
+- Dark uses neutral graphite surfaces rather than brown-tinted neutrals: canvas, panel, raised, overlay, and field tokens must form visible elevation steps, borders stay quieter than fields, and orange is reserved for selection, focus, primary actions, and concise status accents.
 - Theme has three states: `system` (default), `light`, and `dark`. The resolved value is written to `document.documentElement.dataset.theme` by a pre-paint inline script in `index.html`, so the CSS only needs a `[data-theme="dark"]` block and the app never flashes the wrong theme. Keep that script in sync with the `ppm-theme` localStorage key.
 - Set `color-scheme` per theme so native selects, scrollbars, and search fields follow. Overlays step one surface lighter in dark via `--surface-overlay`.
 - Radios and checkboxes are drawn from our own tokens with `appearance: none` on the native input, so the two themes match. Keep the native input: it carries keyboard support, radio grouping, and form semantics that a `div` would have to reimplement.

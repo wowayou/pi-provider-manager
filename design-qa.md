@@ -202,3 +202,72 @@ Two of the six existed only because verification ran somewhere the product does 
 Both now have server-side tests, so the gap is closed by CI rather than by remembering to switch environments. Verification of anything that touches the served page or the API should run against `server.mjs`, not only against `vite dev`.
 
 final result: passed
+
+## Mixed Endpoint and Service Lifecycle — 2026-08-18
+
+- Added a model-level Base URL control beside the existing model-level protocol override. A mixed gateway can keep an OpenAI provider default ending in `/v1` while an Anthropic model uses the same host without `/v1`; both remain under one provider and credential.
+- Pi `0.84.2` accepted an isolated `mixed-fixture` with OpenAI and Anthropic models under one provider. Direct composition produced `https://gateway.invalid/v1` for the OpenAI model and `https://gateway.invalid` for the Anthropic model. The fixture used a dummy credential and `.invalid` host; no provider was contacted and no normal home config was touched.
+- The packaged UI was exercised against the current `server.mjs`, not the old process already running on the machine. At 1487×1058 and 420×900, the advanced protocol/address rows had no page-level overflow, console errors, page errors, or CSP violations. Selecting a protocol override without an address showed the endpoint warning; supplying the model address removed it and updated the compact row status.
+- The launcher completed `start → status → stop → status` on an isolated custom port, including the WSL hidden-launch path. The backward-compatible fallback also identity-checked and stopped the pre-upgrade `0.1.1` `server.mjs` that had no shutdown route; the current `0.1.7` production-shaped service was then started on `43127`.
+- `npm run build`, `npm run test:server`, `npm run test:sites`, and `npm run test:pi-update` passed; the server test covers model Base URL persistence and the shutdown endpoint.
+
+## Single-Viewport Interaction Pass — 2026-08-18
+
+**Interaction choice**
+
+- The browser document is fixed to one `100dvh` app frame. Provider navigation, wizard content, settings, success, and long model catalogs own explicit internal scroll regions instead of creating competing page-level scroll.
+- Step navigation and save/back actions stay visible while the active screen scrolls. This preserves location and prevents a long catalog or compatibility section from pushing the primary action below the viewport.
+- Dropdowns remain native `select` controls rather than custom popovers. Native controls retain arrow-key selection, screen-reader semantics, and mobile platform pickers; the visual layer now adds tokenized chevrons plus consistent hover, focus, open, disabled, light, and dark states.
+- On narrow screens the provider rail remains visible. Below 480px only the optional provider filter is removed to return vertical space to the active task; no primary navigation is hidden.
+
+**Browser evidence**
+
+- Production-shaped checks passed at `1487×1058`, `1366×768`, `900×1000`, `768×700`, `420×900`, and `360×640`: document width/height exactly matched the viewport, active content scrolled internally where required, and action footers stayed fully inside the frame.
+- The short-phone active-content viewport increased from `102px` to `198px` at `360×640`, and to `458px` at `420×900`, by compacting the persistent mobile navigation without removing the provider rail, Settings, or theme control.
+- Native dropdown keyboard selection was exercised with focus, ArrowDown, and Enter. The open menu, compact desktop layout, settings internal scroll, protocol and credential steps, and dark theme produced no console errors, page errors, or page-level overflow.
+- `npm run build` and the full `npm test` suite passed after the interaction change.
+
+## Model Catalog Alignment and Select Control Pass — 2026-08-18
+
+**Pattern applied**
+
+- The model editor now follows the established editable-data-grid pattern: header and rows share one column template, every primary field sits on one fixed-height control rail, and secondary annotations/actions occupy an overlay or a line below without participating in primary alignment.
+- Context capacity, maximum output, image capability, reasoning capability, and model ID controls are all `42px` high and top-aligned. The default radio and destructive action are centered against that same rail rather than against whichever cell happens to be tallest.
+- The per-row safe-value correction moved inside the context field as a titled icon action. It remains keyboard reachable after focusing the field but no longer adds `18px` to every row or shifts the context input upward.
+- Every dropdown now uses the shared `SelectControl`: the real native `select` remains responsible for focus, keyboard selection, accessibility, and mobile pickers, while one Phosphor `CaretDown` provides the product visual. CSS triangles and mixed arrow treatments were removed.
+
+**Measured evidence**
+
+- At `1487×1058`, all five editable controls in the first model row had the exact same top coordinate; measured control delta was `0px`.
+- Header and row column starts matched exactly across all eight grid columns; measured column delta was `0px`.
+- The normal model row returned to the intended `66px` height from the previous helper-inflated layout.
+- The same alignment held in light and dark themes and at `900×1000` and `420×900`. Native image-capability selection passed ArrowDown/Enter, the contextual safe-value action was reachable by Tab, settings rendered all four dropdowns through the same wrapper, and no console, page, or outer-overflow errors occurred.
+- `npm run build` and the full `npm test` suite passed after the control pass.
+
+## Gateway Lifecycle and Catalog Layout Review — 2026-08-19
+
+**Changes**
+
+- Advanced compatibility rows now keep the full model identifier readable, place protocol and Base URL overrides in a shared two-column field group, and scroll internally when a gateway has a long catalog. Blank values remain explicit inheritance from the gateway defaults.
+- The sidebar uses a fixed footer for the beginner tip, Settings, and theme controls. Provider rows retain the same navigation rail on phones, while the destructive gateway action appears on hover/focus or for the selected row.
+- Deleting a gateway requires two deliberate clicks. The server removes its model entry and matching credential atomically, repairs the default provider/model reference when another model exists, and clears stale default keys when the last gateway is removed.
+
+**Verification**
+
+- Built and served the packaged UI with `server.mjs` and `PI_PROVIDER_MANAGER_SERVE_UI=1`; checked the response CSP and `/api/state` boundary.
+- Reviewed the empty setup screen and model editor at desktop and phone viewport sizes. The document stayed within the fixed application frame; the provider rail and active content did not overlap.
+- Added server coverage for deleting a default gateway, fallback selection, credential removal, and deleting the last gateway. `npm test` passed.
+
+## Explicit Discovery, Delete Dialog, and Dark Palette — 2026-08-19
+
+**Interaction decisions**
+
+- Gateway connection and model-catalog discovery are one explicit action in the credential step. No request runs during startup, config reads, saves, builds, or when the step merely becomes visible. Results stay in the form until the user saves.
+- Provider deletion now uses an `alertdialog` because the action spans models, credentials, and global defaults. The dialog names the provider, lists the affected files and model count, focuses Cancel first, traps Tab, closes on Escape/backdrop, and returns focus to the sidebar trigger. Model-row deletion remains the compact two-click interaction.
+- The dark palette follows a neutral graphite elevation ramp: canvas, panel, field, raised surface, and overlay are visibly distinct without turning selected regions into large brown blocks. Orange remains on primary actions, focus, selected edges, and concise accents.
+
+**Boundary and browser evidence**
+
+- Server tests exercised OpenAI and Gemini catalog paths and authentication headers, duplicate normalization, redirect rejection, the response-size cap, credential non-disclosure, and byte-for-byte unchanged Pi config files after discovery.
+- Browser automation exercised dark desktop and `390x844` phone layouts. The dialog reported `role=alertdialog`, initial focus was Cancel, Escape removed it and returned focus to the delete trigger, and confirmed deletion removed one provider and showed the success toast.
+- The demo discovery returned three models, imported three new IDs, and increased the editable catalog from two rows to five. The phone document and dialog both reported zero horizontal overflow.

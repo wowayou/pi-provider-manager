@@ -16,12 +16,15 @@ To reduce breakage:
 
 1. Unknown top-level settings are preserved.
 2. Unknown provider properties are preserved.
-3. Unknown model properties such as future pricing, headers, sampling, or capability metadata are preserved when the same model ID is edited.
+3. Unknown model properties such as future pricing, headers, sampling, or capability metadata are preserved when the same model ID is edited; the owned model-level `api` and `baseUrl` fields can be explicitly set or cleared.
 4. Unknown model-level compatibility properties are preserved except fields the user explicitly changes.
 5. Files are parsed and validated before replacement.
 6. Multi-file provider updates roll back if any write fails.
 7. The config directory follows Pi's own precedence: `PI_CODING_AGENT_DIR`, then `~/.pi/agent`.
 8. Project path, port, Node binary, browser opening, and WSL distribution are discovered or explicitly overridable; the network host remains loopback-only.
+9. Provider deletion removes the matching `models.json.providers` entry and `auth.json` credential in one rollback-protected operation, and repairs or clears Pi's default provider/model reference.
+
+Remote catalog discovery is a gateway convenience, not a Pi compatibility claim. A successful catalog response proves only that the configured credential can read that endpoint; a missing or unsupported catalog endpoint does not prove that manually configured inference models are unusable. Catalog results enter the editable form and are written only through the normal validated provider save.
 
 ## Update monitoring
 
@@ -55,7 +58,7 @@ Forward preservation cannot solve semantic or structural changes. A manager rele
 - config file locations or root object structure
 - provider credential/auth entry schema
 - supported API identifiers
-- provider/model merge semantics
+- provider/model API and Base URL inheritance or override semantics
 - thinking-level names or mapping behavior
 - model capability fields
 - default settings keys or valid values
@@ -70,7 +73,7 @@ Forward preservation cannot solve semantic or structural changes. A manager rele
 5. Repeat the relevant browser scenarios from `design-qa.md` against `/?demo=1` with Playwright or equivalent browser automation. The repository does not currently bundle a browser-test command.
 6. Serve the built page with `PI_PROVIDER_MANAGER_SERVE_UI=1 node server.mjs` and exercise the real page/API boundary with a temporary `PI_CODING_AGENT_DIR`.
 7. With the released Pi installed, add a fake provider through the manager in that temporary directory. Point it at a non-routable URL and use a dummy key; do not contact a provider.
-8. Point Pi at the same directory and verify the model schema directly with `PI_CODING_AGENT_DIR=<temporary-directory> PI_OFFLINE=1 pi --list-models <provider>`. If running an interactive smoke test, also confirm it appears in `/model`.
+8. Point Pi at the same directory and verify the model schema directly with `PI_CODING_AGENT_DIR=<temporary-directory> PI_OFFLINE=1 pi --list-models <provider>`. If running an interactive smoke test, also confirm it appears in `/model`. For a mixed-protocol change, inspect the composed model or make isolated requests to confirm each model receives its own effective Base URL; listing the model alone does not prove endpoint routing.
 9. Record the dated result in `design-qa.md`, including the Pi and manager versions but no machine path or credential.
 10. Update only `piValidatedVersion` in `package.json` after every check passes.
 11. State the validated Pi version in the release notes. Every release says which Pi it was checked against, so a user on a newer Pi can tell how far ahead they are.

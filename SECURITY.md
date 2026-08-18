@@ -15,6 +15,7 @@ The browser is not trusted merely because the API listens on localhost: any page
 - Request bodies are capped at 1 MB, and provider IDs, credential migration sources, URLs, protocols, models, and settings are validated before use.
 - Config writes use private permissions where supported.
 - Provider updates validate temporary JSON files and roll back multi-file failures.
+- Remote model-catalog requests happen only after an explicit UI action. They time out, cap response size, do not follow redirects, and never include an existing credential in the browser response.
 - `models-store.json` is never read or written.
 
 Do not relax the `Host` or JSON requirements to accommodate a new client without replacing them with an equally strong, tested authorization design. Security regression tests in `tests/server.test.mjs` must exercise real cross-origin-style and raw-`Host` requests; browser `fetch()` cannot set `Host` and is not a valid DNS-rebinding test.

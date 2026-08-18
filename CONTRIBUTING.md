@@ -9,10 +9,13 @@ Thanks for helping improve Pi Provider Manager.
 3. Preserve unknown Pi config fields unless the change is an explicit migration.
 4. Keep the UI beginner-facing; advanced compatibility options belong behind a disclosure.
 5. Document the Pi version used for schema-sensitive changes.
+6. Mock gateway catalog endpoints with a loopback server and fake credentials; never use a real provider key in tests, fixtures, screenshots, or review logs.
 
 Read [docs/architecture.md](docs/architecture.md) before changing component boundaries, the local API, or build/hosting behavior. Read [docs/compatibility.md](docs/compatibility.md) before changing Pi-facing schemas or processing an automated Pi update reminder.
 
-Use the vocabulary in the architecture guide consistently: a provider is one Pi API gateway entry and may contain several upstream model families; a model is selected as `provider/model`; API means the wire-protocol identifier; thinking level is separate from the model ID.
+Use the vocabulary in the architecture guide consistently: a provider is one Pi API gateway entry (供应商网关) and may contain several upstream model families (上游厂商); a model is selected as `provider/model`; API means the wire-protocol identifier; Base URL means the endpoint root; thinking level is separate from the model ID.
+
+For finite option lists, use the shared `SelectControl` wrapper around a native `select`. Do not replace it with a simulated menu popover. Native radio groups remain appropriate when choices should be visible, and text inputs remain appropriate for search or bulk import.
 
 ## Documentation consistency
 

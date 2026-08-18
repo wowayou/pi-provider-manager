@@ -9,16 +9,34 @@ The project does not:
 - proxy model traffic or sit between Pi and a provider
 - replace Pi's model selector, session state, or runtime
 - copy Pi source code or depend on a Pi package at runtime
-- discover remote model catalogs without an explicit future feature and user consent
+- discover remote model catalogs automatically or without an explicit user action
 - expose the local management API beyond loopback
 
 ## Vocabulary
 
-- **Provider / API gateway**: one entry under `models.json.providers`. It owns one Base URL, one credential, and one default wire protocol, and it may expose models from several upstream model families. In this project, "provider" does not necessarily mean one model vendor.
-- **Model**: a provider-scoped model ID. Pi selects it at runtime as `provider/model`; thinking level remains a separate setting or command suffix.
+- **Provider / API gateway**: one entry under `models.json.providers`. It owns one default Base URL, one credential, and one default wire protocol, and it may expose models from several upstream model families. In this project, "provider" does not necessarily mean one model vendor. Chinese user-facing copy calls it "供应商网关"; "上游厂商" is reserved for the model families behind that gateway.
+- **Model**: a provider-scoped model ID. Pi selects it at runtime as `provider/model`; thinking level remains a separate setting or command suffix. A model may override both API and Base URL when one gateway uses protocol-specific endpoint roots.
 - **API / wire protocol**: one of Pi's supported protocol identifiers, currently `openai-responses`, `openai-completions`, `anthropic-messages`, or `google-generative-ai`. A provider sets the default and a model may override it.
+- **Base URL / API 基础地址**: the protocol endpoint root, not a concrete request path. The UI may label it "API 地址" for beginners, while technical documentation uses "Base URL"; both refer to the same provider or model field.
+- **Model catalog / 模型目录**: the remote list endpoint used by an explicit connection check. It is an optional import aid, not a source of truth and not evidence that inference itself will succeed.
 - **Validated Pi version**: the release in `package.json.piValidatedVersion` that completed the compatibility checklist. It is not the same as the Pi version detected on a user's machine.
 - **Latest release versus `main`**: GitHub tags and Releases define what has shipped. `main` may contain additional work under `CHANGELOG.md`'s `Unreleased` section even while `package.json.version` still matches the latest release.
+
+## Gateway configuration decisions
+
+The UI keeps the gateway-level path simple for beginners and exposes detail only where it changes runtime behavior:
+
+- The provider owns one credential, one default wire protocol, and one default Base URL. A provider is an API gateway entry and may contain models from many upstream vendors.
+- A model inherits both provider values by default. Its advanced override is explicit: leaving a field blank preserves inheritance, and changing the protocol never rewrites or guesses the URL.
+- Base URLs are endpoint roots, not concrete request paths. OpenAI-compatible roots commonly include `/v1`; Anthropic roots commonly do not because the client appends `/v1/messages`.
+- The model catalog uses a sticky header, an internal scroll region, bulk ID import, and a two-column advanced override list so long catalogs remain scannable without changing the application frame height.
+- Remote catalog discovery is an explicit, non-writing action. The server derives the protocol-specific model-list endpoint, uses the submitted or stored credential without serializing it back, rejects redirects, caps time and response size, and returns only normalized model IDs and display names.
+- Deleting a provider uses an accessible confirmation dialog. The loopback API removes the provider entry and matching credential atomically, then selects the first remaining model as the default or removes stale default-provider/model keys when none remain.
+
+## Interaction decisions
+
+- Finite option lists use the shared `SelectControl`: it wraps the real native `select` and adds the product's tokenized `CaretDown` and theme states. The native element remains responsible for keyboard navigation, screen-reader semantics, disabled state, and the mobile platform picker.
+- `SelectControl` is not a requirement for every choice interaction. Protocol cards and the light/system/dark theme switch use native radio groups because the options are visible and mutually exclusive; search and bulk model import use text inputs. A custom combobox or menu popover would only be justified by a future requirement such as searchable, multi-select catalog filtering, and would need an explicit accessibility and mobile-behavior review.
 
 ## Runtime shapes
 
@@ -28,6 +46,7 @@ flowchart LR
   Server -->|read/write| Auth[auth.json]
   Server -->|read/write| Models[models.json]
   Server -->|read/write| Settings[settings.json]
+  Server -->|explicit model catalog GET| Gateway[Configured API gateway]
   Server -.->|read-only version command| Pi[Installed Pi CLI]
   Sites[Static Sites artifact] -->|preview assets only| Preview[Browser preview]
 
@@ -48,8 +67,8 @@ Only `server.mjs` writes Pi configuration, in the first two paths. Demo mode and
 | Path | Responsibility | Explicitly does not own |
 | --- | --- | --- |
 | `src/` | React workflow, validation feedback, demo fixture, theme, and save handoff | filesystem access, stored credentials, provider traffic |
-| `server.mjs` | loopback API, Pi version detection, config validation, atomic writes, rollback, static production serving | remote provider requests, model execution, update monitoring |
-| `bin/pi-provider-manager-ui` | WSL/local process discovery, port selection, detached launch, browser opening | configuration schema or UI state |
+| `server.mjs` | loopback API, explicit remote catalog reads, Pi version detection, config validation, atomic writes, rollback, static production serving | model execution, automatic catalog reads, update monitoring |
+| `bin/pi-provider-manager-ui` | WSL/local process discovery, port selection, detached launch, status, clean shutdown, and browser opening | configuration schema or UI state |
 | `scripts/dev.mjs` | paired Vite and API development processes | production verification |
 | `worker/index.js` | static asset and app-route fallback for Sites packaging | `/api` implementation or Pi config access |
 | `scripts/check-pi-update.mjs` | compare the declared compatibility baseline with the latest stable Pi release and maintain one reminder issue | application startup, builds, Pi installation, automatic baseline changes |
@@ -61,7 +80,7 @@ Only `server.mjs` writes Pi configuration, in the first two paths. Demo mode and
 | File | Access | Manager-owned behavior |
 | --- | --- | --- |
 | `auth.json` | read/write | stores new or migrated provider credentials; existing values never enter browser responses |
-| `models.json` | read/write | edits providers, models, protocol selection, and known compatibility fields while preserving unknown fields |
+| `models.json` | read/write | edits providers, models, default and per-model protocol/Base URL selection, and known compatibility fields while preserving unknown fields |
 | `settings.json` | read/write | edits `defaultProvider`, `defaultModel`, `defaultThinkingLevel`, `hideThinkingBlock`, and `transport`; preserves other keys |
 | `models-store.json` | none | intentionally never read or written |
 
@@ -80,6 +99,7 @@ Required invariants:
 - never serialize an existing credential to the browser
 - cap request bodies and validate provider IDs, URLs, protocols, models, and settings
 - serve the pre-paint theme script under a hash-based CSP in production
+- run remote catalog reads only after explicit same-origin user action; never follow credential-bearing redirects, return credentials, or treat catalog failure as proof that inference is unavailable
 
 Changes to these rules require exercising real requests against `PI_PROVIDER_MANAGER_SERVE_UI=1 node server.mjs`; source inspection and Vite-only checks are not sufficient.
 

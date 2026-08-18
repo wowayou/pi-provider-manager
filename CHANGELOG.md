@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Added explicit, non-writing gateway connection checks and protocol-aware remote model-catalog discovery. Requests use server-held credentials without returning them, reject redirects, time out, cap response size, and let users deduplicate results into the form before saving.
+- Replaced the sidebar gateway's two-click delete interaction with an accessible confirmation dialog that names the affected models and credential, focuses Cancel first, traps focus, supports Escape, and reports the atomic result truthfully.
+- Rebalanced the dark theme around neutral graphite elevation steps, clearer field and border contrast, and restrained orange accents instead of the previous brown-heavy surfaces.
+- Added server-side provider-gateway deletion with atomic cleanup of the provider entry, credential, and stale default reference.
+- Reworked the Advanced compatibility section so model IDs remain readable, protocol and Base URL overrides use a wider shared layout, and long catalogs scroll inside the panel.
+- Tightened the sidebar hierarchy and spacing, keeping provider navigation, destructive actions, Settings, and theme controls reachable in the fixed application frame and on narrow rails.
+- Documented the provider-as-gateway configuration guidance and aligned the Chinese and English vocabulary across the README, architecture, and compatibility policy.
+- Aligned every model-row control to a shared 42px top rail and exact header grid, so context capacity, output, capability selects, defaults, and row actions no longer shift when one cell has helper text.
+- Replaced CSS-triangle dropdown arrows with one shared native-select wrapper using the same Phosphor caret as the rest of the product. The contextual per-row safe-value action now sits inside the context field instead of increasing row height.
+- Documented the shared vocabulary: provider means a 供应商网关, upstream vendor means the model family behind it, Base URL means the endpoint root, and SelectControl is reserved for finite native-select options while visible radio choices and text inputs keep their own semantics.
+- Reworked the app into a single-viewport frame with independent provider/content scrolling and pinned wizard/settings actions; the document no longer scrolls at desktop, tablet, or phone sizes.
+- Refined native dropdowns with tokenized chevrons and hover, focus, open, disabled, dark-theme, and scrollbar states while preserving platform keyboard, screen-reader, and mobile-picker behavior.
+- Added a documented `status`/`stop` lifecycle to the detached launcher and a same-origin, loopback-only clean-shutdown endpoint, so users no longer have to find and kill the background process manually. The launcher can also identity-check and stop a pre-upgrade `server.mjs` that does not yet expose the endpoint.
+- Added model-level Base URL overrides alongside protocol overrides. Mixed gateways can now use an OpenAI default ending in `/v1` and an Anthropic model endpoint without `/v1` while keeping one provider and credential.
 - Aligned the English and Chinese project guides, architecture vocabulary, security boundary, Pi compatibility runbook, contribution rules, and handoff around shared sources of truth.
 - Updated the GitHub checkout and Node setup actions to their Node 24-based releases after GitHub deprecated the actions' Node 20 runtime.
 - Added a daily, maintenance-only Pi release monitor that opens or refreshes one owner-assigned compatibility issue without adding a Pi runtime dependency or advancing the validated baseline.

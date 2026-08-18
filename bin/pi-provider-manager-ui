@@ -22,6 +22,103 @@ if [[ -z "$node_bin" ]]; then
 fi
 open_browser="${PI_PROVIDER_MANAGER_OPEN_BROWSER:-1}"
 log_file="$agent_dir/pi-provider-manager-ui.log"
+command_name="${1:-start}"
+
+case "$command_name" in
+  start|stop|status) ;;
+  *)
+    echo "Usage: pi-provider-manager-ui [start|stop|status]" >&2
+    exit 1
+    ;;
+esac
+
+if ! command -v curl >/dev/null 2>&1 || ! command -v timeout >/dev/null 2>&1; then
+  echo "curl and timeout are required to discover and control Pi Provider Manager." >&2
+  exit 1
+fi
+
+is_manager_port() {
+  curl --silent --fail --max-time 1 "http://127.0.0.1:$1/api/state" 2>/dev/null |
+    grep --quiet '"configMode":"preserve-unknown-fields"'
+}
+
+port_in_use() {
+  if command -v ss >/dev/null 2>&1; then
+    ss -H -ltn "sport = :$1" 2>/dev/null | grep --quiet .
+    return
+  fi
+  timeout 1 bash -c "echo >/dev/tcp/127.0.0.1/$1" >/dev/null 2>&1
+}
+
+if [[ -n "${PI_PROVIDER_MANAGER_PORT:-}" ]] && { [[ ! "$PI_PROVIDER_MANAGER_PORT" =~ ^[0-9]+$ ]] || (( PI_PROVIDER_MANAGER_PORT < 1 || PI_PROVIDER_MANAGER_PORT > 65535 )); }; then
+  echo "PI_PROVIDER_MANAGER_PORT must be an integer between 1 and 65535." >&2
+  exit 1
+fi
+
+if [[ "$command_name" == "status" || "$command_name" == "stop" ]]; then
+  manager_ports=()
+  if [[ -n "${PI_PROVIDER_MANAGER_PORT:-}" ]]; then
+    is_manager_port "$PI_PROVIDER_MANAGER_PORT" && manager_ports+=("$PI_PROVIDER_MANAGER_PORT")
+  else
+    for candidate in $(seq 43127 43146); do
+      if port_in_use "$candidate" && is_manager_port "$candidate"; then
+        manager_ports+=("$candidate")
+      fi
+    done
+  fi
+
+  if [[ ${#manager_ports[@]} -eq 0 ]]; then
+    echo "Pi Provider Manager is not running."
+    exit 0
+  fi
+
+  if [[ "$command_name" == "status" ]]; then
+    for manager_port in "${manager_ports[@]}"; do
+      echo "Pi Provider Manager is running: http://127.0.0.1:${manager_port}/"
+    done
+    exit 0
+  fi
+
+  failed=0
+  for manager_port in "${manager_ports[@]}"; do
+    if ! curl --silent --fail --max-time 2 \
+      --request POST --header "Content-Type: application/json" --data '{}' \
+      "http://127.0.0.1:${manager_port}/api/service/stop" >/dev/null; then
+      # Releases before the shutdown endpoint can still be running when a user
+      # installs the new launcher. Identity was verified above; additionally
+      # require the listening process to be a server.mjs command before TERM.
+      legacy_stopped=0
+      if command -v fuser >/dev/null 2>&1; then
+        legacy_pids="$(fuser -n tcp "$manager_port" 2>/dev/null || true)"
+        for legacy_pid in $legacy_pids; do
+          [[ -r "/proc/${legacy_pid}/cmdline" ]] || continue
+          legacy_command="$(tr '\0' ' ' <"/proc/${legacy_pid}/cmdline")"
+          if [[ "$legacy_command" == *"server.mjs"* ]]; then
+            kill -TERM "$legacy_pid" 2>/dev/null || true
+            legacy_stopped=1
+          fi
+        done
+      fi
+      if [[ "$legacy_stopped" -ne 1 ]]; then
+        echo "Failed to stop Pi Provider Manager on port ${manager_port}." >&2
+        echo "The service may be from an older release; install 'fuser' or stop its server.mjs process manually." >&2
+        failed=1
+        continue
+      fi
+    fi
+    for _ in $(seq 1 30); do
+      port_in_use "$manager_port" || break
+      sleep 0.1
+    done
+    if port_in_use "$manager_port"; then
+      echo "Pi Provider Manager on port ${manager_port} did not exit." >&2
+      failed=1
+    else
+      echo "Stopped Pi Provider Manager on port ${manager_port}."
+    fi
+  done
+  exit "$failed"
+fi
 
 if [[ -z "$node_bin" || ! -x "$node_bin" ]]; then
   echo "Node.js executable not found. Set PI_PROVIDER_MANAGER_NODE explicitly." >&2
@@ -37,15 +134,6 @@ if [[ ! -f "$project_dir/dist/client/index.html" ]]; then
   echo "Built UI not found. Run 'npm ci && npm run build' in: $project_dir" >&2
   exit 1
 fi
-
-is_manager_port() {
-  curl --silent --fail --max-time 1 "http://127.0.0.1:$1/api/state" 2>/dev/null |
-    grep --quiet '"configMode":"preserve-unknown-fields"'
-}
-
-port_in_use() {
-  (echo >"/dev/tcp/127.0.0.1/$1") >/dev/null 2>&1
-}
 
 if [[ -n "${PI_PROVIDER_MANAGER_PORT:-}" ]]; then
   port="$PI_PROVIDER_MANAGER_PORT"

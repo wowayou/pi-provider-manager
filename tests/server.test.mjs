@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
@@ -136,6 +136,7 @@ test("writes router-style providers without exposing credentials", async () => {
             reasoning: true,
             maximumThinking: "max",
             api: "anthropic-messages",
+            baseUrl: "https://router.example",
           },
           {
             id: "openai/gpt-router",
@@ -160,12 +161,35 @@ test("writes router-style providers without exposing credentials", async () => {
     assert.equal(createBody.state.providers[0].models.length, 2);
     assert.equal(createBody.state.providers[0].credentialConfigured, true);
 
+    const unsafeModelUrlResponse = await fetch(`${baseUrl}/api/providers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        providerId: "any-router",
+        baseUrl: "https://router.example/v1",
+        api: "openai-completions",
+        credential: { mode: "keep" },
+        models: [{
+          id: "unsafe-model",
+          contextWindow: 128000,
+          maxTokens: 16000,
+          api: "anthropic-messages",
+          baseUrl: "http://gateway.example",
+        }],
+        setDefault: false,
+      }),
+    });
+    assert.equal(unsafeModelUrlResponse.status, 400);
+    assert.match((await unsafeModelUrlResponse.json()).error, /HTTPS/);
+
     const auth = JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"));
     const models = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
     const settings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
     assert.equal(auth["any-router"].key, "test-secret-not-real");
     assert.equal(models.providers["any-router"].models.length, 2);
     assert.equal(models.providers["any-router"].models[0].api, "anthropic-messages");
+    assert.equal(models.providers["any-router"].models[0].baseUrl, "https://router.example");
+    assert.equal(createBody.state.providers[0].models[0].baseUrl, "https://router.example");
     assert.equal(models.providers["any-router"].futureProviderField, "keep-provider");
     assert.equal(models.providers["any-router"].models[0].futureModelField, "keep-model");
     assert.deepEqual(models.providers["any-router"].models[0].cost, { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 });
@@ -218,12 +242,152 @@ test("writes router-style providers without exposing credentials", async () => {
     assert.equal(updatedSettings.hideThinkingBlock, true);
     assert.equal(updatedSettings.transport, "websocket");
     assert.equal(updatedSettings.futureSetting, "keep-setting");
+
+    const deleteDefaultResponse = await fetch(`${baseUrl}/api/providers/new-router`, { method: "DELETE" });
+    assert.equal(deleteDefaultResponse.status, 200);
+    const afterDefaultDelete = await deleteDefaultResponse.json();
+    assert.equal(afterDefaultDelete.state.providers.some((provider) => provider.id === "new-router"), false);
+    assert.equal(afterDefaultDelete.state.providers.some((provider) => provider.id === "any-router"), true);
+    const fallbackSettings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+    assert.equal(fallbackSettings.defaultProvider, "any-router");
+    assert.equal(fallbackSettings.defaultModel, "anthropic/claude-opus");
+    assert.equal(JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"))["new-router"], undefined);
+
+    const deleteLastResponse = await fetch(`${baseUrl}/api/providers/any-router`, { method: "DELETE" });
+    assert.equal(deleteLastResponse.status, 200);
+    const finalSettings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+    assert.equal(finalSettings.defaultProvider, undefined);
+    assert.equal(finalSettings.defaultModel, undefined);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8")).providers["any-router"], undefined);
   } finally {
     child.kill("SIGTERM");
     fs.rmSync(agentDir, { recursive: true, force: true });
   }
 });
 
+test("discovers remote model catalogs only on explicit requests without mutating config", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-provider-discovery-"));
+  const authPath = path.join(agentDir, "auth.json");
+  const modelsPath = path.join(agentDir, "models.json");
+  const settingsPath = path.join(agentDir, "settings.json");
+  fs.writeFileSync(authPath, JSON.stringify({ router: { type: "api_key", key: "stored-catalog-secret" } }));
+  fs.writeFileSync(modelsPath, JSON.stringify({ providers: { router: { api: "openai-responses", baseUrl: "https://gateway.invalid/v1", models: [] } } }));
+  fs.writeFileSync(settingsPath, JSON.stringify({ futureSetting: "keep" }));
+  const originals = new Map([
+    [authPath, fs.readFileSync(authPath, "utf8")],
+    [modelsPath, fs.readFileSync(modelsPath, "utf8")],
+    [settingsPath, fs.readFileSync(settingsPath, "utf8")],
+  ]);
+  const gatewayPort = await freePort();
+  const gatewayRequests = [];
+  const gateway = http.createServer((request, response) => {
+    gatewayRequests.push({ url: request.url, headers: request.headers });
+    response.setHeader("Content-Type", "application/json");
+    if (request.url === "/v1/models") {
+      response.end(JSON.stringify({ data: [{ id: "gpt-one" }, { id: "gpt-two" }, { id: "gpt-one" }] }));
+      return;
+    }
+    if (request.url === "/v1beta/models") {
+      response.end(JSON.stringify({ models: [{ name: "models/gemini-pro", displayName: "Gemini Pro" }] }));
+      return;
+    }
+    if (request.url === "/redirect/models") {
+      response.statusCode = 302;
+      response.setHeader("Location", `http://127.0.0.1:${gatewayPort}/redirect-target`);
+      response.end(JSON.stringify({ redirected: true }));
+      return;
+    }
+    if (request.url === "/huge/models") {
+      response.end(JSON.stringify({ data: [{ id: "x".repeat(2_100_000) }] }));
+      return;
+    }
+    response.statusCode = 404;
+    response.end(JSON.stringify({ error: "missing" }));
+  });
+  await new Promise((resolve, reject) => {
+    gateway.once("error", reject);
+    gateway.listen(gatewayPort, "127.0.0.1", resolve);
+  });
+
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+    cwd: projectRoot,
+    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+    const openAiResponse = await fetch(`${baseUrl}/api/providers/discover`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        providerId: "router",
+        api: "openai-responses",
+        baseUrl: `http://127.0.0.1:${gatewayPort}/v1`,
+        credential: { mode: "keep" },
+      }),
+    });
+    assert.equal(openAiResponse.status, 200);
+    const openAiBody = await openAiResponse.json();
+    assert.deepEqual(openAiBody.models.map((model) => model.id), ["gpt-one", "gpt-two"]);
+    assert.equal(JSON.stringify(openAiBody).includes("stored-catalog-secret"), false);
+    assert.equal(gatewayRequests[0].url, "/v1/models");
+    assert.equal(gatewayRequests[0].headers.authorization, "Bearer stored-catalog-secret");
+
+    const googleResponse = await fetch(`${baseUrl}/api/providers/discover`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        providerId: "router",
+        api: "google-generative-ai",
+        baseUrl: `http://127.0.0.1:${gatewayPort}`,
+        credential: { mode: "keep" },
+      }),
+    });
+    assert.equal(googleResponse.status, 200);
+    const googleBody = await googleResponse.json();
+    assert.deepEqual(googleBody.models, [{ id: "gemini-pro", name: "Gemini Pro" }]);
+    assert.equal(gatewayRequests[1].url, "/v1beta/models");
+    assert.equal(gatewayRequests[1].headers["x-goog-api-key"], "stored-catalog-secret");
+
+    const redirectResponse = await fetch(`${baseUrl}/api/providers/discover`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        providerId: "router",
+        api: "openai-completions",
+        baseUrl: `http://127.0.0.1:${gatewayPort}/redirect`,
+        credential: { mode: "keep" },
+      }),
+    });
+    assert.equal(redirectResponse.status, 400);
+    assert.match((await redirectResponse.json()).error, /重定向/);
+    assert.equal(gatewayRequests.length, 3);
+
+    const oversizedResponse = await fetch(`${baseUrl}/api/providers/discover`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        providerId: "router",
+        api: "openai-completions",
+        baseUrl: `http://127.0.0.1:${gatewayPort}/huge`,
+        credential: { mode: "keep" },
+      }),
+    });
+    assert.equal(oversizedResponse.status, 400);
+    assert.match((await oversizedResponse.json()).error, /2 MB/);
+
+    for (const [filePath, original] of originals) {
+      assert.equal(fs.readFileSync(filePath, "utf8"), original);
+    }
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise((resolve) => gateway.close(resolve));
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
 
 test("rejects cross-origin and rebound requests, and bogus credential sources", async () => {
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-security-"));
@@ -311,7 +475,7 @@ test("rejects cross-origin and rebound requests, and bogus credential sources", 
   }
 });
 
-test("reports which settings keys exist and allows the theme bootstrap through CSP", async () => {
+test("reports settings presence, allows the theme bootstrap, and stops cleanly", async () => {
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-state-"));
   fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({}));
   fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({ providers: {} }));
@@ -355,6 +519,19 @@ test("reports which settings keys exist and allows the theme bootstrap through C
       assert.ok(policy.includes(`'sha256-${digest}'`), "CSP must allow the inline bootstrap by hash");
     }
     assert.ok(!policy.includes("unsafe-inline") || !/script-src[^;]*unsafe-inline/.test(policy));
+
+    const exited = new Promise((resolve) => child.once("exit", resolve));
+    const stopResult = spawnSync("bash", [path.join(projectRoot, "bin", "pi-provider-manager-ui"), "stop"], {
+      cwd: projectRoot,
+      encoding: "utf8",
+      env: serverEnv({ PI_PROVIDER_MANAGER_PORT: String(port) }),
+    });
+    assert.equal(stopResult.status, 0, stopResult.stderr);
+    assert.match(stopResult.stdout, new RegExp(`Stopped Pi Provider Manager on port ${port}`));
+    await Promise.race([
+      exited,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Server did not stop.")), 3000)),
+    ]);
   } finally {
     child.kill();
     fs.rmSync(agentDir, { recursive: true, force: true });
