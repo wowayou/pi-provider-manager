@@ -47,10 +47,13 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 Read this section first, then `design-qa.md` for how the UI got to its current
 form and what has already been reviewed.
 
-**Where things are.** `main` is at `v0.1.6`. Releases `v0.1.2` through `v0.1.6`
-are tagged and published. The published sequence was: interaction and UI polish
-plus a dark theme, a dependency and test-infrastructure release, a security
-release, then two releases closing the findings of a full code review.
+**Where things are.** `main` is at `v0.1.7`. Releases `v0.1.2` through `v0.1.7`
+are tagged and published. The sequence was: interaction and UI polish plus a
+dark theme, a dependency and test-infrastructure release, a security release,
+two releases closing the findings of a full code review, and one surfacing the
+validated Pi version in the app. Every checklist item required before the first
+public push is now done; three optional ones remain in
+`OPEN_SOURCE_CHECKLIST.md`.
 
 **How to land changes.** `main` is protected and the rules apply to
 administrators, so there is no direct push. Open a branch, open a pull request,
