@@ -213,3 +213,4 @@ final result: passed
 - All six rows stayed exactly `85px` high while armed and unarmed. The model ID, context, output, image, and reasoning controls had identical top coordinates within every row; arming caused zero geometry shift.
 - Confirmed deletion followed by 撤销 restored the original index and selected default. Browser console/page errors: zero.
 - At `420 x 900`, page-level horizontal overflow was zero, the toast fit inside the viewport, and it did not intersect the save action.
+- The same production-shaped flow is automated by `npm run test:ui` in a dedicated Node 22 browser job, and `ci-passed` depends on that job as well as the Node test matrix.

@@ -73,9 +73,10 @@ READMEs aligned.
 administrators, so there is no direct push. Open a branch, open a pull request,
 let the required `ci-passed` check go green, then merge with a rebase to keep
 history linear. `ci-passed` is a single aggregate job that depends on the whole
-Node matrix; require that check and never the individual matrix jobs, because a
-required check naming a Node version disappears the moment the matrix changes
-and then blocks every pull request with no visible cause.
+Node matrix and the production-browser UI job; require that check and never the
+individual implementation jobs, because a required check naming a Node version
+or UI job disappears when the workflow changes and then blocks every pull request
+with no visible cause.
 
 **Model deletion and identity replacement are guarded, and provider deletion
 does not exist yet.** Saving a provider replaces its stored model list wholesale,
@@ -143,7 +144,7 @@ are documented in `docs/compatibility.md`.
 
 ```bash
 git -C . log --oneline -1 && node -e "const p=require('./package.json'); console.log({version:p.version, piValidatedVersion:p.piValidatedVersion})"
-npm ci && npm run build && npm run test:server && npm run test:sites && npm run test:pi-update
+npm ci && npm run build && npm run test:server && npm run test:ui && npm run test:sites && npm run test:pi-update
 npm run check:pi-update
 gh pr list --state open
 gh issue list --state open
