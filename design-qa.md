@@ -214,3 +214,13 @@ final result: passed
 - Confirmed deletion followed by 撤销 restored the original index and selected default. Browser console/page errors: zero.
 - At `420 x 900`, page-level horizontal overflow was zero, the toast fit inside the viewport, and it did not intersect the save action.
 - The same production-shaped flow is automated by `npm run test:ui` in a dedicated Node 22 browser job, and `ci-passed` depends on that job as well as the Node test matrix.
+
+## Provider Deletion Follow-up
+
+- Evidence date: `2026-08-19`.
+- Evidence shape: production build served by `server.mjs` with `PI_PROVIDER_MANAGER_SERVE_UI=1`, two fake providers, non-routable URLs, dummy credentials, and an isolated `PI_CODING_AGENT_DIR`.
+- The visible “删除供应商” command fit inside the active internal scroll viewport at both `1440 x 900` and `420 x 900`; page-level horizontal and vertical overflow remained zero.
+- The confirmation dialog named the provider and model count, gave Cancel initial focus, trapped keyboard focus, closed on Escape, and fit fully inside both viewports after its entry animation.
+- Deleting the current default exposed native replacement-provider and replacement-model selects; the server separately rejected missing, unknown, and mismatched replacements.
+- Credential removal was the default. Selecting “保留凭据” removed the provider from `models.json` and navigation while keeping its secret entry in `auth.json` and `authProviders`; the credential never appeared in a browser response.
+- Server regression covers validation-without-writes, unknown-field preservation, auth-only public state, strict boolean retention, ordinary deletion, and default replacement. The production-browser regression covers desktop/mobile discovery and the retained-credential path with zero console errors.

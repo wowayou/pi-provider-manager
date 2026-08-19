@@ -65,7 +65,7 @@ Only `server.mjs` writes Pi configuration, in the first two paths. Demo mode and
 | `settings.json` | read/write | edits `defaultProvider`, `defaultModel`, `defaultThinkingLevel`, `hideThinkingBlock`, and `transport`; preserves other keys |
 | `models-store.json` | none | intentionally never read or written |
 
-Provider saves snapshot all three writable files, validate temporary JSON, replace files with private permissions where supported, and restore the snapshots if any write fails. Settings-only saves use the same validated atomic write primitive for `settings.json`.
+Provider saves and deletions snapshot all three writable files, validate temporary JSON, replace files with private permissions where supported, and restore the snapshots if any write fails. Deleting a provider removes its credential by default, may retain it as an auth-only entry for later reuse, and requires a valid replacement provider/model when the target is Pi's current default. Auth-only entries remain available as credential sources but are not rendered as model providers. Settings-only saves use the same validated atomic write primitive for `settings.json`.
 
 ## Security boundary
 

@@ -318,6 +318,43 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
       removeVisible: true,
     });
 
+    const deleteButton = await cdp.evaluate(`(() => {
+      const button = document.querySelector('.delete-provider-button');
+      const rect = button.getBoundingClientRect();
+      return { text: button.textContent.trim(), visible: rect.width > 0 && rect.height > 0 };
+    })()`);
+    assert.deepEqual(deleteButton, { text: "删除供应商", visible: true });
+    await cdp.evaluate(`document.querySelector('.delete-provider-button').click()`);
+    await cdp.waitFor(`document.querySelector('.provider-delete-dialog') && document.activeElement === document.querySelector('.provider-delete-dialog .secondary-button')`);
+    const defaultDeleteDialog = await cdp.evaluate(`({
+      title: document.querySelector('#provider-delete-title').textContent,
+      description: document.querySelector('#provider-delete-description').textContent,
+      hasReplacementPanel: Boolean(document.querySelector('.replacement-panel')),
+      replacementProvider: document.querySelector('.replacement-fields select:first-of-type')?.value,
+      replacementModel: document.querySelector('.replacement-fields label:last-child select')?.value,
+      keepCredential: document.querySelector('.keep-credential-option input').checked,
+      cancelFocused: document.activeElement === document.querySelector('.provider-delete-dialog .secondary-button'),
+    })`);
+    assert.match(defaultDeleteDialog.title, /Review Router/);
+    assert.match(defaultDeleteDialog.description, /review-router.*3 个模型/);
+    assert.equal(defaultDeleteDialog.hasReplacementPanel, true);
+    assert.equal(defaultDeleteDialog.replacementProvider, "single-router");
+    assert.equal(defaultDeleteDialog.replacementModel, "only/model");
+    assert.equal(defaultDeleteDialog.keepCredential, false);
+    assert.equal(defaultDeleteDialog.cancelFocused, true);
+    assert.deepEqual(await cdp.evaluate(`(() => {
+      const first = document.querySelector('.replacement-fields select');
+      const last = document.querySelector('.provider-delete-dialog .danger-button');
+      last.focus();
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      const forwardWrapped = document.activeElement === first;
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }));
+      return { forwardWrapped, backwardWrapped: document.activeElement === last };
+    })()`), { forwardWrapped: true, backwardWrapped: true });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape" });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape" });
+    await cdp.waitFor(`!document.querySelector('.provider-delete-dialog')`);
+
     const actionableRemove = await cdp.evaluate(`(async () => {
       document.querySelector('.models-table').scrollIntoView({ block: 'start' });
       await new Promise(requestAnimationFrame);
@@ -498,10 +535,35 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     assert.deepEqual(onlyRemove, { disabled: false, ariaDisabled: "true" });
     await cdp.evaluate(`document.querySelector('.model-row .icon-button').click()`);
     await cdp.waitFor(`document.querySelector('.toast-action') && document.querySelector('.toast').textContent.includes('唯一模型')`);
-    assert.match(await cdp.evaluate(`document.querySelector('.toast').textContent`), /添加替代模型.*供应商删除目前尚未提供/);
+    assert.match(await cdp.evaluate(`document.querySelector('.toast').textContent`), /不能单独删除.*删除供应商/);
     await cdp.evaluate(`document.querySelector('.toast-action').click()`);
-    await cdp.waitFor(`document.querySelectorAll('.model-row').length === 2`);
-    assert.equal(await cdp.evaluate(`document.querySelector('.model-row:last-child input').value`), "");
+    await cdp.waitFor(`document.querySelector('.provider-delete-dialog') && document.activeElement === document.querySelector('.provider-delete-dialog .secondary-button')`);
+    const mobileDialog = await cdp.evaluate(`(() => {
+      const dialog = document.querySelector('.provider-delete-dialog').getBoundingClientRect();
+      return {
+        title: document.querySelector('#provider-delete-title').textContent,
+        description: document.querySelector('#provider-delete-description').textContent,
+        hasReplacementPanel: Boolean(document.querySelector('.replacement-panel')),
+        cancelFocused: document.activeElement === document.querySelector('.provider-delete-dialog .secondary-button'),
+        keepCredential: document.querySelector('.keep-credential-option input').checked,
+        fits: dialog.left >= 0 && dialog.right <= innerWidth && dialog.top >= 0 && dialog.bottom <= innerHeight,
+      };
+    })()`);
+    assert.match(mobileDialog.title, /Single Router/);
+    assert.match(mobileDialog.description, /single-router.*1 个模型/);
+    assert.equal(mobileDialog.hasReplacementPanel, false);
+    assert.equal(mobileDialog.cancelFocused, true);
+    assert.equal(mobileDialog.keepCredential, false);
+    assert.equal(mobileDialog.fits, true);
+    await cdp.evaluate(`document.querySelector('.keep-credential-option input').click()`);
+    await cdp.evaluate(`document.querySelector('.provider-delete-dialog .danger-button').click()`);
+    await cdp.waitFor(`!document.querySelector('.provider-delete-dialog') && document.querySelectorAll('.provider-item').length === 1 && document.querySelector('.toast')`);
+    assert.match(await cdp.evaluate(`document.querySelector('.toast').textContent`), /single-router.*凭据已保留/);
+    const afterProviderDelete = await fetch(`http://127.0.0.1:${appPort}/api/state`).then((response) => response.json());
+    assert.equal(afterProviderDelete.providers.some((provider) => provider.id === "single-router"), false);
+    assert.equal(afterProviderDelete.authProviders.includes("single-router"), true);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8")).providers["single-router"], undefined);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"))["single-router"].key, "dummy-single-model-key");
     assert.equal(cdp.errors.length, 0);
   } catch (error) {
     error.message += `\nServer output:\n${serverOutput}\nChrome output:\n${chromeOutput}`;

@@ -34,6 +34,7 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - Feedback must be truthful: a control may only show a success state after the underlying action actually succeeded. Clipboard writes can fail, so the copy control falls back to selecting the command and reports the failure in the error toast tone.
 - Destructive row actions arm on first click and delete on the second; they never delete on a single click and never open a dialog. Arming is where the consequence is stated, and every removal offers 撤销 in its toast. The row Pi's default currently points at is marked from `state.settings`, never from the form's own default radio, so the mark stays on the live model when the radio is moved.
 - A destructive action that is temporarily unavailable must remain visible and focusable. Activating it explains the blocking invariant and offers the shortest corrective action; never communicate the restriction only through a disabled control, low opacity, or a hover-only tooltip.
+- Provider deletion uses a named, accessible confirmation dialog rather than the model-row arm flow. It removes all provider models and the credential by default, offers an explicit keep-credential option, gives Cancel initial focus, and requires a valid replacement provider/model before deleting Pi's current default.
 - In the model catalog, primary controls share one 42px top-aligned rail and every row keeps stable geometry while badges, protocol notes, or armed-delete feedback change. Put the deletion consequence in the shared toast rather than expanding one row; render every model ID in that feedback with the monospace face.
 - Keep repeated per-row helpers out of the model table. Bulk affordances belong in the section header so rows stay compact and long catalogs stay scannable.
 - Do not hide primary navigation at narrow widths. The provider list becomes a horizontally scrollable rail below 860px rather than disappearing.
@@ -57,7 +58,8 @@ form and what has already been reviewed.
 with the work listed under `CHANGELOG.md`'s `Unreleased` section: structured
 issue forms, the architecture and compatibility documentation, decoupled Pi
 update monitoring, dated real-Pi evidence, Node 24-based GitHub Actions, and
-deletion protection for the model Pi is currently using (PR #27).
+deletion protection for the model Pi is currently using (PR #27), plus guarded
+provider deletion with optional credential retention.
 `package.json.version` intentionally remains `0.1.7` until the next release.
 Every checklist item required before the first public push is done. The source
 of truth for remaining publication work and its prerequisites is
@@ -79,8 +81,8 @@ individual implementation jobs, because a required check naming a Node version
 or UI job disappears when the workflow changes and then blocks every pull request
 with no visible cause.
 
-**Model deletion and identity replacement are guarded, and provider deletion
-does not exist yet.** Saving a provider replaces its stored model list wholesale,
+**Model and provider deletion preserve the cross-file invariants.** Saving a
+provider replaces its stored model list wholesale,
 so removing a row also discards that model's compatibility flags and the unknown
 fields we promise to preserve. Persisted model IDs are therefore read-only in the
 form: replacement is add the new ID, then delete the old row through the armed,
@@ -89,11 +91,13 @@ when no named row is selected. `saveProvider` separately refuses to drop the mod
 `settings.json` points at unless the same request names a replacement. The model
 table marks the live default from `state.settings`; arming any delete explains its
 consequence in a monospace-aware toast without moving the fixed row controls, and
-the completed removal offers 撤销. There is no provider-level delete at all:
-the API only exposes `POST /api/providers` and `POST /api/settings`. If one is
-added, it needs the same invariant plus removal of the provider's `auth.json`
-entry, and the credential is the part that is not recoverable by re-typing a
-model ID.
+the completed removal offers 撤销. Provider deletion uses a separate confirmation
+dialog and `POST /api/providers/delete`: it removes the provider and its models,
+deletes the `auth.json` entry by default, or retains that entry only when the user
+explicitly asks. Deleting `settings.json`'s current provider requires a replacement
+provider/model that already exists. The server validates the relationship and
+writes all three files with snapshot rollback; retained auth-only IDs remain
+available for credential reuse but do not appear in the provider navigation.
 
 **Verify against the shape the product actually ships in.** Two shipped bugs
 came from verifying somewhere the product does not run. An indicator for

@@ -22,6 +22,7 @@ Pi Provider Manager makes that relationship visible instead of forcing users to 
 - **Router-first catalog management** — one OpenRouter-like gateway can contain models from many upstream vendors.
 - **Secret-safe local boundary** — existing API keys are never returned to the browser; the backend binds to `127.0.0.1` only.
 - **Validated atomic writes** — updates to `models.json`, `auth.json`, and `settings.json` use validated temporary files and rollback on failure.
+- **Guarded provider deletion** — removing a gateway names every affected model, deletes its credential by default with an option to retain it, and requires a valid replacement before deleting Pi's current default.
 - **Forward-compatible edits** — unknown provider, model, and settings fields are preserved when known fields are updated.
 - **Beginner save handoff** — after saving, the app gives the exact `pi --model provider/model:thinking` command and `/model` verification steps.
 - **Large catalog UX** — sticky model header, internal scrolling, bulk model-ID import, and warnings when `-max`/`-xhigh` may be thinking levels rather than real model IDs.
