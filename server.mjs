@@ -306,6 +306,22 @@ function saveProvider(payload) {
   const auth = readJson(AUTH_PATH);
   const models = readJson(MODELS_PATH);
   const settings = readJson(SETTINGS_PATH);
+  // models.json and settings.json have to stay in step: the submitted list replaces
+  // the stored one wholesale, so dropping the model settings.json points at would
+  // leave Pi with a default it cannot resolve. Only the setDefault branch below
+  // rewrites settings, which makes this request the one that breaks the pair, and
+  // it is reachable from a stale tab or a direct API call.
+  if (
+    !payload.setDefault &&
+    settings.defaultProvider === providerId &&
+    typeof settings.defaultModel === "string" &&
+    settings.defaultModel !== "" &&
+    !normalizedModels.some((model) => model.id === settings.defaultModel)
+  ) {
+    throw new Error(
+      `Pi 当前的默认模型 ${settings.defaultModel} 不在这次提交的模型列表里。请用“保存并设为默认”指定新的默认模型。`,
+    );
+  }
   if (models.providers === undefined) models.providers = {};
   if (!isObject(models.providers)) throw new Error("models.json 中的 providers 必须是对象。");
   const existingProvider = isObject(models.providers[providerId]) ? models.providers[providerId] : {};

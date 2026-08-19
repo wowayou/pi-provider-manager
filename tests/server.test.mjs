@@ -225,6 +225,135 @@ test("writes router-style providers without exposing credentials", async () => {
 });
 
 
+test("refuses to drop the model settings.json points at unless a new default is named", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-default-guard-"));
+  const model = (id, extra = {}) => ({
+    id,
+    name: id,
+    reasoning: true,
+    input: ["text"],
+    contextWindow: 200000,
+    maxTokens: 16000,
+    ...extra,
+  });
+  fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({
+    "any-router": { type: "api_key", key: "router-key-not-a-secret" },
+    "side-router": { type: "api_key", key: "side-key-not-a-secret" },
+  }));
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
+    providers: {
+      "any-router": {
+        baseUrl: "https://router.example/v1",
+        api: "openai-completions",
+        models: [
+          model("anthropic/claude-opus", { futureModelField: "keep-model" }),
+          model("openai/gpt-router"),
+          model("google/gemini-router"),
+        ],
+      },
+      "side-router": {
+        baseUrl: "https://side.example/v1",
+        api: "openai-completions",
+        models: [model("side/one")],
+      },
+    },
+  }));
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({
+    defaultProvider: "any-router",
+    defaultModel: "anthropic/claude-opus",
+    defaultThinkingLevel: "high",
+  }));
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+    cwd: projectRoot,
+    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  const submit = (body) => fetch(`${baseUrl}/api/providers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const submitted = (id, extra = {}) => ({
+    id,
+    name: id,
+    contextWindow: 200000,
+    maxTokens: 16000,
+    supportsImages: false,
+    reasoning: true,
+    maximumThinking: "high",
+    ...extra,
+  });
+  const readAgentFile = (name) => JSON.parse(fs.readFileSync(path.join(agentDir, name), "utf8"));
+
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+
+    // The list no longer carries settings.defaultModel, and setDefault is false,
+    // so nothing would rewrite settings.json: this has to be refused outright.
+    const droppedDefault = await submit({
+      providerId: "any-router",
+      baseUrl: "https://router.example/v1",
+      api: "openai-completions",
+      credential: { mode: "keep" },
+      models: [submitted("openai/gpt-router"), submitted("google/gemini-router")],
+      setDefault: false,
+    });
+    assert.equal(droppedDefault.status, 400);
+    assert.match((await droppedDefault.json()).error, /anthropic\/claude-opus/);
+    assert.equal(readAgentFile("models.json").providers["any-router"].models.length, 3);
+    assert.equal(readAgentFile("settings.json").defaultModel, "anthropic/claude-opus");
+
+    // Dropping a model the default does not point at is ordinary editing.
+    const droppedOther = await submit({
+      providerId: "any-router",
+      baseUrl: "https://router.example/v1",
+      api: "openai-completions",
+      credential: { mode: "keep" },
+      models: [submitted("anthropic/claude-opus"), submitted("openai/gpt-router")],
+      setDefault: false,
+    });
+    assert.equal(droppedOther.status, 200);
+    assert.equal(readAgentFile("models.json").providers["any-router"].models.length, 2);
+    assert.equal(readAgentFile("models.json").providers["any-router"].models[0].futureModelField, "keep-model");
+    assert.equal(readAgentFile("settings.json").defaultModel, "anthropic/claude-opus");
+
+    // Same shape on a provider settings.json does not point at: also fine.
+    const droppedElsewhere = await submit({
+      providerId: "side-router",
+      baseUrl: "https://side.example/v1",
+      api: "openai-completions",
+      credential: { mode: "keep" },
+      models: [submitted("side/two")],
+      setDefault: false,
+    });
+    assert.equal(droppedElsewhere.status, 200);
+    assert.equal(readAgentFile("settings.json").defaultProvider, "any-router");
+
+    // Naming the replacement is what makes the removal legal.
+    const withNewDefault = await submit({
+      providerId: "any-router",
+      baseUrl: "https://router.example/v1",
+      api: "openai-completions",
+      credential: { mode: "keep" },
+      models: [submitted("openai/gpt-router")],
+      setDefault: true,
+      defaultModelId: "openai/gpt-router",
+      defaultThinkingLevel: "high",
+    });
+    assert.equal(withNewDefault.status, 200);
+    const settings = readAgentFile("settings.json");
+    assert.equal(settings.defaultProvider, "any-router");
+    assert.equal(settings.defaultModel, "openai/gpt-router");
+    assert.equal(readAgentFile("models.json").providers["any-router"].models.length, 1);
+  } finally {
+    child.kill("SIGTERM");
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
 test("rejects cross-origin and rebound requests, and bogus credential sources", async () => {
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-security-"));
   fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({ acme: { type: "api_key", key: "real-key-not-a-secret" } }));

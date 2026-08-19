@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Deleting the model Pi is currently using is now visible before it happens and reversible after. The row Pi's default points at carries a "Pi 当前默认" badge that stays put no matter where the default radio is moved, arming its delete button says which model the default will fall back to, and every removal offers 撤销 in its toast — a removed row otherwise takes its stored compatibility flags and preserved unknown fields with it when the provider is saved.
+- Saving a provider can no longer leave `settings.json` pointing at a model that `models.json` no longer contains. The submitted list replaces the stored one wholesale, so dropping the current default without naming a replacement is refused with the model ID in the message; "保存并设为默认" is the path that removes it.
 - Aligned the English and Chinese project guides, architecture vocabulary, security boundary, Pi compatibility runbook, contribution rules, and handoff around shared sources of truth.
 - Updated the GitHub checkout and Node setup actions to their Node 24-based releases after GitHub deprecated the actions' Node 20 runtime.
 - Added a daily, maintenance-only Pi release monitor that opens or refreshes one owner-assigned compatibility issue without adding a Pi runtime dependency or advancing the validated baseline.

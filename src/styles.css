@@ -461,6 +461,8 @@ input[type="radio"]:focus, input[type="checkbox"]:focus { box-shadow: none; }
 .icon-button.is-confirming { background: var(--danger-solid); color: #fff; }
 .icon-button.is-confirming:hover { background: var(--danger-solid-hover); color: #fff; }
 .protocol-override { color: var(--orange-dark); font-size: 11px; font-weight: 500; padding-left: 2px; }
+.live-default-badge { align-self: start; margin-top: 1px; padding: 1px 7px; border-radius: 999px; background: var(--green-soft); color: var(--green); font-size: 10px; font-weight: 700; letter-spacing: 0.02em; }
+.live-default-warning { color: var(--red); font-size: 11px; font-weight: 500; line-height: 1.4; padding-left: 2px; }
 
 .advanced-panel { margin-top: 32px; border: 1px solid var(--line); border-radius: 10px; }
 .advanced-panel summary { list-style: none; min-height: 56px; padding: 0 18px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; border-radius: 10px; transition: background var(--fast) var(--ease); }
