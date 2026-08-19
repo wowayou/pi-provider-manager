@@ -157,7 +157,9 @@ function publicState() {
   const models = readJson(MODELS_PATH);
   const settings = readJson(SETTINGS_PATH);
   const providerMap = isObject(models.providers) ? models.providers : {};
-  const ids = [...new Set([...Object.keys(providerMap), ...Object.keys(auth)])].sort();
+  // Credentials may deliberately outlive a provider so they can be reused later.
+  // Keep those IDs in authProviders, but do not render them as model providers.
+  const ids = Object.keys(providerMap).sort();
   const providers = ids.map((id) => {
     const config = isObject(providerMap[id]) ? providerMap[id] : {};
     return {
@@ -386,6 +388,60 @@ function saveProvider(payload) {
   }
 }
 
+function deleteProvider(payload) {
+  if (!isObject(payload)) throw new Error("请求内容无效。");
+  const providerId = String(payload.providerId || "").trim();
+  if (!PROVIDER_ID_PATTERN.test(providerId)) {
+    throw new Error("要删除的供应商 ID 无效。");
+  }
+
+  const auth = readJson(AUTH_PATH);
+  const models = readJson(MODELS_PATH);
+  const settings = readJson(SETTINGS_PATH);
+  const providers = isObject(models.providers) ? models.providers : null;
+  if (!providers || !Object.hasOwn(providers, providerId) || !isObject(providers[providerId])) {
+    throw new Error("要删除的供应商不存在。");
+  }
+
+  if (settings.defaultProvider === providerId) {
+    const replacementProviderId = String(payload.replacementProviderId || "").trim();
+    const replacementModelId = String(payload.replacementModelId || "").trim();
+    if (
+      !PROVIDER_ID_PATTERN.test(replacementProviderId)
+      || replacementProviderId === providerId
+      || !Object.hasOwn(providers, replacementProviderId)
+      || !isObject(providers[replacementProviderId])
+    ) {
+      throw new Error("删除 Pi 当前默认供应商前，请选择另一个有效供应商。");
+    }
+    const replacementModels = Array.isArray(providers[replacementProviderId].models)
+      ? providers[replacementProviderId].models
+      : [];
+    if (!replacementModels.some((model) => isObject(model) && model.id === replacementModelId)) {
+      throw new Error("替代模型不属于所选供应商。");
+    }
+    settings.defaultProvider = replacementProviderId;
+    settings.defaultModel = replacementModelId;
+  }
+
+  delete providers[providerId];
+  if (payload.keepCredential !== true) delete auth[providerId];
+
+  const originals = new Map([
+    [MODELS_PATH, snapshot(MODELS_PATH)],
+    [AUTH_PATH, snapshot(AUTH_PATH)],
+    [SETTINGS_PATH, snapshot(SETTINGS_PATH)],
+  ]);
+  try {
+    writeJsonAtomic(MODELS_PATH, models);
+    writeJsonAtomic(AUTH_PATH, auth);
+    writeJsonAtomic(SETTINGS_PATH, settings);
+  } catch (error) {
+    for (const [filePath, bytes] of originals) restore(filePath, bytes);
+    throw error;
+  }
+}
+
 function saveSettings(payload) {
   if (!isObject(payload)) throw new Error("设置内容无效。");
   const models = readJson(MODELS_PATH);
@@ -538,6 +594,11 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "POST" && request.url === "/api/providers") {
       saveProvider(await readBody(request));
+      sendJson(response, 200, { ok: true, state: publicState() });
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/providers/delete") {
+      deleteProvider(await readBody(request));
       sendJson(response, 200, { ok: true, state: publicState() });
       return;
     }

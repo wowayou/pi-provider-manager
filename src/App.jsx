@@ -640,7 +640,7 @@ function ModelRow({ model, isDefault, isLiveDefault, onChange, onDefault, onArmR
   );
 }
 
-function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify, isExistingProvider, isCurrentDefault, liveDefaultModelId }) {
+function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify, onDeleteProvider, canDeleteProvider, isExistingProvider, isCurrentDefault, liveDefaultModelId }) {
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [scrolled, setScrolled] = useState(false);
@@ -672,9 +672,13 @@ function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify, is
   };
   const armRemoveModel = (model) => onNotify(removalMessage(model), "error");
   const blockLastModelRemoval = () => onNotify(
-    "不能删除这个供应商的唯一模型。先添加替代模型并设为默认；供应商删除目前尚未提供。",
+    canDeleteProvider
+      ? "不能单独删除这个供应商的唯一模型。如需移除整个供应商，请使用“删除供应商”。"
+      : "不能删除唯一模型。先添加替代模型并设为默认。",
     "error",
-    { label: "添加模型", onAction: addModel },
+    canDeleteProvider
+      ? { label: "删除供应商", onAction: onDeleteProvider }
+      : { label: "添加模型", onAction: addModel },
   );
   // A removed row does not just leave the list: saving replaces the stored models,
   // so whatever models.json kept for it — compat flags, thinkingLevelMap, fields
@@ -771,7 +775,14 @@ function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify, is
         <div className="gateway-summary">
           <span className="summary-icon"><ProviderIcon api={form.api} size={34} /></span>
           <div><strong>{titleFromId(form.providerId || "new-provider")}</strong><span className="protocol-badge">{currentApi.title}</span><p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p></div>
-          <div className="saved-credential"><ShieldCheck size={29} weight="duotone" /><span><strong>凭据已安全保存</strong><small>浏览器无法读取旧 key</small></span></div>
+          <div className="gateway-side">
+            <div className="saved-credential"><ShieldCheck size={29} weight="duotone" /><span><strong>{form.credentialMode === "keep" ? "凭据已安全保存" : "凭据将在保存时写入"}</strong><small>{form.credentialMode === "keep" ? "浏览器无法读取旧 key" : "当前草稿尚未写入 Pi 配置"}</small></span></div>
+            {canDeleteProvider && (
+              <button type="button" className="delete-provider-button" onClick={onDeleteProvider}>
+                <Trash size={18} />删除供应商
+              </button>
+            )}
+          </div>
         </div>
         <div className="models-header">
           <div><h2>模型列表<span className="count-pill">{namedModels}</span></h2><p>Pi 以 provider/model 选择模型，thinking level 是独立设置。</p></div>
@@ -810,6 +821,120 @@ function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify, is
       </footer>
       {showBulk && <BulkModal text={bulkText} ids={bulkIds} newIds={newBulkIds} onText={setBulkText} onClose={() => setShowBulk(false)} onImport={importModels} />}
     </section>
+  );
+}
+
+function ProviderDeleteDialog({ provider, state, deleting, requestError, onClose, onConfirm }) {
+  const alternatives = state.providers.filter((item) => item.id !== provider.id && item.models.length > 0);
+  const [keepCredential, setKeepCredential] = useState(false);
+  const [replacementProviderId, setReplacementProviderId] = useState(alternatives[0]?.id || "");
+  const [replacementModelId, setReplacementModelId] = useState(alternatives[0]?.models[0]?.id || "");
+  const [localError, setLocalError] = useState("");
+  const cancelRef = useRef(null);
+  const dialogRef = useRef(null);
+  const isCurrentDefault = state.settings.defaultProvider === provider.id;
+  const replacementProvider = alternatives.find((item) => item.id === replacementProviderId);
+  const canDelete = !isCurrentDefault || Boolean(replacementProvider && replacementModelId);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement;
+    cancelRef.current?.focus();
+    return () => previousFocus?.focus?.();
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === "Escape" && !deleting) {
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = [...(dialogRef.current?.querySelectorAll(
+        "button:not(:disabled), input:not(:disabled), select:not(:disabled)",
+      ) || [])];
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [deleting, onClose]);
+
+  const changeReplacementProvider = (providerId) => {
+    const next = alternatives.find((item) => item.id === providerId);
+    setReplacementProviderId(providerId);
+    setReplacementModelId(next?.models[0]?.id || "");
+    setLocalError("");
+  };
+  const confirm = () => {
+    if (!canDelete) {
+      setLocalError("先添加另一个带模型的供应商，才能替换 Pi 当前默认项。");
+      return;
+    }
+    setLocalError("");
+    onConfirm({
+      providerId: provider.id,
+      keepCredential,
+      replacementProviderId: isCurrentDefault ? replacementProviderId : undefined,
+      replacementModelId: isCurrentDefault ? replacementModelId : undefined,
+    });
+  };
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !deleting) onClose(); }}>
+      <section ref={dialogRef} className="provider-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="provider-delete-title" aria-describedby="provider-delete-description">
+        <div className="delete-dialog-heading">
+          <span className="delete-dialog-icon"><Trash size={24} weight="duotone" /></span>
+          <div>
+            <h2 id="provider-delete-title">删除 {provider.name || titleFromId(provider.id)}？</h2>
+            <p id="provider-delete-description">供应商 <code>{provider.id}</code> 的 {provider.models.length} 个模型会从 <code>models.json</code> 移除。</p>
+          </div>
+        </div>
+
+        {isCurrentDefault && (
+          <div className="replacement-panel">
+            <div className="replacement-warning"><WarningCircle size={20} weight="fill" /><span><strong>这是 Pi 当前的默认供应商</strong>删除前必须选择一个可用的替代模型。</span></div>
+            {alternatives.length > 0 ? (
+              <div className="replacement-fields">
+                <label><span>替代供应商</span><select value={replacementProviderId} onChange={(event) => changeReplacementProvider(event.target.value)}>{alternatives.map((item) => <option key={item.id} value={item.id}>{item.name || titleFromId(item.id)} · {item.id}</option>)}</select></label>
+                <label><span>替代模型</span><select value={replacementModelId} onChange={(event) => { setReplacementModelId(event.target.value); setLocalError(""); }}>{(replacementProvider?.models || []).map((model) => <option key={model.id} value={model.id}>{model.name || model.id} · {model.id}</option>)}</select></label>
+              </div>
+            ) : (
+              <p className="no-replacement">目前没有其他带模型的供应商。请先取消并添加替代供应商。</p>
+            )}
+          </div>
+        )}
+
+        {provider.credentialConfigured && (
+          <label className="keep-credential-option">
+            <input type="checkbox" checked={keepCredential} onChange={(event) => setKeepCredential(event.target.checked)} />
+            <span><strong>保留凭据，供以后重新配置使用</strong><small>凭据会留在 <code>auth.json</code>，但不会继续显示为供应商。</small></span>
+          </label>
+        )}
+        <p className="delete-consequence">
+          {!provider.credentialConfigured
+            ? "供应商和全部模型会被永久删除；该供应商没有已保存的凭据。"
+            : keepCredential
+            ? "供应商和模型会被永久删除，已保存的凭据会保留。"
+            : "供应商、全部模型和已保存的凭据会被永久删除。"}
+        </p>
+        {(localError || requestError) && <div className="error-banner" role="alert"><WarningCircle size={20} weight="fill" />{localError || requestError}</div>}
+
+        <div className="modal-actions">
+          <button ref={cancelRef} type="button" className="secondary-button" disabled={deleting} onClick={onClose}>取消</button>
+          <button type="button" className="danger-button" disabled={deleting} aria-disabled={!canDelete || deleting} onClick={confirm}>
+            {deleting ? <><Spinner />正在删除…</> : <><Trash size={18} />确认删除</>}
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -990,6 +1115,9 @@ export function App() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const [saveResult, setSaveResult] = useState(null);
+  const [deleteTargetId, setDeleteTargetId] = useState("");
+  const [deletingProvider, setDeletingProvider] = useState(false);
+  const [deleteProviderError, setDeleteProviderError] = useState("");
   const toastTimer = useRef(null);
   const showToast = useCallback((message, tone = "success", action = null) => {
     setToast({ message, tone, action });
@@ -1039,6 +1167,18 @@ export function App() {
     setView("wizard");
     setError("");
   };
+
+  const openDeleteProvider = () => {
+    const providerId = selectedId;
+    if (!state.providers.some((provider) => provider.id === providerId)) return;
+    setDeleteProviderError("");
+    setDeleteTargetId(providerId);
+  };
+
+  const closeDeleteProvider = useCallback(() => {
+    setDeleteTargetId("");
+    setDeleteProviderError("");
+  }, []);
 
   const validateCredentials = () => {
     if (!form.providerId.trim()) return "请输入供应商 ID。";
@@ -1187,6 +1327,75 @@ export function App() {
     }
   };
 
+  const deleteProvider = async (payload) => {
+    setDeletingProvider(true);
+    setDeleteProviderError("");
+    try {
+      const deletedProvider = state.providers.find((provider) => provider.id === payload.providerId);
+      let nextState;
+      if (demoMode) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        const deletingDefault = state.settings.defaultProvider === payload.providerId;
+        nextState = {
+          ...state,
+          providers: state.providers
+            .filter((provider) => provider.id !== payload.providerId)
+            .map((provider) => ({
+              ...provider,
+              isDefault: deletingDefault ? provider.id === payload.replacementProviderId : provider.isDefault,
+            })),
+          authProviders: payload.keepCredential
+            ? state.authProviders
+            : state.authProviders.filter((id) => id !== payload.providerId),
+          settings: deletingDefault
+            ? {
+                ...state.settings,
+                defaultProvider: payload.replacementProviderId,
+                defaultModel: payload.replacementModelId,
+              }
+            : state.settings,
+        };
+      } else {
+        const response = await fetch("/api/providers/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "删除供应商失败");
+        nextState = data.state;
+      }
+
+      setState(nextState);
+      setDeleteTargetId("");
+      setDeleteProviderError("");
+      setSaveResult(null);
+      setView("wizard");
+      setError("");
+      const nextProvider = nextState.providers.find((provider) => provider.id === payload.replacementProviderId)
+        || nextState.providers.find((provider) => provider.id === nextState.settings.defaultProvider)
+        || nextState.providers[0];
+      if (nextProvider) {
+        setSelectedId(nextProvider.id);
+        setForm(providerToForm(nextProvider, nextState));
+        setStep(nextProvider.models.length > 0 ? 3 : 1);
+      } else {
+        const fresh = blankForm();
+        fresh.migrateFrom = nextState.authProviders[0] || "";
+        setSelectedId("");
+        setForm(fresh);
+        setStep(1);
+      }
+      showToast(
+        <>已删除供应商 <code>{payload.providerId}</code>；{!deletedProvider?.credentialConfigured ? "没有已保存的凭据" : payload.keepCredential ? "凭据已保留" : "凭据也已删除"}</>,
+      );
+    } catch (requestError) {
+      setDeleteProviderError(requestError.message);
+    } finally {
+      setDeletingProvider(false);
+    }
+  };
+
   const copyCommand = async (command) => {
     try {
       await navigator.clipboard.writeText(command);
@@ -1215,8 +1424,18 @@ export function App() {
             <span className="skeleton skeleton-block" />
             <p>正在读取 Pi 配置…</p>
           </div>
-        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} />}</>}
+        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDeleteProvider={openDeleteProvider} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} />}</>}
       </section>
+      {deleteTargetId && state.providers.find((provider) => provider.id === deleteTargetId) && (
+        <ProviderDeleteDialog
+          provider={state.providers.find((provider) => provider.id === deleteTargetId)}
+          state={state}
+          deleting={deletingProvider}
+          requestError={deleteProviderError}
+          onClose={closeDeleteProvider}
+          onConfirm={deleteProvider}
+        />
+      )}
       <div className="toast-region" role="status" aria-live="polite">
         {toast && (
           <div className={`toast is-${toast.tone}`}>

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added guarded provider deletion. A named confirmation dialog removes the provider and all of its models, deletes its stored credential by default, and can explicitly retain that credential for later reuse. Deleting Pi's current default requires a valid replacement provider/model; the server validates and writes all three files as one rollback-protected operation, so stale tabs and direct API calls cannot break the invariant.
 - Persisted model IDs are now read-only storage identities. Replacing one means adding the new ID and deleting the old row through the armed, reversible flow; a second draft guard rejects programmatic identity drift, and saving no longer silently falls back to the first named model when no default radio is selected.
 - Arming any model deletion now states the consequence in a toast, with model IDs in the product's monospace face. The live-default badge and protocol note share a reserved annotation rail, so all model rows stay 85px tall and every primary control remains on the same 42px top-aligned rail before, during, and after confirmation.
 - Added a production-browser UI regression job for model deletion protection. It serves the built app from `server.mjs` with isolated Pi files and checks read-only persisted IDs, live and ordinary delete warnings, fixed row geometry, delete/undo, editable new rows, dark theme, mobile overflow, and browser errors before `ci-passed` can succeed.

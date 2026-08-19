@@ -354,6 +354,139 @@ test("refuses to drop the model settings.json points at unless a new default is 
   }
 });
 
+test("deletes providers transactionally and can retain credentials", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-provider-delete-"));
+  const model = (id, extra = {}) => ({
+    id,
+    name: id,
+    reasoning: true,
+    input: ["text"],
+    contextWindow: 200000,
+    maxTokens: 16000,
+    ...extra,
+  });
+  fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({
+    "default-router": { type: "api_key", key: "default-key-not-a-secret", futureAuthField: "keep-auth" },
+    "replacement-router": { type: "api_key", key: "replacement-key-not-a-secret" },
+    "disposable-router": { type: "api_key", key: "disposable-key-not-a-secret" },
+    "credential-only": { type: "api_key", key: "orphan-key-not-a-secret" },
+  }));
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
+    futureRootField: "keep-root",
+    providers: {
+      "default-router": {
+        baseUrl: "https://default.example/v1",
+        api: "openai-completions",
+        models: [model("default/model")],
+      },
+      "replacement-router": {
+        baseUrl: "https://replacement.example/v1",
+        api: "openai-completions",
+        futureProviderField: "keep-provider",
+        models: [model("replacement/model", { futureModelField: "keep-model" })],
+      },
+      "disposable-router": {
+        baseUrl: "https://disposable.example/v1",
+        api: "openai-completions",
+        models: [model("disposable/model")],
+      },
+    },
+  }));
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({
+    defaultProvider: "default-router",
+    defaultModel: "default/model",
+    defaultThinkingLevel: "high",
+    futureSetting: "keep-setting",
+  }));
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+    cwd: projectRoot,
+    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const submit = (body) => fetch(`${baseUrl}/api/providers/delete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const readAgentFile = (name) => JSON.parse(fs.readFileSync(path.join(agentDir, name), "utf8"));
+
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+    const initialState = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    assert.deepEqual(initialState.providers.map((provider) => provider.id), [
+      "default-router",
+      "disposable-router",
+      "replacement-router",
+    ]);
+    assert.equal(initialState.authProviders.includes("credential-only"), true);
+
+    const originals = new Map([
+      ["auth.json", fs.readFileSync(path.join(agentDir, "auth.json"), "utf8")],
+      ["models.json", fs.readFileSync(path.join(agentDir, "models.json"), "utf8")],
+      ["settings.json", fs.readFileSync(path.join(agentDir, "settings.json"), "utf8")],
+    ]);
+    const missingReplacement = await submit({ providerId: "default-router", keepCredential: true });
+    assert.equal(missingReplacement.status, 400);
+    assert.match((await missingReplacement.json()).error, /另一个有效供应商/);
+    const wrongReplacement = await submit({
+      providerId: "default-router",
+      keepCredential: true,
+      replacementProviderId: "replacement-router",
+      replacementModelId: "not/there",
+    });
+    assert.equal(wrongReplacement.status, 400);
+    assert.match((await wrongReplacement.json()).error, /替代模型不属于/);
+    for (const [name, contents] of originals) {
+      assert.equal(fs.readFileSync(path.join(agentDir, name), "utf8"), contents);
+    }
+
+    for (const providerId of ["constructor", "toString", "__proto__", "missing-router"]) {
+      const invalid = await submit({ providerId });
+      assert.equal(invalid.status, 400);
+    }
+
+    const retained = await submit({
+      providerId: "default-router",
+      keepCredential: true,
+      replacementProviderId: "replacement-router",
+      replacementModelId: "replacement/model",
+    });
+    assert.equal(retained.status, 200);
+    const retainedBody = await retained.json();
+    assert.equal(JSON.stringify(retainedBody).includes("default-key-not-a-secret"), false);
+    assert.equal(retainedBody.state.providers.some((provider) => provider.id === "default-router"), false);
+    assert.equal(retainedBody.state.authProviders.includes("default-router"), true);
+    assert.equal(retainedBody.state.settings.defaultProvider, "replacement-router");
+    assert.equal(retainedBody.state.settings.defaultModel, "replacement/model");
+
+    const retainedAuth = readAgentFile("auth.json");
+    const retainedModels = readAgentFile("models.json");
+    const retainedSettings = readAgentFile("settings.json");
+    assert.equal(retainedAuth["default-router"].futureAuthField, "keep-auth");
+    assert.equal(retainedModels.providers["default-router"], undefined);
+    assert.equal(retainedModels.futureRootField, "keep-root");
+    assert.equal(retainedModels.providers["replacement-router"].futureProviderField, "keep-provider");
+    assert.equal(retainedModels.providers["replacement-router"].models[0].futureModelField, "keep-model");
+    assert.equal(retainedSettings.futureSetting, "keep-setting");
+
+    // Only the JSON boolean true retains a credential; truthy strings from a
+    // direct API call must not weaken the default-delete contract.
+    const removed = await submit({ providerId: "disposable-router", keepCredential: "false" });
+    assert.equal(removed.status, 200);
+    const removedBody = await removed.json();
+    assert.equal(removedBody.state.providers.some((provider) => provider.id === "disposable-router"), false);
+    assert.equal(removedBody.state.authProviders.includes("disposable-router"), false);
+    assert.equal(readAgentFile("auth.json")["disposable-router"], undefined);
+    assert.equal(readAgentFile("models.json").providers["disposable-router"], undefined);
+    assert.equal(readAgentFile("settings.json").defaultProvider, "replacement-router");
+  } finally {
+    child.kill("SIGTERM");
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
 test("rejects cross-origin and rebound requests, and bogus credential sources", async () => {
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-security-"));
   fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({ acme: { type: "api_key", key: "real-key-not-a-secret" } }));
