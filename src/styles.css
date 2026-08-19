@@ -473,7 +473,7 @@ input[type="radio"]:focus, input[type="checkbox"]:focus { box-shadow: none; }
 .icon-button.is-confirming:hover { background: var(--danger-solid-hover); color: #fff; }
 .model-action-cell .icon-button { border: 1px solid var(--danger-border); background: var(--danger-bg); color: var(--red); }
 .model-action-cell .icon-button:hover:not(:disabled), .model-action-cell .icon-button.is-confirming { border-color: var(--danger-solid); background: var(--danger-solid); color: var(--on-brand); }
-.model-action-cell .icon-button:disabled { border-color: var(--line); background: var(--surface-sunken); color: var(--ink-3); }
+.model-action-cell .icon-button[aria-disabled="true"] { border-style: dashed; }
 .protocol-override { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--orange-dark); font-size: 11px; font-weight: 500; padding-left: 2px; }
 .live-default-badge { flex: none; padding: 1px 7px; border-radius: 999px; background: var(--green-soft); color: var(--green); font-size: 10px; font-weight: 700; letter-spacing: 0; }
 
