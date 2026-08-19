@@ -22,6 +22,7 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - Treat Pi as provider-scoped configuration plus model-centric runtime selection. Preserve unknown provider/model/settings fields to reduce breakage across Pi upgrades.
 - Keep Pi update detection in repository maintenance automation. It may compare stable release metadata and open a reminder, but must not add a Pi runtime dependency, make application startup depend on upstream availability, or advance `piValidatedVersion` without manual validation.
 - Keep `models.json` and `settings.json` consistent by construction. A save that would leave `settings.defaultModel` pointing at a model the submitted list no longer contains is refused by the server; the client cannot be the only thing standing between the two files, because a stale tab or a direct API call reaches the same endpoint.
+- Treat a persisted model ID as storage identity, not as an ordinary editable label. It is read-only in the form; replacing it means adding the new ID and deleting the old row through the armed, reversible removal flow. Reject identity drift before saving, and never silently choose the first named model when no default radio is selected.
 - Optimize long model catalogs with a sticky header, internal scrolling, compact rows, and bulk model-ID import.
 - Public screenshots and documentation must not expose machine-specific home paths or credentials.
 
@@ -32,6 +33,7 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - All motion uses the `--fast` / `--base` / `--ease` tokens and must degrade under `prefers-reduced-motion`; only progress indicators keep animating there.
 - Feedback must be truthful: a control may only show a success state after the underlying action actually succeeded. Clipboard writes can fail, so the copy control falls back to selecting the command and reports the failure in the error toast tone.
 - Destructive row actions arm on first click and delete on the second; they never delete on a single click and never open a dialog. Arming is where the consequence is stated, and every removal offers 撤销 in its toast. The row Pi's default currently points at is marked from `state.settings`, never from the form's own default radio, so the mark stays on the live model when the radio is moved.
+- In the model catalog, primary controls share one 42px top-aligned rail and every row keeps stable geometry while badges, protocol notes, or armed-delete feedback change. Put the deletion consequence in the shared toast rather than expanding one row; render every model ID in that feedback with the monospace face.
 - Keep repeated per-row helpers out of the model table. Bulk affordances belong in the section header so rows stay compact and long catalogs stay scannable.
 - Do not hide primary navigation at narrow widths. The provider list becomes a horizontally scrollable rail below 860px rather than disappearing.
 - Every colour lives in a token on `:root`. Do not write a literal hex value in a rule; add or reuse a semantic token instead, otherwise dark mode silently breaks.
@@ -75,13 +77,17 @@ Node matrix; require that check and never the individual matrix jobs, because a
 required check naming a Node version disappears the moment the matrix changes
 and then blocks every pull request with no visible cause.
 
-**Model deletion is guarded on both sides, and provider deletion does not exist
-yet.** Saving a provider replaces its stored model list wholesale, so
-removing a row also discards that model's compatibility flags and the unknown
-fields we promise to preserve. `saveProvider` therefore refuses to drop the model
-`settings.json` points at unless the same request names a replacement, and the
-model table marks the live default, states the fallback when its delete button is
-armed, and offers 撤销 afterwards. There is no provider-level delete at all:
+**Model deletion and identity replacement are guarded, and provider deletion
+does not exist yet.** Saving a provider replaces its stored model list wholesale,
+so removing a row also discards that model's compatibility flags and the unknown
+fields we promise to preserve. Persisted model IDs are therefore read-only in the
+form: replacement is add the new ID, then delete the old row through the armed,
+reversible flow. The draft rejects identity drift and refuses to invent a default
+when no named row is selected. `saveProvider` separately refuses to drop the model
+`settings.json` points at unless the same request names a replacement. The model
+table marks the live default from `state.settings`; arming any delete explains its
+consequence in a monospace-aware toast without moving the fixed row controls, and
+the completed removal offers 撤销. There is no provider-level delete at all:
 the API only exposes `POST /api/providers` and `POST /api/settings`. If one is
 added, it needs the same invariant plus removal of the provider's `auth.json`
 entry, and the credential is the part that is not recoverable by re-typing a

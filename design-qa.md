@@ -202,3 +202,14 @@ Two of the six existed only because verification ran somewhere the product does 
 Both now have server-side tests, so the gap is closed by CI rather than by remembering to switch environments. Verification of anything that touches the served page or the API should run against `server.mjs`, not only against `vite dev`.
 
 final result: passed
+
+## Model Deletion Protection Follow-up
+
+- Evidence date: `2026-08-19`
+- Evidence shape: production build served by `server.mjs` with `PI_PROVIDER_MANAGER_SERVE_UI=1` and an isolated `PI_CODING_AGENT_DIR`; six fake models, a non-routable URL, and a dummy credential only.
+- Persisted model IDs rendered read-only and rejected attempted keyboard replacement; a newly added row remained editable.
+- A pure draft guard rejected both clearing and renaming persisted IDs, and default selection returned no model instead of falling back when the selected row was blank or missing.
+- Arming the live default named its fallback and compatibility-field loss; arming an ordinary persisted row named its compatibility-field loss. Both messages rendered model IDs in the monospace stack.
+- All six rows stayed exactly `85px` high while armed and unarmed. The model ID, context, output, image, and reasoning controls had identical top coordinates within every row; arming caused zero geometry shift.
+- Confirmed deletion followed by 撤销 restored the original index and selected default. Browser console/page errors: zero.
+- At `420 x 900`, page-level horizontal overflow was zero, the toast fit inside the viewport, and it did not intersect the save action.
