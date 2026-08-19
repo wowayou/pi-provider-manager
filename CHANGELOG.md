@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.8 - 2026-08-19
 
 - Added guarded provider deletion. A named confirmation dialog removes the provider and all of its models, deletes its stored credential by default, and can explicitly retain that credential for later reuse. Deleting Pi's current default requires a valid replacement provider/model; the server validates and writes all three files as one rollback-protected operation, so stale tabs and direct API calls cannot break the invariant.
 - Persisted model IDs are now read-only storage identities. Replacing one means adding the new ID and deleting the old row through the armed, reversible flow; a second draft guard rejects programmatic identity drift, and saving no longer silently falls back to the first named model when no default radio is selected.
@@ -13,6 +13,8 @@
 - Added a daily, maintenance-only Pi release monitor that opens or refreshes one owner-assigned compatibility issue without adding a Pi runtime dependency or advancing the validated baseline.
 - Added an architecture and ownership guide, expanded the Pi compatibility runbook, and linked both from the contributor and user documentation.
 - Demo mode now reads the manager and validated Pi versions from `package.json` at build time instead of carrying copies that can drift.
+
+**Validated against Pi `0.84.2`.** Provider deletion was exercised against a production-shaped server with an isolated temporary Pi directory. A non-default provider was deleted with `keepCredential: true`: it disappeared from `models.json` and the provider list, while its `auth.json` entry and `authProviders` ID remained. Recreating the same provider with `credential.mode: "keep"` succeeded without submitting a new key.
 
 ## 0.1.7 - 2026-08-18
 

@@ -67,6 +67,44 @@ Only `server.mjs` writes Pi configuration, in the first two paths. Demo mode and
 
 Provider saves and deletions snapshot all three writable files, validate temporary JSON, replace files with private permissions where supported, and restore the snapshots if any write fails. Deleting a provider removes its credential by default, may retain it as an auth-only entry for later reuse, and requires a valid replacement provider/model when the target is Pi's current default. Auth-only entries remain available as credential sources but are not rendered as model providers. Settings-only saves use the same validated atomic write primitive for `settings.json`.
 
+### Reproduce retained-credential deletion
+
+Use a temporary `PI_CODING_AGENT_DIR` with a non-default provider that has one model and an `auth.json` entry. Against the production-shaped server, send:
+
+```http
+POST /api/providers/delete
+Content-Type: application/json
+
+{
+  "providerId": "repro-router",
+  "keepCredential": true
+}
+```
+
+The response state must omit `repro-router` from `providers` while retaining it in `authProviders`. On disk, `models.json.providers["repro-router"]` is gone and `auth.json["repro-router"]` remains; the credential value is never in the response. Recreate the same gateway without sending a key:
+
+```http
+POST /api/providers
+Content-Type: application/json
+
+{
+  "providerId": "repro-router",
+  "baseUrl": "https://reconfigured.example/v1",
+  "api": "openai-completions",
+  "credential": { "mode": "keep" },
+  "models": [{
+    "id": "reconfigured/model",
+    "contextWindow": 128000,
+    "maxTokens": 16000,
+    "reasoning": true,
+    "maximumThinking": "high"
+  }],
+  "setDefault": false
+}
+```
+
+The save succeeds and reuses the retained credential. The canonical automated reproduction is `deletes providers transactionally and can retain credentials` in `tests/server.test.mjs`; the production-browser path is covered by `npm run test:ui`.
+
 ## Security boundary
 
 The browser can send credentials during a save, so the local API is a security boundary even though it listens only on loopback.

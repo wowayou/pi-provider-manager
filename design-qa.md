@@ -2,7 +2,7 @@
 
 - Evidence date: `2026-08-18`
 - Evidence scope: historical acceptance and compatibility results, not live repository or machine state
-- Product version: `0.1.7`
+- Product version: `0.1.8`
 - Source visual truth: `design-reference.png` plus user acceptance screenshots for the settings, long-model-list, and post-save problems
 - Model editor screenshot: `qa/pi-provider-manager-v11-models.png`
 - Settings screenshot: `qa/pi-provider-manager-v11-settings.png`
@@ -62,7 +62,7 @@
 **Compatibility Evidence**
 
 - Installed Pi version detected as `0.84.2`.
-- Manager version reported as `0.1.7`.
+- Manager version reported as `0.1.8`.
 - 2026-08-18 production-shape smoke: with `PI_PROVIDER_MANAGER_SERVE_UI=1` and an isolated `PI_CODING_AGENT_DIR`, the manager wrote a fixture provider and Pi `0.84.2` listed `compat-fixture/fixture-model` with the expected context, output, thinking, and image capabilities. The fixture used a non-routable URL and a dummy key; no real credential or home config was touched.
 - Real state shows providers `any-codex` and `sota`, default `sota/claude-opus-5:high`, with no key field in API responses.
 - Single-process production launcher remains available after the launching shell exits.

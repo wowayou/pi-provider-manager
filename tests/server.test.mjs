@@ -411,6 +411,15 @@ test("deletes providers transactionally and can retain credentials", async () =>
     body: JSON.stringify(body),
   });
   const readAgentFile = (name) => JSON.parse(fs.readFileSync(path.join(agentDir, name), "utf8"));
+  const submittedModel = (id) => ({
+    id,
+    name: id,
+    contextWindow: 200000,
+    maxTokens: 16000,
+    supportsImages: false,
+    reasoning: true,
+    maximumThinking: "high",
+  });
 
   try {
     await waitForServer(`${baseUrl}/api/state`);
@@ -470,6 +479,25 @@ test("deletes providers transactionally and can retain credentials", async () =>
     assert.equal(retainedModels.providers["replacement-router"].futureProviderField, "keep-provider");
     assert.equal(retainedModels.providers["replacement-router"].models[0].futureModelField, "keep-model");
     assert.equal(retainedSettings.futureSetting, "keep-setting");
+
+    // The retained entry is useful only if a later save can reuse it without
+    // asking the user to paste the key again.
+    const reconfigured = await fetch(`${baseUrl}/api/providers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        providerId: "default-router",
+        baseUrl: "https://reconfigured.example/v1",
+        api: "openai-completions",
+        credential: { mode: "keep" },
+        models: [submittedModel("reconfigured/model")],
+        setDefault: false,
+      }),
+    });
+    assert.equal(reconfigured.status, 200);
+    assert.equal(JSON.stringify(await reconfigured.json()).includes("default-key-not-a-secret"), false);
+    assert.equal(readAgentFile("models.json").providers["default-router"].models[0].id, "reconfigured/model");
+    assert.equal(readAgentFile("auth.json")["default-router"].key, "default-key-not-a-secret");
 
     // Only the JSON boolean true retains a credential; truthy strings from a
     // direct API call must not weaken the default-delete contract.
