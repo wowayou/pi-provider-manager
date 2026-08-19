@@ -22,6 +22,7 @@ Pi 在运行时以模型为中心，但配置不是“只有模型”：
 - **适合聚合网关**：一个类似 OpenRouter 的网关可以挂载多个上游厂商模型。
 - **key 不回传浏览器**：已有 key 只保存在服务端和 Pi 的 `auth.json`，前端只能看到“已配置”。
 - **三文件原子写入与回滚**：写入前校验，失败时回滚，避免半配置状态。
+- **并发编辑保护**：每次写入都携带不透明 revision；CC Switch、另一个标签页或文本编辑器改过文件后，旧表单会收到 `409`，不会覆盖新修改。
 - **受保护的供应商删除**：删除网关时明确说明受影响的模型，默认同时删除凭据，也可选择保留；若它是 Pi 当前默认项，必须先指定有效的替代供应商和模型。
 - **面向 Pi 更新**：编辑已知字段时保留未知 provider/model/settings 字段，降低升级时的数据损失风险。
 - **保存后有明确闭环**：显示准确的 `pi --model provider/model:thinking` 命令，并指导用户用 `/model` 验证。
@@ -37,7 +38,35 @@ Pi 在运行时以模型为中心，但配置不是“只有模型”：
 
 `models-store.json` 不在本管理器的职责范围内，程序既不读取也不写入它。
 
-## 在 Linux 或 WSL 本地启动
+## 项目状态与 CC Switch
+
+本项目的功能范围已经完成，现进入维护模式。后续只处理确认过的缺陷、安全修复和 Pi 兼容变化，不再追求与 [CC Switch](https://github.com/farion1231/cc-switch) 的大而全功能对齐。
+
+CC Switch 3.20 已完整接入 Pi 的供应商预设、模型发现、提示词、Skills、会话和用量统计，但它明确不读写 Pi 的 `auth.json`、`defaultProvider` 和 `defaultModel`。本项目继续作为一个更小、无数据库的工具，负责凭据/默认项边界以及三份原生配置之间的一致性。两者可以读取同一套 Pi 文件，但一个工具保存后，另一个工具里已经打开的旧页面必须重新读取。
+
+## 安装 Release 归档
+
+从[最新 Release](https://github.com/wowayou/pi-provider-manager/releases/latest)下载 Linux/WSL 或 Windows 归档。归档已经包含构建后的 UI 和无第三方运行依赖的服务端，只需安装 Node.js 18 或更高版本。
+
+Linux 或 WSL：
+
+```bash
+tar -xzf pi-provider-manager-v*-linux-wsl.tar.gz
+cd pi-provider-manager-v*
+./bin/pi-provider-manager-ui
+```
+
+Windows PowerShell 7：
+
+```powershell
+Expand-Archive .\pi-provider-manager-v*-windows.zip -DestinationPath .\pi-provider-manager
+cd .\pi-provider-manager\pi-provider-manager-v*
+pwsh -File .\bin\pi-provider-manager.ps1
+```
+
+环境变量覆盖和执行策略说明见归档内的 `INSTALL.md`。
+
+## 在 Linux 或 WSL 从源码构建
 
 ```bash
 git clone https://github.com/wowayou/pi-provider-manager.git ~/pi-provider-manager-ui
@@ -121,8 +150,8 @@ npm run test:pi-update
 
 ## 路线图
 
-- 已完成 V1.1：可视化 provider/model 管理、真实设置页、保存闭环、保留未知字段
-- 计划 V2：取得真实脱敏样本格式后，再实现 CSV 和 CC-Switch 配置导入
-- 后续：经用户明确授权的模型目录发现与连接测试
+- 稳定维护：安全修复、确认过的正确性缺陷和 Pi 兼容更新
+- 不再计划 CSV/CC-Switch 导入、模型发现、会话浏览、Skills、用量看板或代理功能
+- 更广的一站式工作流交给 CC Switch；本项目保持聚焦于 Pi 凭据、默认项和原生文件一致性
 
 视觉对照、交互验证和历史 QA 记录见 `design-qa.md` 与 `qa/`。

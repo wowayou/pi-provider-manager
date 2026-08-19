@@ -1,6 +1,6 @@
 {
   "name": "pi-provider-manager-ui",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "piValidatedVersion": "0.84.2",
   "private": true,
   "license": "MIT",
@@ -21,7 +21,11 @@
     "test:server": "node --test tests/server.test.mjs tests/model-draft.test.mjs",
     "test:ui": "node --test tests/model-deletion-ui.test.mjs",
     "test:pi-update": "node --test tests/pi-update-monitor.test.mjs",
+    "test:release": "node --test tests/release-artifacts.test.mjs",
     "build": "vite build && node scripts/prepare-sites-build.mjs",
+    "prepare:release": "node scripts/prepare-release-artifacts.mjs",
+    "package:linux": "node scripts/prepare-release-artifacts.mjs && tar -czf artifacts/pi-provider-manager-v${npm_package_version}-linux-wsl.tar.gz -C artifacts pi-provider-manager-v${npm_package_version}",
+    "package:release": "npm run build && npm run package:linux",
     "preview": "vite preview",
     "test:sites": "node --test tests/sites-worker.test.mjs"
   },

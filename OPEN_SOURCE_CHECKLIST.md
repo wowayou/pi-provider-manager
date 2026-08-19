@@ -20,9 +20,9 @@
 
 ## Recommended
 
-- [ ] Add release archives for Linux/WSL and Windows launchers. Publishing packages or binaries requires explicit owner authorization; do not infer it from ordinary maintenance work.
+- [x] Add release archives for Linux/WSL and Windows launchers. The owner explicitly authorized this final packaging pass; published releases build the archives from the tagged source.
 - [x] Add issue templates for bugs, Pi compatibility reports, and provider schema requests.
-- [ ] Add a redacted CC-Switch/CSV fixture before implementing import. Start from a real sample supplied or approved for publication; do not invent a format or sanitize private data without review.
+- [x] Retire the CC-Switch/CSV import plan. CC Switch now manages Pi's native `models.json` directly, no approved fixture was supplied, and this project has entered focused maintenance mode.
 - [x] Document the supported Pi version in every release. Declared once as `piValidatedVersion` in `package.json`, shown in Settings beside the detected version, and stated in the notes of every published release.
 
 ## Owner-authorized for the first publication

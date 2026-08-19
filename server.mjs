@@ -28,6 +28,7 @@ const AGENT_DIR_SOURCE = process.env.PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE || (
 const AUTH_PATH = path.join(AGENT_DIR, "auth.json");
 const MODELS_PATH = path.join(AGENT_DIR, "models.json");
 const SETTINGS_PATH = path.join(AGENT_DIR, "settings.json");
+const REVISION_KEY = crypto.randomBytes(32);
 const ALLOWED_APIS = new Set([
   "openai-responses",
   "openai-completions",
@@ -90,13 +91,17 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function readJson(filePath) {
-  if (!fs.existsSync(filePath)) return {};
-  const raw = fs.readFileSync(filePath, "utf8");
+function parseJsonBytes(filePath, bytes) {
+  if (bytes === null) return {};
+  const raw = bytes.toString("utf8");
   if (!raw.trim()) return {};
   const parsed = JSON.parse(raw);
   if (!isObject(parsed)) throw new Error(`${path.basename(filePath)} must contain a JSON object.`);
   return parsed;
+}
+
+function readJson(filePath) {
+  return parseJsonBytes(filePath, snapshot(filePath));
 }
 
 function writeJsonAtomic(filePath, value) {
@@ -130,7 +135,12 @@ function replaceFile(source, destination) {
 }
 
 function snapshot(filePath) {
-  return fs.existsSync(filePath) ? fs.readFileSync(filePath) : null;
+  try {
+    return fs.readFileSync(filePath);
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
 }
 
 function restore(filePath, bytes) {
@@ -144,6 +154,64 @@ function restore(filePath, bytes) {
   if (process.platform !== "win32") fs.chmodSync(filePath, 0o600);
 }
 
+class ConflictError extends Error {
+  constructor(message) {
+    super(message);
+    this.statusCode = 409;
+  }
+}
+
+function managedSnapshots() {
+  return new Map([
+    [AUTH_PATH, snapshot(AUTH_PATH)],
+    [MODELS_PATH, snapshot(MODELS_PATH)],
+    [SETTINGS_PATH, snapshot(SETTINGS_PATH)],
+  ]);
+}
+
+function snapshotsEqual(left, right) {
+  for (const filePath of [AUTH_PATH, MODELS_PATH, SETTINGS_PATH]) {
+    const leftBytes = left.get(filePath);
+    const rightBytes = right.get(filePath);
+    if (leftBytes === null || rightBytes === null) {
+      if (leftBytes !== rightBytes) return false;
+    } else if (!leftBytes.equals(rightBytes)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function stableManagedSnapshots() {
+  let previous = managedSnapshots();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const current = managedSnapshots();
+    if (snapshotsEqual(previous, current)) return current;
+    previous = current;
+  }
+  throw new ConflictError("Pi 配置正在被其他程序持续修改，请稍后重新读取。");
+}
+
+function configRevision(files = managedSnapshots()) {
+  const hash = crypto.createHmac("sha256", REVISION_KEY);
+  for (const filePath of [AUTH_PATH, MODELS_PATH, SETTINGS_PATH]) {
+    const bytes = files.get(filePath);
+    hash.update(path.basename(filePath));
+    hash.update(bytes === null ? "\0missing\0" : `\0present:${bytes.length}\0`);
+    if (bytes !== null) hash.update(bytes);
+  }
+  return hash.digest("hex");
+}
+
+function requireCurrentRevision(payload) {
+  const expected = typeof payload.revision === "string" ? payload.revision : "";
+  const files = stableManagedSnapshots();
+  if (!/^[a-f0-9]{64}$/.test(expected) || expected !== configRevision(files)) {
+    throw new ConflictError("Pi 配置已被其他程序或标签页修改。当前草稿尚未写入，请重新读取配置后再试。");
+  }
+  return expected;
+}
+
 function titleFromId(id) {
   return id
     .split(/[-_.]+/)
@@ -153,9 +221,10 @@ function titleFromId(id) {
 }
 
 function publicState() {
-  const auth = readJson(AUTH_PATH);
-  const models = readJson(MODELS_PATH);
-  const settings = readJson(SETTINGS_PATH);
+  const files = stableManagedSnapshots();
+  const auth = parseJsonBytes(AUTH_PATH, files.get(AUTH_PATH));
+  const models = parseJsonBytes(MODELS_PATH, files.get(MODELS_PATH));
+  const settings = parseJsonBytes(SETTINGS_PATH, files.get(SETTINGS_PATH));
   const providerMap = isObject(models.providers) ? models.providers : {};
   // Credentials may deliberately outlive a provider so they can be reused later.
   // Keep those IDs in authProviders, but do not render them as model providers.
@@ -174,6 +243,7 @@ function publicState() {
     };
   });
   return {
+    revision: configRevision(files),
     agentDir: AGENT_DIR,
     providers,
     authProviders: Object.keys(auth).sort(),
@@ -292,6 +362,7 @@ function mergeExistingModel(existing, normalized, submitted, providerApi) {
 
 function saveProvider(payload) {
   if (!isObject(payload)) throw new Error("请求内容无效。");
+  const revision = requireCurrentRevision(payload);
   const providerId = String(payload.providerId || "").trim().replace(/[\\/]+$/, "");
   if (!PROVIDER_ID_PATTERN.test(providerId)) {
     throw new Error("供应商 ID 只能使用小写字母、数字、点、下划线和连字符。");
@@ -373,11 +444,10 @@ function saveProvider(payload) {
       : "high";
   }
 
-  const originals = new Map([
-    [MODELS_PATH, snapshot(MODELS_PATH)],
-    [AUTH_PATH, snapshot(AUTH_PATH)],
-    [SETTINGS_PATH, snapshot(SETTINGS_PATH)],
-  ]);
+  const originals = stableManagedSnapshots();
+  if (revision !== configRevision(originals)) {
+    throw new ConflictError("Pi 配置在保存期间发生了变化。当前草稿尚未写入，请重新读取配置后再试。");
+  }
   try {
     writeJsonAtomic(MODELS_PATH, models);
     writeJsonAtomic(AUTH_PATH, auth);
@@ -390,6 +460,7 @@ function saveProvider(payload) {
 
 function deleteProvider(payload) {
   if (!isObject(payload)) throw new Error("请求内容无效。");
+  const revision = requireCurrentRevision(payload);
   const providerId = String(payload.providerId || "").trim();
   if (!PROVIDER_ID_PATTERN.test(providerId)) {
     throw new Error("要删除的供应商 ID 无效。");
@@ -427,11 +498,10 @@ function deleteProvider(payload) {
   delete providers[providerId];
   if (payload.keepCredential !== true) delete auth[providerId];
 
-  const originals = new Map([
-    [MODELS_PATH, snapshot(MODELS_PATH)],
-    [AUTH_PATH, snapshot(AUTH_PATH)],
-    [SETTINGS_PATH, snapshot(SETTINGS_PATH)],
-  ]);
+  const originals = stableManagedSnapshots();
+  if (revision !== configRevision(originals)) {
+    throw new ConflictError("Pi 配置在删除期间发生了变化。没有删除任何内容，请重新读取配置后再试。");
+  }
   try {
     writeJsonAtomic(MODELS_PATH, models);
     writeJsonAtomic(AUTH_PATH, auth);
@@ -444,6 +514,7 @@ function deleteProvider(payload) {
 
 function saveSettings(payload) {
   if (!isObject(payload)) throw new Error("设置内容无效。");
+  const revision = requireCurrentRevision(payload);
   const models = readJson(MODELS_PATH);
   const settings = readJson(SETTINGS_PATH);
   const providers = isObject(models.providers) ? models.providers : {};
@@ -462,6 +533,10 @@ function saveSettings(payload) {
     : "medium";
   settings.hideThinkingBlock = Boolean(payload.hideThinkingBlock);
   settings.transport = ALLOWED_TRANSPORTS.has(payload.transport) ? payload.transport : "auto";
+  const current = stableManagedSnapshots();
+  if (revision !== configRevision(current)) {
+    throw new ConflictError("Pi 配置在保存期间发生了变化。当前设置尚未写入，请重新读取配置后再试。");
+  }
   writeJsonAtomic(SETTINGS_PATH, settings);
 }
 
@@ -613,7 +688,7 @@ const server = http.createServer(async (request, response) => {
     }
     sendJson(response, 404, { error: "Not found" });
   } catch (error) {
-    sendJson(response, 400, { error: error.message });
+    sendJson(response, Number.isInteger(error.statusCode) ? error.statusCode : 400, { error: error.message });
   }
 });
 
