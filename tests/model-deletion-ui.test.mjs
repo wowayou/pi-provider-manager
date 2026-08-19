@@ -62,14 +62,24 @@ async function waitForUrl(url, timeout = 10_000) {
   throw lastError || new Error(`Timed out waiting for ${url}`);
 }
 
-async function stopProcess(child) {
-  if (!child || child.exitCode !== null) return;
-  child.kill("SIGTERM");
-  await Promise.race([
-    new Promise((resolve) => child.once("exit", resolve)),
-    new Promise((resolve) => setTimeout(resolve, 2_000)),
-  ]);
-  if (child.exitCode === null) child.kill("SIGKILL");
+async function stopProcess(child, processGroup = false) {
+  if (!child) return;
+  const signal = (name) => {
+    try {
+      if (processGroup && process.platform !== "win32") process.kill(-child.pid, name);
+      else if (child.exitCode === null) child.kill(name);
+    } catch (error) {
+      if (error.code !== "ESRCH") throw error;
+    }
+  };
+  signal("SIGTERM");
+  if (child.exitCode === null) {
+    await Promise.race([
+      new Promise((resolve) => child.once("exit", resolve)),
+      new Promise((resolve) => setTimeout(resolve, 2_000)),
+    ]);
+  }
+  if (child.exitCode === null) signal("SIGKILL");
 }
 
 class CdpClient {
@@ -122,14 +132,23 @@ class CdpClient {
 
   async waitFor(expression, timeout = 10_000) {
     const started = Date.now();
+    let lastError;
     while (Date.now() - started < timeout) {
-      if (await this.evaluate(`Boolean(${expression})`)) return;
+      try {
+        if (await this.evaluate(`Boolean(${expression})`)) return;
+      } catch (error) {
+        // A reload destroys the old execution context before the new document is
+        // ready. Treat that brief CDP error like any other not-ready state.
+        lastError = error;
+      }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    throw new Error(`Timed out waiting for ${expression}`);
+    throw new Error(`Timed out waiting for ${expression}${lastError ? `: ${lastError.message}` : ""}`);
   }
 
   close() {
+    for (const waiter of this.pending.values()) waiter.reject(new Error("CDP connection closed."));
+    this.pending.clear();
     this.socket.close();
   }
 }
@@ -208,7 +227,10 @@ test("production UI protects persisted model deletion paths", { timeout: 30_000 
       `--remote-debugging-port=${debugPort}`,
       `--user-data-dir=${profileDir}`,
       "about:blank",
-    ], { stdio: ["ignore", "pipe", "pipe"] });
+    ], {
+      detached: process.platform !== "win32",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     chrome.stdout.on("data", (chunk) => { chromeOutput += chunk; });
     chrome.stderr.on("data", (chunk) => { chromeOutput += chunk; });
     await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`);
@@ -308,10 +330,16 @@ test("production UI protects persisted model deletion paths", { timeout: 30_000 
     error.message += `\nServer output:\n${serverOutput}\nChrome output:\n${chromeOutput}`;
     throw error;
   } finally {
-    cdp?.close();
-    await stopProcess(chrome);
+    if (cdp) {
+      await Promise.race([
+        cdp.send("Browser.close").catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+      cdp.close();
+    }
+    await stopProcess(chrome, true);
     await stopProcess(server);
-    fs.rmSync(profileDir, { recursive: true, force: true });
-    fs.rmSync(agentDir, { recursive: true, force: true });
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
