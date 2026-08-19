@@ -164,6 +164,7 @@ function writeFixture(agentDir) {
   });
   fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({
     "review-router": { type: "api_key", key: "dummy-browser-test-key" },
+    "single-router": { type: "api_key", key: "dummy-single-model-key" },
   }));
   fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
     providers: {
@@ -175,6 +176,11 @@ function writeFixture(agentDir) {
           model("openai/gpt-router"),
           model("google/gemini-router"),
         ],
+      },
+      "single-router": {
+        baseUrl: "https://single.example/v1",
+        api: "openai-completions",
+        models: [model("only/model")],
       },
     },
   }));
@@ -482,6 +488,20 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     assert.equal(mobile.removeTopmost, true);
     assert.ok(mobile.toastLeft >= 0 && mobile.toastRight <= 420);
     assert.deepEqual(mobile.rowHeights, [85, 85, 85]);
+
+    await cdp.evaluate(`document.querySelectorAll('.provider-item')[1].click()`);
+    await cdp.waitFor(`document.querySelectorAll('.model-row').length === 1 && document.querySelector('.model-name-cell input').value === 'only/model'`);
+    const onlyRemove = await cdp.evaluate(`({
+      disabled: document.querySelector('.model-row .icon-button').disabled,
+      ariaDisabled: document.querySelector('.model-row .icon-button').getAttribute('aria-disabled'),
+    })`);
+    assert.deepEqual(onlyRemove, { disabled: false, ariaDisabled: "true" });
+    await cdp.evaluate(`document.querySelector('.model-row .icon-button').click()`);
+    await cdp.waitFor(`document.querySelector('.toast-action') && document.querySelector('.toast').textContent.includes('唯一模型')`);
+    assert.match(await cdp.evaluate(`document.querySelector('.toast').textContent`), /添加替代模型.*供应商删除目前尚未提供/);
+    await cdp.evaluate(`document.querySelector('.toast-action').click()`);
+    await cdp.waitFor(`document.querySelectorAll('.model-row').length === 2`);
+    assert.equal(await cdp.evaluate(`document.querySelector('.model-row:last-child input').value`), "");
     assert.equal(cdp.errors.length, 0);
   } catch (error) {
     error.message += `\nServer output:\n${serverOutput}\nChrome output:\n${chromeOutput}`;

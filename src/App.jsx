@@ -559,7 +559,7 @@ function TokenField({ value, onChange, label }) {
 // trash icon cannot delete the row with the second half of the same gesture.
 const CONFIRM_ARM_DELAY = 400;
 
-function ModelRow({ model, isDefault, isLiveDefault, onChange, onDefault, onArmRemove, onRemove, onSafeDefaults, canRemove }) {
+function ModelRow({ model, isDefault, isLiveDefault, onChange, onDefault, onArmRemove, onRemove, onBlockedRemove, onSafeDefaults, canRemove }) {
   const [armedAt, setArmedAt] = useState(0);
   const confirmRemove = armedAt > 0;
   const isPersisted = Boolean(model.persistedId);
@@ -612,6 +612,10 @@ function ModelRow({ model, isDefault, isLiveDefault, onChange, onDefault, onArmR
           type="button"
           className={`icon-button ${confirmRemove ? "is-confirming" : ""}`}
           onClick={() => {
+            if (!canRemove) {
+              onBlockedRemove();
+              return;
+            }
             if (!confirmRemove) {
               setArmedAt(Date.now());
               onArmRemove();
@@ -621,11 +625,13 @@ function ModelRow({ model, isDefault, isLiveDefault, onChange, onDefault, onArmR
             onRemove();
           }}
           onBlur={() => setArmedAt(0)}
-          disabled={!canRemove}
-          title={canRemove ? (confirmRemove ? (isLiveDefault ? "再点一次删除 Pi 当前默认的模型" : "再点一次确认删除") : "删除这一行") : "至少保留一个模型"}
-          aria-label={confirmRemove
-            ? `再点一次删除 ${model.id || "该模型"}${isLiveDefault ? "，它是 Pi 当前的默认模型" : ""}`
-            : `删除 ${model.id || "该模型"}${isLiveDefault ? "（Pi 当前默认）" : ""}`}
+          aria-disabled={!canRemove}
+          title={canRemove ? (confirmRemove ? (isLiveDefault ? "再点一次删除 Pi 当前默认的模型" : "再点一次确认删除") : "删除这一行") : "不能删除唯一模型；先添加替代模型"}
+          aria-label={canRemove
+            ? confirmRemove
+              ? `再点一次删除 ${model.id || "该模型"}${isLiveDefault ? "，它是 Pi 当前的默认模型" : ""}`
+              : `删除 ${model.id || "该模型"}${isLiveDefault ? "（Pi 当前默认）" : ""}`
+            : `不能删除 ${model.id || "该模型"}，它是这个供应商的唯一模型；先添加替代模型`}
         >
           <Trash size={18} weight={confirmRemove ? "fill" : "regular"} />
         </button>
@@ -665,6 +671,11 @@ function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify, is
       : "再次点击会移除这个未命名模型行。";
   };
   const armRemoveModel = (model) => onNotify(removalMessage(model), "error");
+  const blockLastModelRemoval = () => onNotify(
+    "不能删除这个供应商的唯一模型。先添加替代模型并设为默认；供应商删除目前尚未提供。",
+    "error",
+    { label: "添加模型", onAction: addModel },
+  );
   // A removed row does not just leave the list: saving replaces the stored models,
   // so whatever models.json kept for it — compat flags, thinkingLevelMap, fields
   // Pi wrote that we preserve but never edit — goes with it. Hence the undo.
@@ -773,7 +784,7 @@ function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify, is
         {thinkingAliasModels.length > 0 && <div className="model-warning"><WarningCircle size={20} weight="fill" /><span><strong>发现疑似思考档位后缀：</strong>{thinkingAliasModels.map((model) => model.id).join("、")}。只有网关真的把它们作为模型 ID 时才应保留；否则用右侧“推理能力”和 Pi 的 Shift+Tab 切换。</span></div>}
         <div className={`models-table ${scrolled ? "is-scrolled" : ""}`} onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 2)}>
           <div className="model-table-head"><span /><span>模型 ID</span><span>上下文容量</span><span>最大输出</span><span>图像能力</span><span>推理能力</span><span>默认模型</span><span className="model-action-cell" /></div>
-          {form.models.map((model) => <ModelRow key={model.rowId} model={model} isDefault={form.defaultRowId === model.rowId && Boolean(model.id.trim())} isLiveDefault={Boolean(liveDefaultModelId) && model.id.trim() === liveDefaultModelId} onChange={(value) => updateModel(model.rowId, value)} onSafeDefaults={() => updateModel(model.rowId, { ...model, ...safeDefaults(model.id) })} onDefault={() => setForm((current) => ({ ...current, defaultRowId: model.rowId }))} onArmRemove={() => armRemoveModel(model)} onRemove={() => removeModel(model.rowId)} canRemove={form.models.length > 1} />)}
+          {form.models.map((model) => <ModelRow key={model.rowId} model={model} isDefault={form.defaultRowId === model.rowId && Boolean(model.id.trim())} isLiveDefault={Boolean(liveDefaultModelId) && model.id.trim() === liveDefaultModelId} onChange={(value) => updateModel(model.rowId, value)} onSafeDefaults={() => updateModel(model.rowId, { ...model, ...safeDefaults(model.id) })} onDefault={() => setForm((current) => ({ ...current, defaultRowId: model.rowId }))} onArmRemove={() => armRemoveModel(model)} onRemove={() => removeModel(model.rowId)} onBlockedRemove={blockLastModelRemoval} canRemove={form.models.length > 1} />)}
         </div>
         <p className="scroll-hint">表格可左右滑动，查看上下文容量、图像与推理能力等字段。</p>
         <div className="models-note"><ShieldCheck size={21} weight="duotone" />未指定的能力项将使用保守默认值，不影响正常使用。</div>
