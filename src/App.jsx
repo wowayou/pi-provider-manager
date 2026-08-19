@@ -16,6 +16,7 @@ import {
   Info,
   Key,
   ListPlus,
+  LockSimple,
   MagnifyingGlass,
   Moon,
   OpenAiLogo,
@@ -30,6 +31,7 @@ import {
   WarningCircle,
   X,
 } from "@phosphor-icons/react";
+import { changedPersistedModel, selectedNamedModel } from "./model-draft.mjs";
 
 const API_OPTIONS = [
   {
@@ -187,6 +189,7 @@ function blankModel(id = "") {
   const limits = safeDefaults(id);
   return {
     rowId: crypto.randomUUID(),
+    persistedId: "",
     id,
     name: id,
     contextWindow: limits.contextWindow,
@@ -250,6 +253,7 @@ function providerToForm(provider, state) {
   const convertedModels = provider.models.length
     ? provider.models.map((model) => ({
         rowId: crypto.randomUUID(),
+        persistedId: model.id,
         id: model.id,
         name: model.name || model.id,
         contextWindow: model.contextWindow || 128000,
@@ -551,9 +555,11 @@ function TokenField({ value, onChange, label }) {
 // trash icon cannot delete the row with the second half of the same gesture.
 const CONFIRM_ARM_DELAY = 400;
 
-function ModelRow({ model, isDefault, isLiveDefault, nextDefaultId, onChange, onDefault, onRemove, onSafeDefaults, canRemove }) {
+function ModelRow({ model, isDefault, isLiveDefault, onChange, onDefault, onArmRemove, onRemove, onSafeDefaults, canRemove }) {
   const [armedAt, setArmedAt] = useState(0);
   const confirmRemove = armedAt > 0;
+  const isPersisted = Boolean(model.persistedId);
+  const identityHelpId = `model-id-help-${model.rowId}`;
   useEffect(() => {
     if (!confirmRemove) return undefined;
     const timer = setTimeout(() => setArmedAt(0), 3200);
@@ -564,10 +570,30 @@ function ModelRow({ model, isDefault, isLiveDefault, nextDefaultId, onChange, on
       <span className="drag-handle"><Stack size={17} aria-hidden="true" /></span>
       <label className="model-name-cell">
         <span className="sr-only">模型 ID</span>
-        <input className="mono" value={model.id} onChange={(event) => onChange({ ...model, id: event.target.value, name: event.target.value })} placeholder="例如 anthropic/claude-opus" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
-        {model.api !== "inherit" && <small className="protocol-override">协议覆盖为 {apiMeta(model.api).short}</small>}
-        {isLiveDefault && <small className="live-default-badge">Pi 当前默认</small>}
-        {isLiveDefault && confirmRemove && <small className="live-default-warning" role="status">删除后，保存时 Pi 的默认模型会变成 {nextDefaultId || "列表里第一个已命名的模型"}</small>}
+        <span className="model-id-field">
+          <input
+            className={`mono ${isPersisted ? "is-readonly" : ""}`}
+            value={model.id}
+            onChange={(event) => {
+              if (!isPersisted) onChange({ ...model, id: event.target.value, name: event.target.value });
+            }}
+            readOnly={isPersisted}
+            aria-label="模型 ID"
+            aria-describedby={isPersisted ? identityHelpId : undefined}
+            title={isPersisted ? "已保存的模型 ID 不可直接改名；请添加新模型后删除旧模型" : undefined}
+            placeholder="例如 anthropic/claude-opus"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            autoComplete="off"
+          />
+          {isPersisted && <span className="persisted-id-lock" title="已保存的模型 ID 不可直接改名；请添加新模型后删除旧模型"><LockSimple size={14} aria-hidden="true" /></span>}
+          {isPersisted && <span id={identityHelpId} className="sr-only">已保存的模型 ID 不可直接改名；请添加新模型后删除旧模型。</span>}
+        </span>
+        <span className="model-row-annotations">
+          {model.api !== "inherit" && <small className="protocol-override">协议覆盖为 {apiMeta(model.api).short}</small>}
+          {isLiveDefault && <small className="live-default-badge">Pi 当前默认</small>}
+        </span>
       </label>
       <label>
         <TokenField label="上下文容量" value={model.contextWindow} onChange={(value) => onChange({ ...model, contextWindow: value })} />
@@ -581,7 +607,11 @@ function ModelRow({ model, isDefault, isLiveDefault, nextDefaultId, onChange, on
         type="button"
         className={`icon-button ${confirmRemove ? "is-confirming" : ""}`}
         onClick={() => {
-          if (!confirmRemove) { setArmedAt(Date.now()); return; }
+          if (!confirmRemove) {
+            setArmedAt(Date.now());
+            onArmRemove();
+            return;
+          }
           if (Date.now() - armedAt < CONFIRM_ARM_DELAY) return;
           onRemove();
         }}
@@ -608,9 +638,27 @@ function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify, is
   // stays where it is unless it is the row being removed.
   const nextDefaultAfterRemoving = (rowId) => {
     const models = form.models.filter((model) => model.rowId !== rowId);
-    const next = models.find((model) => model.rowId === form.defaultRowId) || models[0];
+    const next = models.find((model) => model.rowId === form.defaultRowId && model.id.trim())
+      || models.find((model) => model.id.trim());
     return next?.id.trim() || "";
   };
+  const removalMessage = (model) => {
+    const name = model.id.trim();
+    const nextDefaultId = nextDefaultAfterRemoving(model.rowId);
+    const wasLiveDefault = Boolean(name) && name === liveDefaultModelId;
+    if (wasLiveDefault) {
+      return nextDefaultId
+        ? <>删除 <code>{name}</code> 后，保存并设为默认会将 Pi 默认模型改为 <code>{nextDefaultId}</code>，并移除此模型保存的兼容信息。</>
+        : <>删除 <code>{name}</code> 后，需要先指定另一个已命名模型才能保存；此模型保存的兼容信息也会被移除。</>;
+    }
+    if (model.persistedId) {
+      return <>删除 <code>{name}</code> 后，保存会移除此模型及其保存的兼容信息。</>;
+    }
+    return name
+      ? <>再次点击会从本次编辑中移除 <code>{name}</code>。</>
+      : "再次点击会移除这个未命名模型行。";
+  };
+  const armRemoveModel = (model) => onNotify(removalMessage(model), "error");
   // A removed row does not just leave the list: saving replaces the stored models,
   // so whatever models.json kept for it — compat flags, thinkingLevelMap, fields
   // Pi wrote that we preserve but never edit — goes with it. Hence the undo.
@@ -622,14 +670,20 @@ function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify, is
     const wasLiveDefault = Boolean(removed?.id.trim()) && removed.id.trim() === liveDefaultModelId;
     setForm((current) => {
       const models = current.models.filter((model) => model.rowId !== rowId);
-      return { ...current, models, defaultRowId: models.some((model) => model.rowId === current.defaultRowId) ? current.defaultRowId : models[0]?.rowId || "" };
+      const selected = models.find((model) => model.rowId === current.defaultRowId && model.id.trim())
+        || models.find((model) => model.id.trim());
+      return { ...current, models, defaultRowId: selected?.rowId || "" };
     });
     if (!removed) return;
-    const name = removed.id.trim() || "未命名模型";
+    const name = removed.id.trim();
     onNotify(
       wasLiveDefault
-        ? `已删除 ${name}，保存后 Pi 的默认模型会变成 ${nextDefaultId || "列表里第一个已命名的模型"}`
-        : `已删除 ${name}`,
+        ? nextDefaultId
+          ? <>已删除 <code>{name}</code>，保存后 Pi 的默认模型会变成 <code>{nextDefaultId}</code></>
+          : <>已删除 <code>{name}</code>；保存前需要先指定另一个已命名模型</>
+        : name
+          ? <>已删除 <code>{name}</code></>
+          : "已删除未命名模型行",
       wasLiveDefault ? "error" : "success",
       {
         label: "撤销",
@@ -712,7 +766,7 @@ function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify, is
       {thinkingAliasModels.length > 0 && <div className="model-warning"><WarningCircle size={20} weight="fill" /><span><strong>发现疑似思考档位后缀：</strong>{thinkingAliasModels.map((model) => model.id).join("、")}。只有网关真的把它们作为模型 ID 时才应保留；否则用右侧“推理能力”和 Pi 的 Shift+Tab 切换。</span></div>}
       <div className={`models-table ${scrolled ? "is-scrolled" : ""}`} onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 2)}>
         <div className="model-table-head"><span /><span>模型 ID</span><span>上下文容量</span><span>最大输出</span><span>图像能力</span><span>推理能力</span><span>默认模型</span><span /></div>
-        {form.models.map((model) => <ModelRow key={model.rowId} model={model} isDefault={form.defaultRowId === model.rowId && Boolean(model.id.trim())} isLiveDefault={Boolean(liveDefaultModelId) && model.id.trim() === liveDefaultModelId} nextDefaultId={nextDefaultAfterRemoving(model.rowId)} onChange={(value) => updateModel(model.rowId, value)} onSafeDefaults={() => updateModel(model.rowId, { ...model, ...safeDefaults(model.id) })} onDefault={() => setForm((current) => ({ ...current, defaultRowId: model.rowId }))} onRemove={() => removeModel(model.rowId)} canRemove={form.models.length > 1} />)}
+        {form.models.map((model) => <ModelRow key={model.rowId} model={model} isDefault={form.defaultRowId === model.rowId && Boolean(model.id.trim())} isLiveDefault={Boolean(liveDefaultModelId) && model.id.trim() === liveDefaultModelId} onChange={(value) => updateModel(model.rowId, value)} onSafeDefaults={() => updateModel(model.rowId, { ...model, ...safeDefaults(model.id) })} onDefault={() => setForm((current) => ({ ...current, defaultRowId: model.rowId }))} onArmRemove={() => armRemoveModel(model)} onRemove={() => removeModel(model.rowId)} canRemove={form.models.length > 1} />)}
       </div>
       <p className="scroll-hint">表格可左右滑动，查看上下文容量、图像与推理能力等字段。</p>
       <div className="models-note"><ShieldCheck size={21} weight="duotone" />未指定的能力项将使用保守默认值，不影响正常使用。</div>
@@ -979,6 +1033,13 @@ export function App() {
     const message = validateCredentials();
     if (message) { setError(message); setStep(2); return; }
     if (!form.models.some((model) => model.id.trim())) { setError("至少填写一个模型 ID。"); return; }
+    const changedIdentity = changedPersistedModel(form.models);
+    if (changedIdentity) {
+      setError(<>已保存的模型 ID <code>{changedIdentity.persistedId}</code> 不能直接改名或清空；请添加新模型，再用删除按钮移除旧模型。</>);
+      return;
+    }
+    const selectedModel = selectedNamedModel(form.models, form.defaultRowId);
+    if (!selectedModel) { setError("请选择一个已命名模型作为默认模型。"); return; }
     setSaving(true);
     setError("");
     const payload = {
@@ -1003,8 +1064,7 @@ export function App() {
         forceAdaptiveThinking: model.forceAdaptiveThinking,
       })),
       setDefault,
-      defaultModelId: (form.models.find((model) => model.rowId === form.defaultRowId && model.id.trim())
-        || form.models.find((model) => model.id.trim()))?.id.trim(),
+      defaultModelId: selectedModel.id.trim(),
       defaultThinkingLevel: form.defaultThinkingLevel,
       compat: form.compat,
     };
