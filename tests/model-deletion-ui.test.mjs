@@ -437,6 +437,15 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     await cdp.evaluate(`localStorage.setItem('ppm-theme', 'dark')`);
     await cdp.send("Page.reload");
     await cdp.waitFor(`document.documentElement.dataset.theme === 'dark' && document.querySelectorAll('.model-row').length === 3`);
+    await cdp.evaluate(`(async () => {
+      const scroll = document.querySelector('.step-scroll');
+      const table = document.querySelector('.models-table');
+      const viewport = scroll.getBoundingClientRect();
+      const before = table.getBoundingClientRect();
+      const target = Math.max(0, Math.min(scroll.scrollHeight - scroll.clientHeight, before.top - viewport.top - 12));
+      scroll.scrollTop = target;
+      await new Promise(requestAnimationFrame);
+    })()`);
     await cdp.evaluate(`document.querySelector('.model-row .icon-button').click()`);
     await cdp.waitFor(`document.querySelector('.toast')`);
     const mobile = await cdp.evaluate(`(() => {
@@ -448,6 +457,7 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
       const footer = document.querySelector('.wizard-footer').getBoundingClientRect();
       const table = document.querySelector('.models-table').getBoundingClientRect();
       const remove = document.querySelector('.model-row .icon-button').getBoundingClientRect();
+      const topmost = document.elementFromPoint(remove.left + remove.width / 2, remove.top + remove.height / 2);
       return {
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
         verticalOverflow: document.documentElement.scrollHeight - document.documentElement.clientHeight,
@@ -456,6 +466,7 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
         providerRailVisible: document.querySelector('.provider-list').getBoundingClientRect().height >= 48,
         footerVisible: footer.top >= content.top && footer.bottom <= content.bottom + 1,
         removeVisible: remove.left >= table.left && remove.right <= table.right + 1,
+        removeTopmost: topmost?.closest('.icon-button') === document.querySelector('.model-row .icon-button'),
         toastLeft: toast.left,
         toastRight: toast.right,
         rowHeights: [...document.querySelectorAll('.model-row')].map((row) => row.getBoundingClientRect().height),
@@ -468,6 +479,7 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     assert.equal(mobile.providerRailVisible, true);
     assert.equal(mobile.footerVisible, true);
     assert.equal(mobile.removeVisible, true);
+    assert.equal(mobile.removeTopmost, true);
     assert.ok(mobile.toastLeft >= 0 && mobile.toastRight <= 420);
     assert.deepEqual(mobile.rowHeights, [85, 85, 85]);
     assert.equal(cdp.errors.length, 0);
