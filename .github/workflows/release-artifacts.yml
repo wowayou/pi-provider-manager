@@ -1,0 +1,59 @@
+name: Release artifacts
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  linux-wsl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm run prepare:release
+      - name: Build Linux and WSL archive
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: tar -czf "artifacts/pi-provider-manager-${RELEASE_TAG}-linux-wsl.tar.gz" -C artifacts "pi-provider-manager-${RELEASE_TAG}"
+      - name: Upload Linux and WSL archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" artifacts/*-linux-wsl.tar.gz --clobber
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm run prepare:release
+      - name: Build Windows archive
+        shell: pwsh
+        run: |
+          $version = (Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
+          $source = "artifacts/pi-provider-manager-v$version"
+          $destination = "artifacts/pi-provider-manager-v$version-windows.zip"
+          Compress-Archive -LiteralPath $source -DestinationPath $destination -CompressionLevel Optimal
+      - name: Upload Windows archive
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload $env:RELEASE_TAG artifacts/*-windows.zip --clobber

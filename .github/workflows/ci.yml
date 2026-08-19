@@ -37,19 +37,31 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run build
+      - run: npm run test:release
       - run: npm run test:ui
+
+  launchers:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Parse the Windows launcher
+        shell: pwsh
+        run: |
+          $source = Get-Content -LiteralPath bin/pi-provider-manager.ps1 -Raw
+          [void][scriptblock]::Create($source)
 
   # Single stable gate for branch protection. Requiring matrix or UI jobs directly
   # would couple protection to implementation details and changing either later
   # could leave a required check that never reports and blocks every pull request.
   ci-passed:
     if: always()
-    needs: [test, ui]
+    needs: [test, ui, launchers]
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any test job did not succeed
-        if: needs.test.result != 'success' || needs.ui.result != 'success'
+        if: needs.test.result != 'success' || needs.ui.result != 'success' || needs.launchers.result != 'success'
         run: |
           echo "test matrix result: ${{ needs.test.result }}"
           echo "ui result: ${{ needs.ui.result }}"
+          echo "launchers result: ${{ needs.launchers.result }}"
           exit 1

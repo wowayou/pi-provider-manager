@@ -564,6 +564,18 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     assert.equal(afterProviderDelete.authProviders.includes("single-router"), true);
     assert.equal(JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8")).providers["single-router"], undefined);
     assert.equal(JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"))["single-router"].key, "dummy-single-model-key");
+
+    const externallyEditedSettings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+    externallyEditedSettings.externalEditorField = "keep-external-change";
+    fs.writeFileSync(path.join(agentDir, "settings.json"), `${JSON.stringify(externallyEditedSettings, null, 2)}\n`);
+    await cdp.evaluate(`document.querySelector('.settings-button').click()`);
+    await cdp.waitFor(`document.querySelector('.settings-page') && !document.querySelector('.settings-footer .primary-button').disabled`);
+    await cdp.evaluate(`document.querySelector('.settings-footer .primary-button').click()`);
+    await cdp.waitFor(`document.querySelector('.toast.is-error .toast-action') && document.querySelector('.error-banner').textContent.includes('其他程序或标签页')`);
+    assert.equal(await cdp.evaluate(`document.querySelector('.toast-action').textContent`), "重新读取");
+    const afterConflict = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+    assert.equal(afterConflict.externalEditorField, "keep-external-change");
+    assert.equal(Object.hasOwn(afterConflict, "transport"), false);
     assert.equal(cdp.errors.length, 0);
   } catch (error) {
     error.message += `\nServer output:\n${serverOutput}\nChrome output:\n${chromeOutput}`;

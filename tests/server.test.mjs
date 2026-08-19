@@ -76,6 +76,22 @@ async function waitForServer(url) {
   throw new Error("Test server did not start.");
 }
 
+async function currentRevision(baseUrl) {
+  const response = await fetch(`${baseUrl}/api/state`, { cache: "no-store" });
+  assert.equal(response.status, 200);
+  return (await response.json()).revision;
+}
+
+async function postJson(baseUrl, route, body, revision) {
+  const expected = revision === undefined ? await currentRevision(baseUrl) : revision;
+  const payload = expected === null ? body : { ...body, revision: expected };
+  return fetch(`${baseUrl}${route}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 test("writes router-style providers without exposing credentials", async () => {
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-provider-manager-"));
   fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
@@ -118,10 +134,7 @@ test("writes router-style providers without exposing credentials", async () => {
     assert.equal(uiResponse.status, 200);
     assert.match(uiResponse.headers.get("content-security-policy"), /default-src 'self'/);
     assert.match(await uiResponse.text(), /<div id="root"><\/div>/);
-    const createResponse = await fetch(`${baseUrl}/api/providers`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const createResponse = await postJson(baseUrl, "/api/providers", {
         providerId: "any-router",
         baseUrl: "https://router.example/v1",
         api: "openai-completions",
@@ -150,8 +163,7 @@ test("writes router-style providers without exposing credentials", async () => {
         setDefault: true,
         defaultModelId: "anthropic/claude-opus",
         defaultThinkingLevel: "high",
-      }),
-    });
+      });
     assert.equal(createResponse.status, 200);
     const createBody = await createResponse.json();
     assert.equal(JSON.stringify(createBody).includes("test-secret-not-real"), false);
@@ -172,10 +184,7 @@ test("writes router-style providers without exposing credentials", async () => {
     assert.equal(settings.defaultProvider, "any-router");
     assert.equal(settings.defaultModel, "anthropic/claude-opus");
 
-    const migrateResponse = await fetch(`${baseUrl}/api/providers`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const migrateResponse = await postJson(baseUrl, "/api/providers", {
         providerId: "new-router",
         baseUrl: "https://new-router.example/v1",
         api: "openai-responses",
@@ -191,25 +200,20 @@ test("writes router-style providers without exposing credentials", async () => {
           },
         ],
         setDefault: false,
-      }),
-    });
+      });
     assert.equal(migrateResponse.status, 200);
     const migratedAuth = JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"));
     assert.equal(migratedAuth["any-router"], undefined);
     assert.equal(migratedAuth["new-router"].key, "test-secret-not-real");
     assert.equal(JSON.stringify(await migrateResponse.json()).includes("test-secret-not-real"), false);
 
-    const settingsResponse = await fetch(`${baseUrl}/api/settings`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const settingsResponse = await postJson(baseUrl, "/api/settings", {
         defaultProvider: "new-router",
         defaultModel: "gpt-5.6-sol",
         defaultThinkingLevel: "xhigh",
         hideThinkingBlock: true,
         transport: "websocket",
-      }),
-    });
+      });
     assert.equal(settingsResponse.status, 200);
     const updatedSettings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
     assert.equal(updatedSettings.defaultProvider, "new-router");
@@ -218,6 +222,87 @@ test("writes router-style providers without exposing credentials", async () => {
     assert.equal(updatedSettings.hideThinkingBlock, true);
     assert.equal(updatedSettings.transport, "websocket");
     assert.equal(updatedSettings.futureSetting, "keep-setting");
+  } finally {
+    child.kill("SIGTERM");
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+test("rejects stale writes after another process changes Pi configuration", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-revision-"));
+  fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({
+    router: { type: "api_key", key: "revision-test-key" },
+  }));
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
+    providers: {
+      router: {
+        baseUrl: "https://router.example/v1",
+        api: "openai-completions",
+        models: [{ id: "model/one", name: "model/one", contextWindow: 128000, maxTokens: 16000 }],
+      },
+    },
+  }));
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({
+    defaultProvider: "router",
+    defaultModel: "model/one",
+  }));
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+    cwd: projectRoot,
+    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const provider = {
+    providerId: "router",
+    baseUrl: "https://stale.example/v1",
+    api: "openai-completions",
+    credential: { mode: "keep" },
+    models: [{
+      id: "model/one",
+      name: "model/one",
+      contextWindow: 128000,
+      maxTokens: 16000,
+      supportsImages: false,
+      reasoning: true,
+      maximumThinking: "high",
+    }],
+    setDefault: false,
+  };
+
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+    const initialState = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    assert.match(initialState.revision, /^[a-f0-9]{64}$/);
+
+    const missingRevision = await postJson(baseUrl, "/api/providers", provider, null);
+    assert.equal(missingRevision.status, 409);
+    assert.match((await missingRevision.json()).error, /重新读取配置/);
+
+    const externallyEdited = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+    externallyEdited.providers.router.baseUrl = "https://cc-switch.example/v1";
+    externallyEdited.providers.router.externalEditorField = "keep-external-change";
+    fs.writeFileSync(path.join(agentDir, "models.json"), `${JSON.stringify(externallyEdited, null, 2)}\n`);
+    const externalBytes = fs.readFileSync(path.join(agentDir, "models.json"), "utf8");
+
+    const stale = await postJson(baseUrl, "/api/providers", provider, initialState.revision);
+    assert.equal(stale.status, 409);
+    assert.match((await stale.json()).error, /其他程序或标签页/);
+    assert.equal(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"), externalBytes);
+    assert.equal(JSON.parse(externalBytes).providers.router.externalEditorField, "keep-external-change");
+
+    const freshState = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    assert.notEqual(freshState.revision, initialState.revision);
+    const freshSave = await postJson(baseUrl, "/api/providers", {
+      ...provider,
+      baseUrl: "https://fresh.example/v1",
+    }, freshState.revision);
+    assert.equal(freshSave.status, 200);
+    const savedBody = await freshSave.json();
+    assert.notEqual(savedBody.state.revision, freshState.revision);
+    const saved = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+    assert.equal(saved.providers.router.baseUrl, "https://fresh.example/v1");
+    assert.equal(saved.providers.router.externalEditorField, "keep-external-change");
   } finally {
     child.kill("SIGTERM");
     fs.rmSync(agentDir, { recursive: true, force: true });
@@ -271,11 +356,7 @@ test("refuses to drop the model settings.json points at unless a new default is 
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  const submit = (body) => fetch(`${baseUrl}/api/providers`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const submit = (body) => postJson(baseUrl, "/api/providers", body);
   const submitted = (id, extra = {}) => ({
     id,
     name: id,
@@ -405,11 +486,7 @@ test("deletes providers transactionally and can retain credentials", async () =>
     env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const submit = (body) => fetch(`${baseUrl}/api/providers/delete`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const submit = (body) => postJson(baseUrl, "/api/providers/delete", body);
   const readAgentFile = (name) => JSON.parse(fs.readFileSync(path.join(agentDir, name), "utf8"));
   const submittedModel = (id) => ({
     id,
@@ -482,18 +559,14 @@ test("deletes providers transactionally and can retain credentials", async () =>
 
     // The retained entry is useful only if a later save can reuse it without
     // asking the user to paste the key again.
-    const reconfigured = await fetch(`${baseUrl}/api/providers`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const reconfigured = await postJson(baseUrl, "/api/providers", {
         providerId: "default-router",
         baseUrl: "https://reconfigured.example/v1",
         api: "openai-completions",
         credential: { mode: "keep" },
         models: [submittedModel("reconfigured/model")],
         setDefault: false,
-      }),
-    });
+      });
     assert.equal(reconfigured.status, 200);
     assert.equal(JSON.stringify(await reconfigured.json()).includes("default-key-not-a-secret"), false);
     assert.equal(readAgentFile("models.json").providers["default-router"].models[0].id, "reconfigured/model");
@@ -569,28 +642,24 @@ test("rejects cross-origin and rebound requests, and bogus credential sources", 
 
     // A prototype-chain name must not pass as a migration source and blank the real key.
     for (const fromProvider of ["__proto__", "constructor", "toString"]) {
-      const response = await fetch(`${baseUrl}/api/providers`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...provider, providerId: "acme", credential: { mode: "migrate", fromProvider } }),
+      const response = await postJson(baseUrl, "/api/providers", {
+        ...provider,
+        providerId: "acme",
+        credential: { mode: "migrate", fromProvider },
       });
       assert.equal(response.status, 400, `${fromProvider} must be rejected`);
     }
     const afterProto = JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"));
     assert.equal(afterProto.acme.key, "real-key-not-a-secret");
 
-    const settingsProto = await fetch(`${baseUrl}/api/settings`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ defaultProvider: "__proto__", defaultModel: "m" }),
-    });
+    const settingsProto = await postJson(baseUrl, "/api/settings", { defaultProvider: "__proto__", defaultModel: "m" });
     assert.equal(settingsProto.status, 400);
 
     // The app's own requests still work.
-    const legitimate = await fetch(`${baseUrl}/api/providers`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...provider, providerId: "mirror", credential: { mode: "migrate", fromProvider: "acme", move: false } }),
+    const legitimate = await postJson(baseUrl, "/api/providers", {
+      ...provider,
+      providerId: "mirror",
+      credential: { mode: "migrate", fromProvider: "acme", move: false },
     });
     assert.equal(legitimate.status, 200);
     const finalAuth = JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"));

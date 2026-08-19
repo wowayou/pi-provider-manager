@@ -48,7 +48,7 @@ Only `server.mjs` writes Pi configuration, in the first two paths. Demo mode and
 | Path | Responsibility | Explicitly does not own |
 | --- | --- | --- |
 | `src/` | React workflow, validation feedback, demo fixture, theme, and save handoff | filesystem access, stored credentials, provider traffic |
-| `server.mjs` | loopback API, Pi version detection, config validation, atomic writes, rollback, static production serving | remote provider requests, model execution, update monitoring |
+| `server.mjs` | loopback API, Pi version detection, config validation, revision checks, atomic writes, rollback, static production serving | remote provider requests, model execution, update monitoring |
 | `bin/pi-provider-manager-ui` | WSL/local process discovery, port selection, detached launch, browser opening | configuration schema or UI state |
 | `scripts/dev.mjs` | paired Vite and API development processes | production verification |
 | `worker/index.js` | static asset and app-route fallback for Sites packaging | `/api` implementation or Pi config access |
@@ -65,11 +65,11 @@ Only `server.mjs` writes Pi configuration, in the first two paths. Demo mode and
 | `settings.json` | read/write | edits `defaultProvider`, `defaultModel`, `defaultThinkingLevel`, `hideThinkingBlock`, and `transport`; preserves other keys |
 | `models-store.json` | none | intentionally never read or written |
 
-Provider saves and deletions snapshot all three writable files, validate temporary JSON, replace files with private permissions where supported, and restore the snapshots if any write fails. Deleting a provider removes its credential by default, may retain it as an auth-only entry for later reuse, and requires a valid replacement provider/model when the target is Pi's current default. Auth-only entries remain available as credential sources but are not rendered as model providers. Settings-only saves use the same validated atomic write primitive for `settings.json`.
+Provider saves and deletions snapshot all three writable files, validate temporary JSON, replace files with private permissions where supported, and restore the snapshots if any write fails. Every state response also carries an opaque HMAC revision over the raw contents of the three files. Provider, provider-delete, and settings writes must echo that revision; a mismatch returns HTTP 409 before any write, so a stale browser tab cannot overwrite a change made by CC Switch, another manager process, or a text editor. The HMAC key is process-local and never exposes a hash that can be tested against a stored credential. Deleting a provider removes its credential by default, may retain it as an auth-only entry for later reuse, and requires a valid replacement provider/model when the target is Pi's current default. Auth-only entries remain available as credential sources but are not rendered as model providers. Settings-only saves use the same validated atomic write primitive for `settings.json`.
 
 ### Reproduce retained-credential deletion
 
-Use a temporary `PI_CODING_AGENT_DIR` with a non-default provider that has one model and an `auth.json` entry. Against the production-shaped server, send:
+Use a temporary `PI_CODING_AGENT_DIR` with a non-default provider that has one model and an `auth.json` entry. First read `/api/state` and carry its opaque `revision` into the write; the revision is intentionally not derived in the client and must not be invented. Against the production-shaped server, send:
 
 ```http
 POST /api/providers/delete
@@ -77,7 +77,8 @@ Content-Type: application/json
 
 {
   "providerId": "repro-router",
-  "keepCredential": true
+  "keepCredential": true,
+  "revision": "<revision from /api/state>"
 }
 ```
 
@@ -89,6 +90,7 @@ Content-Type: application/json
 
 {
   "providerId": "repro-router",
+  "revision": "<new revision from /api/state>",
   "baseUrl": "https://reconfigured.example/v1",
   "api": "openai-completions",
   "credential": { "mode": "keep" },
@@ -119,7 +121,7 @@ Required invariants:
 - cap request bodies and validate provider IDs, URLs, protocols, models, and settings
 - serve the pre-paint theme script under a hash-based CSP in production
 
-Changes to these rules require exercising real requests against `PI_PROVIDER_MANAGER_SERVE_UI=1 node server.mjs`; source inspection and Vite-only checks are not sufficient.
+Changes to these rules require exercising real requests against `PI_PROVIDER_MANAGER_SERVE_UI=1 node server.mjs`; source inspection and Vite-only checks are not sufficient. A revision conflict must be tested by changing a managed file outside the server between the state read and the write, then checking that the response is 409 and the external bytes remain intact.
 
 ## Compatibility isolation
 
@@ -151,6 +153,7 @@ Do not create another live copy of the app version, validated Pi version, or ope
 | Server or API | `npm run test:server` plus a production-shape request against `server.mjs` |
 | UI behavior or styling | production build, browser flow, console/page errors, responsive checks, and production-shape serving |
 | Sites packaging | `npm run build` and `npm run test:sites` |
+| Release packaging or launchers | `npm run build`, `npm run test:release`, a Linux/WSL archive listing, and Windows PowerShell parse validation |
 | Pi schema compatibility | the complete checklist in [compatibility.md](compatibility.md) with a real released Pi build |
 
 All changes land through a branch and pull request. The protected `main` branch requires the stable aggregate `ci-passed` check and linear history.

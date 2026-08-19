@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.9 - 2026-08-19
+
+- Added optimistic concurrency protection across `auth.json`, `models.json`, and `settings.json`. The server returns an opaque HMAC revision with every state response and requires it on provider, deletion, and settings writes. If CC Switch, another browser tab, or a text editor changed any managed file, the stale request returns HTTP 409 without writing; the UI keeps the draft and offers to reload.
+- Added prebuilt release archives for Linux/WSL and Windows. They contain the built UI, dependency-free Node server, documentation, and platform launchers without `node_modules` or Pi data. A release-published workflow builds both archives from the tag, while CI validates the staging contents and parses the PowerShell launcher on Windows.
+- Made both launchers resolve a bundled project relative to their own location, so an extracted release can run from any directory while copied launchers and the existing environment overrides continue to work.
+- Moved the project into focused maintenance mode. CC Switch now owns the broader Pi workflow; this manager remains intentionally limited to Pi credentials, runtime defaults, and native-file consistency. The unstarted CC-Switch/CSV import and model-discovery roadmap is retired.
+
+**Validated against Pi `0.84.2`.** The Pi-facing schema is unchanged from 0.1.8. Production-shaped regressions exercise successful writes, externally modified files, HTTP 409 conflicts, preserved external fields, and the browser reload action using isolated temporary Pi directories.
+
 ## 0.1.8 - 2026-08-19
 
 - Added guarded provider deletion. A named confirmation dialog removes the provider and all of its models, deletes its stored credential by default, and can explicitly retain that credential for later reuse. Deleting Pi's current default requires a valid replacement provider/model; the server validates and writes all three files as one rollback-protected operation, so stale tabs and direct API calls cannot break the invariant.

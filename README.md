@@ -22,6 +22,7 @@ Pi Provider Manager makes that relationship visible instead of forcing users to 
 - **Router-first catalog management** — one OpenRouter-like gateway can contain models from many upstream vendors.
 - **Secret-safe local boundary** — existing API keys are never returned to the browser; the backend binds to `127.0.0.1` only.
 - **Validated atomic writes** — updates to `models.json`, `auth.json`, and `settings.json` use validated temporary files and rollback on failure.
+- **Concurrent-edit protection** — every write carries an opaque revision; changes made by CC Switch, another tab, or a text editor cause a `409` instead of being overwritten by stale form data.
 - **Guarded provider deletion** — removing a gateway names every affected model, deletes its credential by default with an option to retain it, and requires a valid replacement before deleting Pi's current default.
 - **Forward-compatible edits** — unknown provider, model, and settings fields are preserved when known fields are updated.
 - **Beginner save handoff** — after saving, the app gives the exact `pi --model provider/model:thinking` command and `/model` verification steps.
@@ -37,7 +38,35 @@ Pi Provider Manager makes that relationship visible instead of forcing users to 
 
 `models-store.json` is outside the manager's scope and is never read or written.
 
-## Start locally on Linux or WSL
+## Project status and CC Switch
+
+This project is feature-complete and in maintenance mode. New work is limited to confirmed defects, security fixes, and Pi compatibility changes; it does not plan to match the broader feature set in [CC Switch](https://github.com/farion1231/cc-switch).
+
+CC Switch 3.20 added a comprehensive Pi integration for provider presets, model discovery, prompts, Skills, sessions, and usage. It deliberately does not read or write Pi's `auth.json`, `defaultProvider`, or `defaultModel`. Pi Provider Manager remains a smaller, database-free tool for that credential/default boundary and the three-file invariants around it. Both can use the same Pi files, but a stale page must reload after another editor changes them.
+
+## Install a release archive
+
+Download the Linux/WSL or Windows archive from the [latest release](https://github.com/wowayou/pi-provider-manager/releases/latest). The archive already contains the built UI and the dependency-free server; only Node.js 18 or newer is required.
+
+Linux or WSL:
+
+```bash
+tar -xzf pi-provider-manager-v*-linux-wsl.tar.gz
+cd pi-provider-manager-v*
+./bin/pi-provider-manager-ui
+```
+
+Windows PowerShell 7:
+
+```powershell
+Expand-Archive .\pi-provider-manager-v*-windows.zip -DestinationPath .\pi-provider-manager
+cd .\pi-provider-manager\pi-provider-manager-v*
+pwsh -File .\bin\pi-provider-manager.ps1
+```
+
+See `INSTALL.md` inside the archive for environment overrides and execution-policy guidance.
+
+## Build from source on Linux or WSL
 
 ```bash
 git clone https://github.com/wowayou/pi-provider-manager.git ~/pi-provider-manager-ui
@@ -121,8 +150,8 @@ Released under the [MIT License](LICENSE). See [OPEN_SOURCE_CHECKLIST.md](OPEN_S
 
 ## Roadmap
 
-- Completed V1.1: visual provider/model management, real settings, save handoff, compatibility-preserving writes
-- Planned V2: CSV import and CC-Switch import after a redacted sample format is available
-- Future: optional model-catalog discovery and provider connectivity checks with explicit user consent
+- Stable maintenance: security fixes, confirmed correctness defects, and Pi compatibility updates
+- No planned CSV/CC-Switch import, model discovery, session browser, Skills, usage dashboard, or proxy features
+- Broader all-in-one workflows belong in CC Switch; this project stays focused on Pi credentials, defaults, and native-file consistency
 
 See `design-qa.md` and `qa/` for visual comparisons, interaction evidence, and QA history.

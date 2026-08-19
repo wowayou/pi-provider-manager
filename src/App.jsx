@@ -1102,10 +1102,18 @@ function SettingsScreen({ state, saving, error, onSave, onBack }) {
   );
 }
 
+async function readApiResponse(response, fallbackMessage) {
+  const data = await response.json();
+  if (response.ok) return data;
+  const error = new Error(data.error || fallbackMessage);
+  error.status = response.status;
+  throw error;
+}
+
 export function App() {
   const demoMode = useMemo(() => new URLSearchParams(window.location.search).get("demo") === "1", []);
   const [theme, setTheme] = useTheme();
-  const [state, setState] = useState(demoMode ? DEMO_STATE : { providers: [], authProviders: [], settings: {}, compatibility: {}, agentDir: "" });
+  const [state, setState] = useState(demoMode ? DEMO_STATE : { revision: "", providers: [], authProviders: [], settings: {}, compatibility: {}, agentDir: "" });
   const [loading, setLoading] = useState(!demoMode);
   const [selectedId, setSelectedId] = useState(demoMode ? "any-claude" : "");
   const [step, setStep] = useState(demoMode ? 3 : 1);
@@ -1124,6 +1132,15 @@ export function App() {
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), action ? 7000 : 3200);
   }, []);
+  const reportRequestError = useCallback((requestError, setMessage) => {
+    setMessage(requestError.message);
+    if (requestError.status === 409) {
+      showToast(requestError.message, "error", {
+        label: "重新读取",
+        onAction: () => window.location.reload(),
+      });
+    }
+  }, [showToast]);
   useEffect(() => () => clearTimeout(toastTimer.current), []);
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -1136,8 +1153,7 @@ export function App() {
     if (demoMode) return;
     fetch("/api/state", { cache: "no-store" })
       .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "读取配置失败");
+        const data = await readApiResponse(response, "读取配置失败");
         setState(data);
         if (data.providers.length > 0) {
           const provider = data.providers.find((item) => item.isDefault) || data.providers[0];
@@ -1233,6 +1249,7 @@ export function App() {
       defaultModelId: selectedModel.id.trim(),
       defaultThinkingLevel: form.defaultThinkingLevel,
       compat: form.compat,
+      revision: state.revision,
     };
     try {
       if (demoMode) {
@@ -1284,8 +1301,7 @@ export function App() {
         return;
       }
       const response = await fetch("/api/providers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "保存失败");
+      const data = await readApiResponse(response, "保存失败");
       setState(data.state);
       const saved = data.state.providers.find((provider) => provider.id === payload.providerId);
       if (saved) { setSelectedId(saved.id); setForm(providerToForm(saved, data.state)); }
@@ -1299,7 +1315,7 @@ export function App() {
       });
       setView("success");
     } catch (requestError) {
-      setError(requestError.message);
+      reportRequestError(requestError, setError);
     } finally {
       setSaving(false);
     }
@@ -1314,14 +1330,13 @@ export function App() {
         setState((current) => ({ ...current, settings: { ...current.settings, ...draft } }));
         showToast("演示模式：设置校验通过");
       } else {
-        const response = await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(draft) });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "保存设置失败");
+        const response = await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...draft, revision: state.revision }) });
+        const data = await readApiResponse(response, "保存设置失败");
         setState(data.state);
         showToast("Pi 设置已保存");
       }
     } catch (requestError) {
-      setError(requestError.message);
+      reportRequestError(requestError, setError);
     } finally {
       setSaving(false);
     }
@@ -1359,10 +1374,9 @@ export function App() {
         const response = await fetch("/api/providers/delete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ ...payload, revision: state.revision }),
         });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "删除供应商失败");
+        const data = await readApiResponse(response, "删除供应商失败");
         nextState = data.state;
       }
 
@@ -1390,7 +1404,7 @@ export function App() {
         <>已删除供应商 <code>{payload.providerId}</code>；{!deletedProvider?.credentialConfigured ? "没有已保存的凭据" : payload.keepCredential ? "凭据已保留" : "凭据也已删除"}</>,
       );
     } catch (requestError) {
-      setDeleteProviderError(requestError.message);
+      reportRequestError(requestError, setDeleteProviderError);
     } finally {
       setDeletingProvider(false);
     }

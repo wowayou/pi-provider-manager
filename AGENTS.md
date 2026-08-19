@@ -22,9 +22,11 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - Treat Pi as provider-scoped configuration plus model-centric runtime selection. Preserve unknown provider/model/settings fields to reduce breakage across Pi upgrades.
 - Keep Pi update detection in repository maintenance automation. It may compare stable release metadata and open a reminder, but must not add a Pi runtime dependency, make application startup depend on upstream availability, or advance `piValidatedVersion` without manual validation.
 - Keep `models.json` and `settings.json` consistent by construction. A save that would leave `settings.defaultModel` pointing at a model the submitted list no longer contains is refused by the server; the client cannot be the only thing standing between the two files, because a stale tab or a direct API call reaches the same endpoint.
+- Treat the three Pi config files as concurrently editable by CC Switch, Pi, text editors, and this UI. State responses carry an opaque revision; every write must echo it and reject a mismatch with HTTP 409 before touching disk. This is optimistic concurrency protection, not merely atomic-write rollback.
 - Treat a persisted model ID as storage identity, not as an ordinary editable label. It is read-only in the form; replacing it means adding the new ID and deleting the old row through the armed, reversible removal flow. Reject identity drift before saving, and never silently choose the first named model when no default radio is selected.
 - Optimize long model catalogs with a sticky header, internal scrolling, compact rows, and bulk model-ID import.
 - Public screenshots and documentation must not expose machine-specific home paths or credentials.
+- The product is now in focused maintenance mode. Do not pursue CC Switch feature parity or revive the unstarted CSV/import, model-discovery, session, Skills, usage, or proxy roadmap unless the owner explicitly reopens it; prioritize security, confirmed correctness defects, and Pi compatibility.
 
 ## Interaction and UI Conventions
 
@@ -53,13 +55,14 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 Read this section first, then `design-qa.md` for how the UI got to its current
 form and what has already been reviewed.
 
-**Where things are.** The latest published release is `v0.1.8`; releases
-`v0.1.2` through `v0.1.8` are tagged and published. `main` contains the
+**Where things are.** The latest published release is `v0.1.9`; releases
+`v0.1.2` through `v0.1.9` are tagged and published. `main` contains the
 structured issue forms, architecture and compatibility documentation, decoupled
 Pi update monitoring, dated real-Pi evidence, Node 24-based GitHub Actions,
-deletion protection for the model Pi is currently using (PR #27), and guarded
-provider deletion with optional credential retention (PR #34).
-`package.json.version` is `0.1.8`.
+deletion protection for the model Pi is currently using (PR #27), guarded
+provider deletion with optional credential retention (PR #34), optimistic
+concurrency protection, and Linux/WSL plus Windows release archives.
+`package.json.version` is `0.1.9`.
 Every checklist item required before the first public push is done. The source
 of truth for remaining publication work and its prerequisites is
 `OPEN_SOURCE_CHECKLIST.md`; do not copy its item count here.
@@ -75,7 +78,7 @@ READMEs aligned.
 administrators, so there is no direct push. Open a branch, open a pull request,
 let the required `ci-passed` check go green, then merge with a rebase to keep
 history linear. `ci-passed` is a single aggregate job that depends on the whole
-Node matrix and the production-browser UI job; require that check and never the
+Node matrix, the production-browser UI job, and the Windows launcher parser; require that check and never the
 individual implementation jobs, because a required check naming a Node version
 or UI job disappears when the workflow changes and then blocks every pull request
 with no visible cause.
@@ -97,6 +100,8 @@ explicitly asks. Deleting `settings.json`'s current provider requires a replacem
 provider/model that already exists. The server validates the relationship and
 writes all three files with snapshot rollback; retained auth-only IDs remain
 available for credential reuse but do not appear in the provider navigation.
+Every write also requires the revision from the last `/api/state` response; a
+changed file returns HTTP 409 and leaves the external change intact.
 
 **Verify against the shape the product actually ships in.** Two shipped bugs
 came from verifying somewhere the product does not run. An indicator for
@@ -141,14 +146,15 @@ are documented in `docs/compatibility.md`.
   `v0.1.4` release notes.
 - The `local-history` branch holds pre-publication history and may exist in an
   older checkout. It must never be pushed; the GitHub remote must not contain it.
-- Remaining Recommended publication tasks and their authorization/sample
-  prerequisites are tracked only in `OPEN_SOURCE_CHECKLIST.md`.
+- The publication checklist is complete. The project is intentionally in focused
+  maintenance mode; do not reopen the retired import/discovery roadmap without
+  explicit owner direction.
 
 **Quick check that everything is where this section says.**
 
 ```bash
 git -C . log --oneline -1 && node -e "const p=require('./package.json'); console.log({version:p.version, piValidatedVersion:p.piValidatedVersion})"
-npm ci && npm run build && npm run test:server && npm run test:ui && npm run test:sites && npm run test:pi-update
+npm ci && npm run build && npm run test:server && npm run test:ui && npm run test:sites && npm run test:pi-update && npm run test:release
 npm run check:pi-update
 gh pr list --state open
 gh issue list --state open

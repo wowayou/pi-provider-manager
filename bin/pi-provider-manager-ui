@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+bundled_project_dir="$(cd -- "$script_dir/.." && pwd)"
+
 if [[ -n "${PI_PROVIDER_MANAGER_PROJECT_DIR:-}" ]]; then
   project_dir="$PI_PROVIDER_MANAGER_PROJECT_DIR"
 elif [[ -f "$PWD/package.json" ]] && grep --quiet '"name"[[:space:]]*:[[:space:]]*"pi-provider-manager-ui"' "$PWD/package.json"; then
   project_dir="$PWD"
+elif [[ -f "$bundled_project_dir/package.json" ]] && grep --quiet '"name"[[:space:]]*:[[:space:]]*"pi-provider-manager-ui"' "$bundled_project_dir/package.json"; then
+  project_dir="$bundled_project_dir"
 else
   project_dir="$HOME/pi-provider-manager-ui"
 fi
