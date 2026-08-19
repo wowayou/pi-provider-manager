@@ -21,6 +21,7 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - After saving, show a dedicated success/next-step screen with the exact Pi model command and `/model` guidance; do not leave the user at the bottom of the edit form.
 - Treat Pi as provider-scoped configuration plus model-centric runtime selection. Preserve unknown provider/model/settings fields to reduce breakage across Pi upgrades.
 - Keep Pi update detection in repository maintenance automation. It may compare stable release metadata and open a reminder, but must not add a Pi runtime dependency, make application startup depend on upstream availability, or advance `piValidatedVersion` without manual validation.
+- Keep `models.json` and `settings.json` consistent by construction. A save that would leave `settings.defaultModel` pointing at a model the submitted list no longer contains is refused by the server; the client cannot be the only thing standing between the two files, because a stale tab or a direct API call reaches the same endpoint.
 - Optimize long model catalogs with a sticky header, internal scrolling, compact rows, and bulk model-ID import.
 - Public screenshots and documentation must not expose machine-specific home paths or credentials.
 
@@ -30,7 +31,7 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - Use one focus treatment app-wide: a 2px `--orange` `:focus-visible` outline with 2px offset, and the `--ring` box-shadow on text fields. Never remove focus styling from an interactive element.
 - All motion uses the `--fast` / `--base` / `--ease` tokens and must degrade under `prefers-reduced-motion`; only progress indicators keep animating there.
 - Feedback must be truthful: a control may only show a success state after the underlying action actually succeeded. Clipboard writes can fail, so the copy control falls back to selecting the command and reports the failure in the error toast tone.
-- Destructive row actions arm on first click and delete on the second; they never delete on a single click and never open a dialog.
+- Destructive row actions arm on first click and delete on the second; they never delete on a single click and never open a dialog. Arming is where the consequence is stated, and every removal offers 撤销 in its toast. The row Pi's default currently points at is marked from `state.settings`, never from the form's own default radio, so the mark stays on the live model when the radio is moved.
 - Keep repeated per-row helpers out of the model table. Bulk affordances belong in the section header so rows stay compact and long catalogs stay scannable.
 - Do not hide primary navigation at narrow widths. The provider list becomes a horizontally scrollable rail below 860px rather than disappearing.
 - Every colour lives in a token on `:root`. Do not write a literal hex value in a rule; add or reuse a semantic token instead, otherwise dark mode silently breaks.
@@ -43,7 +44,7 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - A field must not accept keystrokes its parser will reject. Mark invalid drafts with `aria-invalid` while typing rather than reverting silently on blur, and bound numeric input on both ends so a typo cannot become a plausible-looking value.
 - Treat a key that is absent from the config file as unwritten, not as saved. Filling a default in the UI and then reporting it as already persisted leaves the user unable to write it.
 
-## Handoff — current state as of 2026-08-18
+## Handoff — current state as of 2026-08-19
 
 Read this section first, then `design-qa.md` for how the UI got to its current
 form and what has already been reviewed.
@@ -52,7 +53,8 @@ form and what has already been reviewed.
 `v0.1.2` through `v0.1.7` are tagged and published. `main` is ahead of that tag
 with the work listed under `CHANGELOG.md`'s `Unreleased` section: structured
 issue forms, the architecture and compatibility documentation, decoupled Pi
-update monitoring, dated real-Pi evidence, and Node 24-based GitHub Actions.
+update monitoring, dated real-Pi evidence, Node 24-based GitHub Actions, and
+deletion protection for the model Pi is currently using (PR #27).
 `package.json.version` intentionally remains `0.1.7` until the next release.
 Every checklist item required before the first public push is done. The source
 of truth for remaining publication work and its prerequisites is
@@ -72,6 +74,18 @@ history linear. `ci-passed` is a single aggregate job that depends on the whole
 Node matrix; require that check and never the individual matrix jobs, because a
 required check naming a Node version disappears the moment the matrix changes
 and then blocks every pull request with no visible cause.
+
+**Model deletion is guarded on both sides, and provider deletion does not exist
+yet.** Saving a provider replaces its stored model list wholesale, so
+removing a row also discards that model's compatibility flags and the unknown
+fields we promise to preserve. `saveProvider` therefore refuses to drop the model
+`settings.json` points at unless the same request names a replacement, and the
+model table marks the live default, states the fallback when its delete button is
+armed, and offers 撤销 afterwards. There is no provider-level delete at all:
+the API only exposes `POST /api/providers` and `POST /api/settings`. If one is
+added, it needs the same invariant plus removal of the provider's `auth.json`
+entry, and the credential is the part that is not recoverable by re-typing a
+model ID.
 
 **Verify against the shape the product actually ships in.** Two shipped bugs
 came from verifying somewhere the product does not run. An indicator for
