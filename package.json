@@ -19,6 +19,7 @@
     "server": "node server.mjs",
     "check:pi-update": "node scripts/check-pi-update.mjs",
     "test:server": "node --test tests/server.test.mjs tests/model-draft.test.mjs",
+    "test:ui": "node --test tests/model-deletion-ui.test.mjs",
     "test:pi-update": "node --test tests/pi-update-monitor.test.mjs",
     "build": "vite build && node scripts/prepare-sites-build.mjs",
     "preview": "vite preview",
