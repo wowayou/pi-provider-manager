@@ -243,8 +243,8 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     await cdp.send("Page.enable");
     await cdp.send("Runtime.enable");
     await cdp.send("Emulation.setDeviceMetricsOverride", {
-      width: 1487,
-      height: 1058,
+      width: 1280,
+      height: 720,
       deviceScaleFactor: 1,
       mobile: false,
     });
@@ -255,11 +255,122 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
       rows: ${rowMeasurements},
       readOnlyCount: document.querySelectorAll('.model-name-cell input[readonly]').length,
       liveId: document.querySelector('.live-default-badge').closest('.model-row').querySelector('.model-name-cell input').value,
+      frame: (() => {
+        const shell = document.querySelector('.app-shell').getBoundingClientRect();
+        const sidebar = document.querySelector('.sidebar').getBoundingClientRect();
+        const workspace = document.querySelector('.workspace').getBoundingClientRect();
+        const content = document.querySelector('.step-content').getBoundingClientRect();
+        const footer = document.querySelector('.wizard-footer').getBoundingClientRect();
+        const table = document.querySelector('.models-table').getBoundingClientRect();
+        const remove = document.querySelector('.model-row .icon-button').getBoundingClientRect();
+        return {
+          pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          pageOverflowY: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+          bodyOverflowY: document.body.scrollHeight - document.body.clientHeight,
+          shellTop: shell.top,
+          shellBottom: shell.bottom,
+          shellHeight: shell.height,
+          sidebarHeight: sidebar.height,
+          workspaceHeight: workspace.height,
+          contentOverflow: getComputedStyle(document.querySelector('.step-scroll')).overflowY,
+          providerOverflow: getComputedStyle(document.querySelector('.provider-list')).overflowY,
+          footerVisible: footer.top >= content.top && footer.bottom <= content.bottom + 1,
+          removeVisible: remove.left >= table.left && remove.right <= table.right + 1,
+          removeRight: remove.right,
+        };
+      })(),
     })`);
     assert.equal(initial.readOnlyCount, 3);
     assert.equal(initial.liveId, "anthropic/claude-opus");
     assert.deepEqual(initial.rows.map((row) => row.height), [85, 85, 85]);
     for (const row of initial.rows) assert.equal(new Set(row.tops).size, 1);
+    assert.deepEqual({
+      pageOverflowX: initial.frame.pageOverflowX,
+      pageOverflowY: initial.frame.pageOverflowY,
+      bodyOverflowY: initial.frame.bodyOverflowY,
+      shellTop: initial.frame.shellTop,
+      shellBottom: initial.frame.shellBottom,
+      shellHeight: initial.frame.shellHeight,
+      sidebarHeight: initial.frame.sidebarHeight,
+      workspaceHeight: initial.frame.workspaceHeight,
+      contentOverflow: initial.frame.contentOverflow,
+      providerOverflow: initial.frame.providerOverflow,
+      footerVisible: initial.frame.footerVisible,
+      removeVisible: initial.frame.removeVisible,
+    }, {
+      pageOverflowX: 0,
+      pageOverflowY: 0,
+      bodyOverflowY: 0,
+      shellTop: 0,
+      shellBottom: 720,
+      shellHeight: 720,
+      sidebarHeight: 720,
+      workspaceHeight: 720,
+      contentOverflow: "auto",
+      providerOverflow: "auto",
+      footerVisible: true,
+      removeVisible: true,
+    });
+
+    const actionableRemove = await cdp.evaluate(`(async () => {
+      document.querySelector('.models-table').scrollIntoView({ block: 'start' });
+      await new Promise(requestAnimationFrame);
+      const content = document.querySelector('.step-content').getBoundingClientRect();
+      const table = document.querySelector('.models-table').getBoundingClientRect();
+      const remove = document.querySelector('.model-row .icon-button').getBoundingClientRect();
+      const topmost = document.elementFromPoint(remove.left + remove.width / 2, remove.top + remove.height / 2);
+      return {
+        withinContent: remove.top >= content.top && remove.bottom <= content.bottom,
+        withinTable: remove.left >= table.left && remove.right <= table.right + 1,
+        topmost: Boolean(topmost?.closest('.icon-button')),
+        topmostTag: topmost?.tagName || "",
+        topmostClass: topmost?.className?.baseVal || topmost?.className || "",
+        removeRect: { top: remove.top, right: remove.right, bottom: remove.bottom, left: remove.left },
+        tableRect: { top: table.top, right: table.right, bottom: table.bottom, left: table.left },
+        contentRect: { top: content.top, right: content.right, bottom: content.bottom, left: content.left },
+      };
+    })()`);
+    assert.equal(actionableRemove.withinContent, true);
+    assert.equal(actionableRemove.withinTable, true);
+    assert.equal(actionableRemove.topmost, true, JSON.stringify(actionableRemove));
+
+    await cdp.send("Emulation.setDeviceMetricsOverride", {
+      width: 1181,
+      height: 720,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    const stickyRemove = await cdp.evaluate(`(async () => {
+      const table = document.querySelector('.models-table');
+      await new Promise(requestAnimationFrame);
+      const before = document.querySelector('.model-row .icon-button').getBoundingClientRect();
+      table.scrollLeft = table.scrollWidth;
+      await new Promise(requestAnimationFrame);
+      const after = document.querySelector('.model-row .icon-button').getBoundingClientRect();
+      const bounds = table.getBoundingClientRect();
+      return {
+        horizontalOverflow: table.scrollWidth - table.clientWidth,
+        beforeRight: before.right,
+        afterRight: after.right,
+        visibleBefore: before.left >= bounds.left && before.right <= bounds.right + 1,
+        visibleAfter: after.left >= bounds.left && after.right <= bounds.right + 1,
+      };
+    })()`);
+    assert.ok(stickyRemove.horizontalOverflow > 0);
+    assert.ok(Math.abs(stickyRemove.afterRight - stickyRemove.beforeRight) <= 1);
+    assert.equal(stickyRemove.visibleBefore, true);
+    assert.equal(stickyRemove.visibleAfter, true);
+    await cdp.send("Emulation.setDeviceMetricsOverride", {
+      width: 1280,
+      height: 720,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await cdp.evaluate(`(async () => {
+      document.querySelector('.models-table').scrollLeft = 0;
+      document.querySelector('.step-scroll').scrollTop = 0;
+      await new Promise(requestAnimationFrame);
+    })()`);
 
     await cdp.evaluate(`document.querySelector('.model-name-cell input').focus()`);
     await cdp.send("Input.insertText", { text: "replacement/should-not-apply" });
@@ -302,6 +413,21 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     await cdp.waitFor(`document.querySelectorAll('.model-row').length === 4`);
     assert.equal(await cdp.evaluate(`document.querySelector('.model-row:last-child .model-name-cell input').readOnly`), false);
 
+    await cdp.evaluate(`document.querySelector('.settings-button').click()`);
+    await cdp.waitFor(`document.querySelector('.settings-page') && document.querySelector('.settings-footer')`);
+    const settingsFrame = await cdp.evaluate(`(() => {
+      const page = document.querySelector('.settings-page').getBoundingClientRect();
+      const footer = document.querySelector('.settings-footer').getBoundingClientRect();
+      return {
+        pageOverflowY: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+        scrollOverflow: getComputedStyle(document.querySelector('.settings-scroll')).overflowY,
+        footerVisible: footer.top >= page.top && footer.bottom <= page.bottom + 1,
+      };
+    })()`);
+    assert.deepEqual(settingsFrame, { pageOverflowY: 0, scrollOverflow: "auto", footerVisible: true });
+    await cdp.evaluate(`document.querySelector('.settings-title .secondary-button').click()`);
+    await cdp.waitFor(`document.querySelectorAll('.model-row').length === 4`);
+
     await cdp.send("Emulation.setDeviceMetricsOverride", {
       width: 420,
       height: 900,
@@ -315,14 +441,33 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     await cdp.waitFor(`document.querySelector('.toast')`);
     const mobile = await cdp.evaluate(`(() => {
       const toast = document.querySelector('.toast').getBoundingClientRect();
+      const shell = document.querySelector('.app-shell').getBoundingClientRect();
+      const sidebar = document.querySelector('.sidebar').getBoundingClientRect();
+      const workspace = document.querySelector('.workspace').getBoundingClientRect();
+      const content = document.querySelector('.step-content').getBoundingClientRect();
+      const footer = document.querySelector('.wizard-footer').getBoundingClientRect();
+      const table = document.querySelector('.models-table').getBoundingClientRect();
+      const remove = document.querySelector('.model-row .icon-button').getBoundingClientRect();
       return {
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        verticalOverflow: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+        shellHeight: shell.height,
+        frameFits: sidebar.top >= shell.top && workspace.bottom <= shell.bottom + 1,
+        providerRailVisible: document.querySelector('.provider-list').getBoundingClientRect().height >= 48,
+        footerVisible: footer.top >= content.top && footer.bottom <= content.bottom + 1,
+        removeVisible: remove.left >= table.left && remove.right <= table.right + 1,
         toastLeft: toast.left,
         toastRight: toast.right,
         rowHeights: [...document.querySelectorAll('.model-row')].map((row) => row.getBoundingClientRect().height),
       };
     })()`);
     assert.equal(mobile.overflow, 0);
+    assert.equal(mobile.verticalOverflow, 0);
+    assert.equal(mobile.shellHeight, 900);
+    assert.equal(mobile.frameFits, true);
+    assert.equal(mobile.providerRailVisible, true);
+    assert.equal(mobile.footerVisible, true);
+    assert.equal(mobile.removeVisible, true);
     assert.ok(mobile.toastLeft >= 0 && mobile.toastRight <= 420);
     assert.deepEqual(mobile.rowHeights, [85, 85, 85]);
     assert.equal(cdp.errors.length, 0);

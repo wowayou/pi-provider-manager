@@ -417,49 +417,51 @@ function ProtocolStep({ form, setForm, onNext }) {
   });
   return (
     <section className="step-content">
-      <div className="section-heading">
-        <div><h1>选择网关的默认接口协议</h1><p>供应商类似 OpenRouter：先选默认协议，下面可以挂多个模型。</p></div>
-        <button type="button" className="help-link" aria-expanded={showHint} onClick={() => setShowHint((value) => !value)}>
-          <Question size={19} />不确定选哪个？
-        </button>
-      </div>
-      {showHint && (
-        <div className="hint-panel">
-          <p>打开供应商文档，看接口路径的结尾：</p>
-          <ul>
-            <li><code>/responses</code> → OpenAI Responses</li>
-            <li><code>/chat/completions</code> → OpenAI Chat</li>
-            <li><code>/messages</code> → Anthropic Messages</li>
-            <li><code>:generateContent</code> → Google Gemini</li>
-          </ul>
-          <p>仍然不确定就先选 OpenAI Chat，多数网关都兼容；之后随时可以改。</p>
+      <div className="step-scroll">
+        <div className="section-heading">
+          <div><h1>选择网关的默认接口协议</h1><p>供应商类似 OpenRouter：先选默认协议，下面可以挂多个模型。</p></div>
+          <button type="button" className="help-link" aria-expanded={showHint} onClick={() => setShowHint((value) => !value)}>
+            <Question size={19} />不确定选哪个？
+          </button>
         </div>
-      )}
-      <div className="protocol-grid" role="radiogroup" aria-label="接口协议" onKeyDown={onKeyDown}>
-        {API_OPTIONS.map((option, index) => {
-          const Icon = option.icon;
-          const isSelected = form.api === option.id;
-          return (
-            <button
-              type="button"
-              key={option.id}
-              ref={(node) => { cardRefs.current[index] = node; }}
-              role="radio"
-              aria-checked={isSelected}
-              tabIndex={index === selectedIndex ? 0 : -1}
-              className={`protocol-card ${isSelected ? "is-selected" : ""}`}
-              onClick={() => choose(option.id)}
-            >
-              <span className="protocol-icon"><Icon size={36} weight="duotone" /></span>
-              <strong>{option.title}</strong>
-              <b>{option.subtitle}</b>
-              <p>{option.description}</p>
-              {isSelected && <CheckCircle className="selected-check" size={24} weight="fill" />}
-            </button>
-          );
-        })}
+        {showHint && (
+          <div className="hint-panel">
+            <p>打开供应商文档，看接口路径的结尾：</p>
+            <ul>
+              <li><code>/responses</code> → OpenAI Responses</li>
+              <li><code>/chat/completions</code> → OpenAI Chat</li>
+              <li><code>/messages</code> → Anthropic Messages</li>
+              <li><code>:generateContent</code> → Google Gemini</li>
+            </ul>
+            <p>仍然不确定就先选 OpenAI Chat，多数网关都兼容；之后随时可以改。</p>
+          </div>
+        )}
+        <div className="protocol-grid" role="radiogroup" aria-label="接口协议" onKeyDown={onKeyDown}>
+          {API_OPTIONS.map((option, index) => {
+            const Icon = option.icon;
+            const isSelected = form.api === option.id;
+            return (
+              <button
+                type="button"
+                key={option.id}
+                ref={(node) => { cardRefs.current[index] = node; }}
+                role="radio"
+                aria-checked={isSelected}
+                tabIndex={index === selectedIndex ? 0 : -1}
+                className={`protocol-card ${isSelected ? "is-selected" : ""}`}
+                onClick={() => choose(option.id)}
+              >
+                <span className="protocol-icon"><Icon size={36} weight="duotone" /></span>
+                <strong>{option.title}</strong>
+                <b>{option.subtitle}</b>
+                <p>{option.description}</p>
+                {isSelected && <CheckCircle className="selected-check" size={24} weight="fill" />}
+              </button>
+            );
+          })}
+        </div>
+        <div className="safe-note"><ShieldCheck size={22} weight="duotone" />高级参数会自动使用安全默认值，无需在这里配置。</div>
       </div>
-      <div className="safe-note"><ShieldCheck size={22} weight="duotone" />高级参数会自动使用安全默认值，无需在这里配置。</div>
       <footer className="wizard-footer"><span /><button type="button" className="primary-button" onClick={onNext}>下一步<ArrowRight size={19} /></button></footer>
     </section>
   );
@@ -469,28 +471,30 @@ function CredentialsStep({ form, setForm, state, error, onBack, onNext }) {
   const sources = state.authProviders.filter((id) => id !== form.providerId);
   return (
     <section className="step-content form-step">
-      <div className="section-heading"><div><h1>填写网关地址与凭据</h1><p>key 只会写入 Pi 的 auth.json，保存后不会再显示。</p></div></div>
-      <div className="form-grid">
-        <label><span>供应商 ID</span><small>例如 any-router；用于 Pi 内部识别</small><input className="mono" value={form.providerId} onChange={(event) => setForm((current) => {
-          const providerId = event.target.value.toLowerCase().replace(/\s+/g, "-");
-          // "keep" only means something while the id still names a stored credential.
-          const keepStillValid = state.authProviders.includes(providerId);
-          return { ...current, providerId, credentialMode: current.credentialMode === "keep" && !keepStillValid ? "new" : current.credentialMode };
-        })} placeholder="any-router" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" /></label>
-        <label><span>API 地址</span><small>填写接口根地址，不要包含具体模型路径</small><input className="mono" type="url" inputMode="url" value={form.baseUrl} onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))} placeholder="https://api.example.com/v1" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" /></label>
-      </div>
-      <fieldset className="credential-box">
-        <legend>访问凭据</legend>
-        <div className="credential-tabs">
-          {state.authProviders.includes(form.providerId) && <button type="button" className={form.credentialMode === "keep" ? "is-active" : ""} onClick={() => setForm((current) => ({ ...current, credentialMode: "keep" }))}>保留现有 key</button>}
-          <button type="button" className={form.credentialMode === "new" ? "is-active" : ""} onClick={() => setForm((current) => ({ ...current, credentialMode: "new" }))}>输入新 key</button>
-          {sources.length > 0 && <button type="button" className={form.credentialMode === "migrate" ? "is-active" : ""} onClick={() => setForm((current) => ({ ...current, credentialMode: "migrate", migrateFrom: current.migrateFrom || sources[0] }))}>从已有凭据迁移</button>}
+      <div className="step-scroll">
+        <div className="section-heading"><div><h1>填写网关地址与凭据</h1><p>key 只会写入 Pi 的 auth.json，保存后不会再显示。</p></div></div>
+        <div className="form-grid">
+          <label><span>供应商 ID</span><small>例如 any-router；用于 Pi 内部识别</small><input className="mono" value={form.providerId} onChange={(event) => setForm((current) => {
+            const providerId = event.target.value.toLowerCase().replace(/\s+/g, "-");
+            // "keep" only means something while the id still names a stored credential.
+            const keepStillValid = state.authProviders.includes(providerId);
+            return { ...current, providerId, credentialMode: current.credentialMode === "keep" && !keepStillValid ? "new" : current.credentialMode };
+          })} placeholder="any-router" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" /></label>
+          <label><span>API 地址</span><small>填写接口根地址，不要包含具体模型路径</small><input className="mono" type="url" inputMode="url" value={form.baseUrl} onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))} placeholder="https://api.example.com/v1" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" /></label>
         </div>
-        {form.credentialMode === "keep" && <div className="credential-status"><ShieldCheck size={24} weight="duotone" /><div><strong>凭据已安全保存</strong><span>浏览器无法读取已保存的 key。</span></div></div>}
-        {form.credentialMode === "new" && <label className="key-field"><span>API Key</span><div><Key size={20} /><input className="mono" type="password" autoComplete="new-password" value={form.apiKey} onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))} placeholder="输入后不会回显" /></div></label>}
-        {form.credentialMode === "migrate" && <div className="migrate-fields"><label><span>选择已有供应商</span><select value={form.migrateFrom} onChange={(event) => setForm((current) => ({ ...current, migrateFrom: event.target.value }))}>{sources.map((id) => <option key={id} value={id}>{titleFromId(id)} ({id})</option>)}</select></label><label className="checkbox-row"><input type="checkbox" checked={form.moveCredential} onChange={(event) => setForm((current) => ({ ...current, moveCredential: event.target.checked }))} />迁移成功后删除旧条目</label></div>}
-      </fieldset>
-      {error && <div className="error-banner" role="alert"><WarningCircle size={20} weight="fill" />{error}</div>}
+        <fieldset className="credential-box">
+          <legend>访问凭据</legend>
+          <div className="credential-tabs">
+            {state.authProviders.includes(form.providerId) && <button type="button" className={form.credentialMode === "keep" ? "is-active" : ""} onClick={() => setForm((current) => ({ ...current, credentialMode: "keep" }))}>保留现有 key</button>}
+            <button type="button" className={form.credentialMode === "new" ? "is-active" : ""} onClick={() => setForm((current) => ({ ...current, credentialMode: "new" }))}>输入新 key</button>
+            {sources.length > 0 && <button type="button" className={form.credentialMode === "migrate" ? "is-active" : ""} onClick={() => setForm((current) => ({ ...current, credentialMode: "migrate", migrateFrom: current.migrateFrom || sources[0] }))}>从已有凭据迁移</button>}
+          </div>
+          {form.credentialMode === "keep" && <div className="credential-status"><ShieldCheck size={24} weight="duotone" /><div><strong>凭据已安全保存</strong><span>浏览器无法读取已保存的 key。</span></div></div>}
+          {form.credentialMode === "new" && <label className="key-field"><span>API Key</span><div><Key size={20} /><input className="mono" type="password" autoComplete="new-password" value={form.apiKey} onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))} placeholder="输入后不会回显" /></div></label>}
+          {form.credentialMode === "migrate" && <div className="migrate-fields"><label><span>选择已有供应商</span><select value={form.migrateFrom} onChange={(event) => setForm((current) => ({ ...current, migrateFrom: event.target.value }))}>{sources.map((id) => <option key={id} value={id}>{titleFromId(id)} ({id})</option>)}</select></label><label className="checkbox-row"><input type="checkbox" checked={form.moveCredential} onChange={(event) => setForm((current) => ({ ...current, moveCredential: event.target.checked }))} />迁移成功后删除旧条目</label></div>}
+        </fieldset>
+        {error && <div className="error-banner" role="alert"><WarningCircle size={20} weight="fill" />{error}</div>}
+      </div>
       <footer className="wizard-footer"><button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={19} />上一步</button><button type="button" className="primary-button" onClick={onNext}>下一步<ArrowRight size={19} /></button></footer>
     </section>
   );
@@ -603,27 +607,29 @@ function ModelRow({ model, isDefault, isLiveDefault, onChange, onDefault, onArmR
       <label><span className="sr-only">图像能力</span><select value={model.supportsImages ? "yes" : "no"} onChange={(event) => onChange({ ...model, supportsImages: event.target.value === "yes" })}><option value="yes">支持</option><option value="no">不支持</option></select></label>
       <label><span className="sr-only">推理能力</span><select value={model.maximumThinking} onChange={(event) => onChange({ ...model, maximumThinking: event.target.value })}>{THINKING_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       <label className="default-radio"><input type="radio" name="default-model" checked={isDefault} onChange={onDefault} disabled={!model.id.trim()} aria-label={`将 ${model.id || "该模型"} 设为默认`} /></label>
-      <button
-        type="button"
-        className={`icon-button ${confirmRemove ? "is-confirming" : ""}`}
-        onClick={() => {
-          if (!confirmRemove) {
-            setArmedAt(Date.now());
-            onArmRemove();
-            return;
-          }
-          if (Date.now() - armedAt < CONFIRM_ARM_DELAY) return;
-          onRemove();
-        }}
-        onBlur={() => setArmedAt(0)}
-        disabled={!canRemove}
-        title={canRemove ? (confirmRemove ? (isLiveDefault ? "再点一次删除 Pi 当前默认的模型" : "再点一次确认删除") : "删除这一行") : "至少保留一个模型"}
-        aria-label={confirmRemove
-          ? `再点一次删除 ${model.id || "该模型"}${isLiveDefault ? "，它是 Pi 当前的默认模型" : ""}`
-          : `删除 ${model.id || "该模型"}${isLiveDefault ? "（Pi 当前默认）" : ""}`}
-      >
-        <Trash size={18} weight={confirmRemove ? "fill" : "regular"} />
-      </button>
+      <span className="model-action-cell">
+        <button
+          type="button"
+          className={`icon-button ${confirmRemove ? "is-confirming" : ""}`}
+          onClick={() => {
+            if (!confirmRemove) {
+              setArmedAt(Date.now());
+              onArmRemove();
+              return;
+            }
+            if (Date.now() - armedAt < CONFIRM_ARM_DELAY) return;
+            onRemove();
+          }}
+          onBlur={() => setArmedAt(0)}
+          disabled={!canRemove}
+          title={canRemove ? (confirmRemove ? (isLiveDefault ? "再点一次删除 Pi 当前默认的模型" : "再点一次确认删除") : "删除这一行") : "至少保留一个模型"}
+          aria-label={confirmRemove
+            ? `再点一次删除 ${model.id || "该模型"}${isLiveDefault ? "，它是 Pi 当前的默认模型" : ""}`
+            : `删除 ${model.id || "该模型"}${isLiveDefault ? "（Pi 当前默认）" : ""}`}
+        >
+          <Trash size={18} weight={confirmRemove ? "fill" : "regular"} />
+        </button>
+      </span>
     </div>
   );
 }
@@ -747,37 +753,39 @@ function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify, is
   const namedModels = form.models.filter((model) => model.id.trim()).length;
   return (
     <section className="step-content models-step">
-      <div className="section-heading">
-        <div><h1>确认并选择可用模型</h1><p>一个 API 网关可以添加多个不同厂商的模型，并指定 Pi 默认使用哪个。</p></div>
-      </div>
-      <div className="gateway-summary">
-        <span className="summary-icon"><ProviderIcon api={form.api} size={34} /></span>
-        <div><strong>{titleFromId(form.providerId || "new-provider")}</strong><span className="protocol-badge">{currentApi.title}</span><p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p></div>
-        <div className="saved-credential"><ShieldCheck size={29} weight="duotone" /><span><strong>凭据已安全保存</strong><small>浏览器无法读取旧 key</small></span></div>
-      </div>
-      <div className="models-header">
-        <div><h2>模型列表<span className="count-pill">{namedModels}</span></h2><p>Pi 以 provider/model 选择模型，thinking level 是独立设置。</p></div>
-        <div className="models-actions">
-          <button type="button" className="secondary-button compact-button" onClick={applySafeToAll} title="把所有模型的上下文容量与最大输出改为安全值，可撤销"><ShieldCheck size={18} />全部用安全值</button>
-          <button type="button" className="secondary-button compact-button" onClick={() => setShowBulk(true)}><ListPlus size={18} />批量添加</button>
-          <button type="button" className="outline-button compact-button" onClick={addModel}><Plus size={19} />添加模型</button>
+      <div className="step-scroll">
+        <div className="section-heading">
+          <div><h1>确认并选择可用模型</h1><p>一个 API 网关可以添加多个不同厂商的模型，并指定 Pi 默认使用哪个。</p></div>
         </div>
-      </div>
-      {thinkingAliasModels.length > 0 && <div className="model-warning"><WarningCircle size={20} weight="fill" /><span><strong>发现疑似思考档位后缀：</strong>{thinkingAliasModels.map((model) => model.id).join("、")}。只有网关真的把它们作为模型 ID 时才应保留；否则用右侧“推理能力”和 Pi 的 Shift+Tab 切换。</span></div>}
-      <div className={`models-table ${scrolled ? "is-scrolled" : ""}`} onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 2)}>
-        <div className="model-table-head"><span /><span>模型 ID</span><span>上下文容量</span><span>最大输出</span><span>图像能力</span><span>推理能力</span><span>默认模型</span><span /></div>
-        {form.models.map((model) => <ModelRow key={model.rowId} model={model} isDefault={form.defaultRowId === model.rowId && Boolean(model.id.trim())} isLiveDefault={Boolean(liveDefaultModelId) && model.id.trim() === liveDefaultModelId} onChange={(value) => updateModel(model.rowId, value)} onSafeDefaults={() => updateModel(model.rowId, { ...model, ...safeDefaults(model.id) })} onDefault={() => setForm((current) => ({ ...current, defaultRowId: model.rowId }))} onArmRemove={() => armRemoveModel(model)} onRemove={() => removeModel(model.rowId)} canRemove={form.models.length > 1} />)}
-      </div>
-      <p className="scroll-hint">表格可左右滑动，查看上下文容量、图像与推理能力等字段。</p>
-      <div className="models-note"><ShieldCheck size={21} weight="duotone" />未指定的能力项将使用保守默认值，不影响正常使用。</div>
-      <details className="advanced-panel">
-        <summary><span><SlidersHorizontal size={21} />高级兼容设置 <small>通常无需修改</small></span><CaretDown size={19} /></summary>
-        <div className="advanced-content">
-          <div><h3>模型协议覆盖</h3><p>只有网关针对某个模型使用不同接口时才需要设置。</p></div>
-          {form.models.map((model) => <label key={model.rowId}><span className="mono">{model.id || "未命名模型"}</span><select value={model.api} onChange={(event) => updateModel(model.rowId, { ...model, api: event.target.value })}><option value="inherit">继承网关默认协议</option>{API_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label>)}
+        <div className="gateway-summary">
+          <span className="summary-icon"><ProviderIcon api={form.api} size={34} /></span>
+          <div><strong>{titleFromId(form.providerId || "new-provider")}</strong><span className="protocol-badge">{currentApi.title}</span><p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p></div>
+          <div className="saved-credential"><ShieldCheck size={29} weight="duotone" /><span><strong>凭据已安全保存</strong><small>浏览器无法读取旧 key</small></span></div>
         </div>
-      </details>
-      {error && <div className="error-banner" role="alert"><WarningCircle size={20} weight="fill" />{error}</div>}
+        <div className="models-header">
+          <div><h2>模型列表<span className="count-pill">{namedModels}</span></h2><p>Pi 以 provider/model 选择模型，thinking level 是独立设置。</p></div>
+          <div className="models-actions">
+            <button type="button" className="secondary-button compact-button" onClick={applySafeToAll} title="把所有模型的上下文容量与最大输出改为安全值，可撤销"><ShieldCheck size={18} />全部用安全值</button>
+            <button type="button" className="secondary-button compact-button" onClick={() => setShowBulk(true)}><ListPlus size={18} />批量添加</button>
+            <button type="button" className="outline-button compact-button" onClick={addModel}><Plus size={19} />添加模型</button>
+          </div>
+        </div>
+        {thinkingAliasModels.length > 0 && <div className="model-warning"><WarningCircle size={20} weight="fill" /><span><strong>发现疑似思考档位后缀：</strong>{thinkingAliasModels.map((model) => model.id).join("、")}。只有网关真的把它们作为模型 ID 时才应保留；否则用右侧“推理能力”和 Pi 的 Shift+Tab 切换。</span></div>}
+        <div className={`models-table ${scrolled ? "is-scrolled" : ""}`} onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 2)}>
+          <div className="model-table-head"><span /><span>模型 ID</span><span>上下文容量</span><span>最大输出</span><span>图像能力</span><span>推理能力</span><span>默认模型</span><span className="model-action-cell" /></div>
+          {form.models.map((model) => <ModelRow key={model.rowId} model={model} isDefault={form.defaultRowId === model.rowId && Boolean(model.id.trim())} isLiveDefault={Boolean(liveDefaultModelId) && model.id.trim() === liveDefaultModelId} onChange={(value) => updateModel(model.rowId, value)} onSafeDefaults={() => updateModel(model.rowId, { ...model, ...safeDefaults(model.id) })} onDefault={() => setForm((current) => ({ ...current, defaultRowId: model.rowId }))} onArmRemove={() => armRemoveModel(model)} onRemove={() => removeModel(model.rowId)} canRemove={form.models.length > 1} />)}
+        </div>
+        <p className="scroll-hint">表格可左右滑动，查看上下文容量、图像与推理能力等字段。</p>
+        <div className="models-note"><ShieldCheck size={21} weight="duotone" />未指定的能力项将使用保守默认值，不影响正常使用。</div>
+        <details className="advanced-panel">
+          <summary><span><SlidersHorizontal size={21} />高级兼容设置 <small>通常无需修改</small></span><CaretDown size={19} /></summary>
+          <div className="advanced-content">
+            <div><h3>模型协议覆盖</h3><p>只有网关针对某个模型使用不同接口时才需要设置。</p></div>
+            {form.models.map((model) => <label key={model.rowId}><span className="mono">{model.id || "未命名模型"}</span><select value={model.api} onChange={(event) => updateModel(model.rowId, { ...model, api: event.target.value })}><option value="inherit">继承网关默认协议</option>{API_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label>)}
+          </div>
+        </details>
+        {error && <div className="error-banner" role="alert"><WarningCircle size={20} weight="fill" />{error}</div>}
+      </div>
       <footer className="wizard-footer">
         <button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={19} />上一步</button>
         {isExistingProvider && !isCurrentDefault ? (
@@ -917,31 +925,33 @@ function SettingsScreen({ state, saving, error, onSave, onBack }) {
   };
   return (
     <section className="settings-page">
-      <div className="settings-title"><div><p>Pi 全局设置</p><h1>设置与兼容性</h1><span>这里的修改会写入 Pi 的 settings.json。</span></div><button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={18} />返回</button></div>
-      <div className="settings-grid">
-        <section className="settings-card">
-          <h2>默认模型</h2><p>Pi 启动新会话时优先使用这里的 provider/model。</p>
-          <label><span>默认供应商</span><select value={draft.defaultProvider} onChange={(event) => changeProvider(event.target.value)}>{selectableProviders.map((provider) => <option key={provider.id} value={provider.id}>{titleFromId(provider.id)} · {provider.id}{provider.models.length === 0 ? "（无模型）" : ""}</option>)}</select></label>
-          <label><span>默认模型</span><select value={draft.defaultModel} disabled={availableModels.length === 0} onChange={(event) => setDraft((current) => ({ ...current, defaultModel: event.target.value }))}>{availableModels.map((model) => <option key={model.id} value={model.id}>{model.name || model.id}</option>)}</select>{availableModels.length === 0 && <small>该供应商还没有模型。先为它添加模型，才能设为默认。</small>}</label>
-          <label><span>默认思考强度</span><select value={draft.defaultThinkingLevel} onChange={(event) => setDraft((current) => ({ ...current, defaultThinkingLevel: event.target.value }))}>{["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((level) => <option key={level} value={level}>{level}</option>)}</select></label>
-        </section>
-        <section className="settings-card">
-          <h2>会话行为</h2><p>这些选项由 Pi 官方 settings.json 支持。</p>
-          <label><span>传输方式</span><select value={draft.transport} onChange={(event) => setDraft((current) => ({ ...current, transport: event.target.value }))}><option value="auto">自动选择</option><option value="sse">SSE</option><option value="websocket">WebSocket</option></select></label>
-          <label className="setting-toggle"><input type="checkbox" checked={draft.hideThinkingBlock} onChange={(event) => setDraft((current) => ({ ...current, hideThinkingBlock: event.target.checked }))} /><span><strong>隐藏 thinking 内容块</strong><small>只隐藏显示，不会关闭模型推理。</small></span></label>
-        </section>
-        <section className="settings-card compatibility-card">
-          <h2>兼容状态</h2><dl><div><dt>Pi 版本</dt><dd className="mono">{state.compatibility?.piVersion || "unknown"}</dd></div><div><dt>已验证兼容</dt><dd className="mono">Pi {state.compatibility?.validatedPiVersion || "unknown"}</dd></div><div><dt>管理器版本</dt><dd className="mono">{state.compatibility?.appVersion || "unknown"}</dd></div><div><dt>配置策略</dt><dd>保留未知字段</dd></div><div><dt>配置目录</dt><dd className="mono" title={state.agentDir}>{state.agentDir}</dd></div><div><dt>路径来源</dt><dd>{state.compatibility?.configDirSource === "PI_CODING_AGENT_DIR" ? "PI_CODING_AGENT_DIR" : "自动识别 · 用户主目录"}</dd></div><div><dt>Node</dt><dd className="mono">{state.compatibility?.nodeVersion || "unknown"}</dd></div><div><dt>本地服务</dt><dd className="mono">{state.compatibility?.serviceHost || "127.0.0.1"}:{state.compatibility?.servicePort || 43127}</dd></div></dl>
-          {piVersionDiffers && (
-            <p className="compat-note is-warning">
-              <WarningCircle size={20} weight="fill" />
-              你安装的 Pi 是 {state.compatibility.piVersion}，本版本验证过的是 {state.compatibility.validatedPiVersion}。未知字段仍会保留，但若 Pi 改动了配置结构，请对照兼容性说明确认。
-            </p>
-          )}
-          <p className="compat-note"><ShieldCheck size={20} weight="duotone" />Pi 更新后若出现新字段，本程序会保留未识别字段；涉及字段改名或 API 类型变化时仍需发布兼容更新。</p>
-        </section>
+      <div className="settings-scroll">
+        <div className="settings-title"><div><p>Pi 全局设置</p><h1>设置与兼容性</h1><span>这里的修改会写入 Pi 的 settings.json。</span></div><button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={18} />返回</button></div>
+        <div className="settings-grid">
+          <section className="settings-card">
+            <h2>默认模型</h2><p>Pi 启动新会话时优先使用这里的 provider/model。</p>
+            <label><span>默认供应商</span><select value={draft.defaultProvider} onChange={(event) => changeProvider(event.target.value)}>{selectableProviders.map((provider) => <option key={provider.id} value={provider.id}>{titleFromId(provider.id)} · {provider.id}{provider.models.length === 0 ? "（无模型）" : ""}</option>)}</select></label>
+            <label><span>默认模型</span><select value={draft.defaultModel} disabled={availableModels.length === 0} onChange={(event) => setDraft((current) => ({ ...current, defaultModel: event.target.value }))}>{availableModels.map((model) => <option key={model.id} value={model.id}>{model.name || model.id}</option>)}</select>{availableModels.length === 0 && <small>该供应商还没有模型。先为它添加模型，才能设为默认。</small>}</label>
+            <label><span>默认思考强度</span><select value={draft.defaultThinkingLevel} onChange={(event) => setDraft((current) => ({ ...current, defaultThinkingLevel: event.target.value }))}>{["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((level) => <option key={level} value={level}>{level}</option>)}</select></label>
+          </section>
+          <section className="settings-card">
+            <h2>会话行为</h2><p>这些选项由 Pi 官方 settings.json 支持。</p>
+            <label><span>传输方式</span><select value={draft.transport} onChange={(event) => setDraft((current) => ({ ...current, transport: event.target.value }))}><option value="auto">自动选择</option><option value="sse">SSE</option><option value="websocket">WebSocket</option></select></label>
+            <label className="setting-toggle"><input type="checkbox" checked={draft.hideThinkingBlock} onChange={(event) => setDraft((current) => ({ ...current, hideThinkingBlock: event.target.checked }))} /><span><strong>隐藏 thinking 内容块</strong><small>只隐藏显示，不会关闭模型推理。</small></span></label>
+          </section>
+          <section className="settings-card compatibility-card">
+            <h2>兼容状态</h2><dl><div><dt>Pi 版本</dt><dd className="mono">{state.compatibility?.piVersion || "unknown"}</dd></div><div><dt>已验证兼容</dt><dd className="mono">Pi {state.compatibility?.validatedPiVersion || "unknown"}</dd></div><div><dt>管理器版本</dt><dd className="mono">{state.compatibility?.appVersion || "unknown"}</dd></div><div><dt>配置策略</dt><dd>保留未知字段</dd></div><div><dt>配置目录</dt><dd className="mono" title={state.agentDir}>{state.agentDir}</dd></div><div><dt>路径来源</dt><dd>{state.compatibility?.configDirSource === "PI_CODING_AGENT_DIR" ? "PI_CODING_AGENT_DIR" : "自动识别 · 用户主目录"}</dd></div><div><dt>Node</dt><dd className="mono">{state.compatibility?.nodeVersion || "unknown"}</dd></div><div><dt>本地服务</dt><dd className="mono">{state.compatibility?.serviceHost || "127.0.0.1"}:{state.compatibility?.servicePort || 43127}</dd></div></dl>
+            {piVersionDiffers && (
+              <p className="compat-note is-warning">
+                <WarningCircle size={20} weight="fill" />
+                你安装的 Pi 是 {state.compatibility.piVersion}，本版本验证过的是 {state.compatibility.validatedPiVersion}。未知字段仍会保留，但若 Pi 改动了配置结构，请对照兼容性说明确认。
+              </p>
+            )}
+            <p className="compat-note"><ShieldCheck size={20} weight="duotone" />Pi 更新后若出现新字段，本程序会保留未识别字段；涉及字段改名或 API 类型变化时仍需发布兼容更新。</p>
+          </section>
+        </div>
+        {error && <div className="error-banner" role="alert"><WarningCircle size={20} weight="fill" />{error}</div>}
       </div>
-      {error && <div className="error-banner" role="alert"><WarningCircle size={20} weight="fill" />{error}</div>}
       <footer className="settings-footer">
         <span className="dirty-note" aria-live="polite">
           {edited
@@ -976,7 +986,12 @@ export function App() {
     toastTimer.current = setTimeout(() => setToast(null), action ? 7000 : 3200);
   }, []);
   useEffect(() => () => clearTimeout(toastTimer.current), []);
-  useEffect(() => { window.scrollTo({ top: 0, behavior: "instant" }); }, [view, step]);
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      document.querySelector(".step-scroll, .settings-scroll, .success-page")?.scrollTo({ top: 0, behavior: "instant" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [view, step]);
 
   useEffect(() => {
     if (demoMode) return;
