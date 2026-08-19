@@ -551,7 +551,7 @@ function TokenField({ value, onChange, label }) {
 // trash icon cannot delete the row with the second half of the same gesture.
 const CONFIRM_ARM_DELAY = 400;
 
-function ModelRow({ model, isDefault, onChange, onDefault, onRemove, onSafeDefaults, canRemove }) {
+function ModelRow({ model, isDefault, isLiveDefault, nextDefaultId, onChange, onDefault, onRemove, onSafeDefaults, canRemove }) {
   const [armedAt, setArmedAt] = useState(0);
   const confirmRemove = armedAt > 0;
   useEffect(() => {
@@ -566,6 +566,8 @@ function ModelRow({ model, isDefault, onChange, onDefault, onRemove, onSafeDefau
         <span className="sr-only">模型 ID</span>
         <input className="mono" value={model.id} onChange={(event) => onChange({ ...model, id: event.target.value, name: event.target.value })} placeholder="例如 anthropic/claude-opus" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
         {model.api !== "inherit" && <small className="protocol-override">协议覆盖为 {apiMeta(model.api).short}</small>}
+        {isLiveDefault && <small className="live-default-badge">Pi 当前默认</small>}
+        {isLiveDefault && confirmRemove && <small className="live-default-warning" role="status">删除后，保存时 Pi 的默认模型会变成 {nextDefaultId || "列表里第一个已命名的模型"}</small>}
       </label>
       <label>
         <TokenField label="上下文容量" value={model.contextWindow} onChange={(value) => onChange({ ...model, contextWindow: value })} />
@@ -585,8 +587,10 @@ function ModelRow({ model, isDefault, onChange, onDefault, onRemove, onSafeDefau
         }}
         onBlur={() => setArmedAt(0)}
         disabled={!canRemove}
-        title={canRemove ? (confirmRemove ? "再点一次确认删除" : "删除这一行") : "至少保留一个模型"}
-        aria-label={confirmRemove ? `再点一次删除 ${model.id || "该模型"}` : `删除 ${model.id || "该模型"}`}
+        title={canRemove ? (confirmRemove ? (isLiveDefault ? "再点一次删除 Pi 当前默认的模型" : "再点一次确认删除") : "删除这一行") : "至少保留一个模型"}
+        aria-label={confirmRemove
+          ? `再点一次删除 ${model.id || "该模型"}${isLiveDefault ? "，它是 Pi 当前的默认模型" : ""}`
+          : `删除 ${model.id || "该模型"}${isLiveDefault ? "（Pi 当前默认）" : ""}`}
       >
         <Trash size={18} weight={confirmRemove ? "fill" : "regular"} />
       </button>
@@ -594,16 +598,54 @@ function ModelRow({ model, isDefault, onChange, onDefault, onRemove, onSafeDefau
   );
 }
 
-function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify, isExistingProvider, isCurrentDefault }) {
+function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify, isExistingProvider, isCurrentDefault, liveDefaultModelId }) {
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [scrolled, setScrolled] = useState(false);
   const updateModel = (rowId, value) => setForm((current) => ({ ...current, models: current.models.map((model) => model.rowId === rowId ? value : model) }));
   const addModel = () => setForm((current) => ({ ...current, models: [...current.models, blankModel()], defaultRowId: current.defaultRowId || current.models[0]?.rowId || "" }));
-  const removeModel = (rowId) => setForm((current) => {
-    const models = current.models.filter((model) => model.rowId !== rowId);
-    return { ...current, models, defaultRowId: models.some((model) => model.rowId === current.defaultRowId) ? current.defaultRowId : models[0]?.rowId || "" };
-  });
+  // Which row would inherit the default marker once this one is gone: the radio
+  // stays where it is unless it is the row being removed.
+  const nextDefaultAfterRemoving = (rowId) => {
+    const models = form.models.filter((model) => model.rowId !== rowId);
+    const next = models.find((model) => model.rowId === form.defaultRowId) || models[0];
+    return next?.id.trim() || "";
+  };
+  // A removed row does not just leave the list: saving replaces the stored models,
+  // so whatever models.json kept for it — compat flags, thinkingLevelMap, fields
+  // Pi wrote that we preserve but never edit — goes with it. Hence the undo.
+  const removeModel = (rowId) => {
+    const index = form.models.findIndex((model) => model.rowId === rowId);
+    const removed = form.models[index];
+    const previousDefaultRowId = form.defaultRowId;
+    const nextDefaultId = nextDefaultAfterRemoving(rowId);
+    const wasLiveDefault = Boolean(removed?.id.trim()) && removed.id.trim() === liveDefaultModelId;
+    setForm((current) => {
+      const models = current.models.filter((model) => model.rowId !== rowId);
+      return { ...current, models, defaultRowId: models.some((model) => model.rowId === current.defaultRowId) ? current.defaultRowId : models[0]?.rowId || "" };
+    });
+    if (!removed) return;
+    const name = removed.id.trim() || "未命名模型";
+    onNotify(
+      wasLiveDefault
+        ? `已删除 ${name}，保存后 Pi 的默认模型会变成 ${nextDefaultId || "列表里第一个已命名的模型"}`
+        : `已删除 ${name}`,
+      wasLiveDefault ? "error" : "success",
+      {
+        label: "撤销",
+        onAction: () => setForm((current) => {
+          if (current.models.some((model) => model.rowId === rowId)) return current;
+          const models = [...current.models];
+          models.splice(Math.min(index, models.length), 0, removed);
+          return {
+            ...current,
+            models,
+            defaultRowId: models.some((model) => model.rowId === previousDefaultRowId) ? previousDefaultRowId : current.defaultRowId,
+          };
+        }),
+      },
+    );
+  };
   const applySafeToAll = () => {
     const previous = form.models;
     const changed = previous.filter((model) => {
@@ -670,7 +712,7 @@ function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify, is
       {thinkingAliasModels.length > 0 && <div className="model-warning"><WarningCircle size={20} weight="fill" /><span><strong>发现疑似思考档位后缀：</strong>{thinkingAliasModels.map((model) => model.id).join("、")}。只有网关真的把它们作为模型 ID 时才应保留；否则用右侧“推理能力”和 Pi 的 Shift+Tab 切换。</span></div>}
       <div className={`models-table ${scrolled ? "is-scrolled" : ""}`} onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 2)}>
         <div className="model-table-head"><span /><span>模型 ID</span><span>上下文容量</span><span>最大输出</span><span>图像能力</span><span>推理能力</span><span>默认模型</span><span /></div>
-        {form.models.map((model) => <ModelRow key={model.rowId} model={model} isDefault={form.defaultRowId === model.rowId && Boolean(model.id.trim())} onChange={(value) => updateModel(model.rowId, value)} onSafeDefaults={() => updateModel(model.rowId, { ...model, ...safeDefaults(model.id) })} onDefault={() => setForm((current) => ({ ...current, defaultRowId: model.rowId }))} onRemove={() => removeModel(model.rowId)} canRemove={form.models.length > 1} />)}
+        {form.models.map((model) => <ModelRow key={model.rowId} model={model} isDefault={form.defaultRowId === model.rowId && Boolean(model.id.trim())} isLiveDefault={Boolean(liveDefaultModelId) && model.id.trim() === liveDefaultModelId} nextDefaultId={nextDefaultAfterRemoving(model.rowId)} onChange={(value) => updateModel(model.rowId, value)} onSafeDefaults={() => updateModel(model.rowId, { ...model, ...safeDefaults(model.id) })} onDefault={() => setForm((current) => ({ ...current, defaultRowId: model.rowId }))} onRemove={() => removeModel(model.rowId)} canRemove={form.models.length > 1} />)}
       </div>
       <p className="scroll-hint">表格可左右滑动，查看上下文容量、图像与推理能力等字段。</p>
       <div className="models-note"><ShieldCheck size={21} weight="duotone" />未指定的能力项将使用保守默认值，不影响正常使用。</div>
@@ -1087,7 +1129,7 @@ export function App() {
             <span className="skeleton skeleton-block" />
             <p>正在读取 Pi 配置…</p>
           </div>
-        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} />}</>}
+        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} />}</>}
       </section>
       <div className="toast-region" role="status" aria-live="polite">
         {toast && (
