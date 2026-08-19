@@ -765,9 +765,9 @@ function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify, is
         <div className="models-header">
           <div><h2>模型列表<span className="count-pill">{namedModels}</span></h2><p>Pi 以 provider/model 选择模型，thinking level 是独立设置。</p></div>
           <div className="models-actions">
-            <button type="button" className="secondary-button compact-button" onClick={applySafeToAll} title="把所有模型的上下文容量与最大输出改为安全值，可撤销"><ShieldCheck size={18} />全部用安全值</button>
-            <button type="button" className="secondary-button compact-button" onClick={() => setShowBulk(true)}><ListPlus size={18} />批量添加</button>
-            <button type="button" className="outline-button compact-button" onClick={addModel}><Plus size={19} />添加模型</button>
+            <button type="button" className="secondary-button compact-button" onClick={applySafeToAll} title="把所有模型的上下文容量与最大输出改为安全值，可撤销" aria-label="全部用安全值"><ShieldCheck size={18} /><span className="button-label">全部用安全值</span></button>
+            <button type="button" className="secondary-button compact-button" onClick={() => setShowBulk(true)} title="批量添加模型 ID" aria-label="批量添加"><ListPlus size={18} /><span className="button-label">批量添加</span></button>
+            <button type="button" className="outline-button compact-button" onClick={addModel} title="添加模型" aria-label="添加模型"><Plus size={19} /><span className="button-label">添加模型</span></button>
           </div>
         </div>
         {thinkingAliasModels.length > 0 && <div className="model-warning"><WarningCircle size={20} weight="fill" /><span><strong>发现疑似思考档位后缀：</strong>{thinkingAliasModels.map((model) => model.id).join("、")}。只有网关真的把它们作为模型 ID 时才应保留；否则用右侧“推理能力”和 Pi 的 Shift+Tab 切换。</span></div>}
