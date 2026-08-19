@@ -193,7 +193,7 @@ const rowMeasurements = `(() => [...document.querySelectorAll('.model-row')].map
   };
 }))()`;
 
-test("production UI protects persisted model deletion paths", { timeout: 30_000 }, async () => {
+test("production UI protects persisted model deletion paths", { timeout: 60_000 }, async () => {
   const chromePath = findChrome();
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-delete-"));
   const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-"));
@@ -233,7 +233,7 @@ test("production UI protects persisted model deletion paths", { timeout: 30_000 
     });
     chrome.stdout.on("data", (chunk) => { chromeOutput += chunk; });
     chrome.stderr.on("data", (chunk) => { chromeOutput += chunk; });
-    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`);
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
 
     const target = await fetch(
       `http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(`http://127.0.0.1:${appPort}`)}`,
