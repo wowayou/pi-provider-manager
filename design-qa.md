@@ -224,3 +224,16 @@ final result: passed
 - Deleting the current default exposed native replacement-provider and replacement-model selects; the server separately rejected missing, unknown, and mismatched replacements.
 - Credential removal was the default. Selecting “保留凭据” removed the provider from `models.json` and navigation while keeping its secret entry in `auth.json` and `authProviders`; the credential never appeared in a browser response.
 - Server regression covers validation-without-writes, unknown-field preservation, auth-only public state, strict boolean retention, ordinary deletion, and default replacement. The production-browser regression covers desktop/mobile discovery and the retained-credential path with zero console errors.
+
+## Codex CLI Support — Real-Binary Evidence
+
+- Evidence date: `2026-08-21`.
+- Evidence shape: WSL2 (Ubuntu-24.04) with **Codex `codex-cli 0.149.0`** actually installed, production build served by `server.mjs` via `bin/pi-provider-manager-ui`, against an isolated `CODEX_HOME` seeded from the owner's real `~/.codex`. The development machine has no Codex CLI, so this is the only run that exercises a real binary.
+- **Codex accepted the generated configuration.** `codex` started and reported `model: gpt-5.6-sol high`, confirming the four fields written into `[model_providers.custom]` (`name`, `base_url`, `wire_api`, `requires_openai_auth`) pass the table's `deny_unknown_fields`, that `wire_api = "responses"` is accepted, and that `model_reasoning_effort` is applied.
+- **Adoption worked on a real file.** An existing provider was adopted and shown as live without the read path writing anything.
+- **Preservation held against real content.** `[projects."…"]` tables whose keys are quoted absolute paths containing slashes, dots, and CJK survived intact, as did `[tui.model_availability_nux]` and the legacy top-level keys `disable_response_storage` and `plan_mode_reasoning_effort`. That fixture is now a regression test in `tests/toml-document.test.mjs`.
+- **A project-local `.codex/config.toml` shadows nothing that matters.** Running Codex from a directory containing one produced `Ignored unsupported project-local config keys … model_provider, model_providers`. Those two keys are user-level only, which is exactly where this manager writes them; the warning concerns the working directory's own file, not `$CODEX_HOME/config.toml`.
+- **Two launcher defects surfaced only here.** `port_in_use` probed with bash's `/dev/tcp`, which has no connect timeout; under WSL2 mirrored networking a connect to an unbound loopback port never returns, so the launcher hung on its first candidate port with nothing printed. It now asks Node whether the port can be bound. Separately the launcher printed its URL only when told not to open a browser, so a blocked browser bridge left no port and no error on screen; the URL and both config directories are now printed unconditionally and the bridge is detached.
+- The same networking behaviour made "connection refused" unreachable for loopback probes on this machine, so the bridge check no longer reports refused and timed out as different outcomes.
+
+final result: passed

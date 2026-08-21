@@ -114,6 +114,16 @@ litellm --config ~/.config/litellm/config.yaml --port 4000
 
 本项目刻意不自己实现这层翻译。会动的那一侧是 Codex —— reasoning item、加密的 reasoning 内容、tool call 的结构 —— 而 Codex 基本每周发版，自建翻译层等于给项目绑一个长期追版本的负债。界面上的"检查桥是否启动"只报告那个本机端口上有没有东西在应答；没有任何模型流量经过本管理器。
 
+### 如果 Codex 提示「project-local config keys」
+
+Codex 还会从当前工作目录往上找 `.codex/config.toml`，遇到它在项目级不认的键时会警告：
+
+```
+⚠ Ignored unsupported project-local config keys in <目录>/.codex/config.toml: model_provider, model_providers
+```
+
+这说的是**那个目录自己的文件**，不是本管理器编辑的那份。`model_provider` 和 `model_providers` 只能在用户级设置 —— 而那正是管理器写的位置（`$CODEX_HOME/config.toml`）。最常见的触发方式是在一个恰好含有 `.codex/` 的家目录里跑 `codex`，比如 WSL 下的 `/mnt/c/Users/<你>`（Windows 上也装了 Codex 时）。换到你的项目目录里跑就行。
+
 ### 切换能带走什么，不能带走什么
 
 新会话会干净地用上新配置。**但换供应商后用 `codex resume` 接续旧会话并不可靠**：Codex 会请求 `reasoning.encrypted_content` 并在后续轮次原样回传，而一家加密的内容另一家读不了。这是 Codex 的设计，任何切换工具都绕不过去。同一段对话请在开始它的那家上聊完。
