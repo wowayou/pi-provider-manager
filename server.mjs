@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
-import https from "node:https";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -520,49 +520,35 @@ function saveSettings(payload) {
   writeJsonAtomic(SETTINGS_PATH, settings);
 }
 
-// Reads whether *something* is answering on a local bridge port. It never sends
-// a credential and never leaves the loopback interface: an endpoint that would
-// fetch an arbitrary URL on demand is a probe any page in the browser could aim
+// Reads whether anything is listening on a local port. It never sends a
+// credential and never leaves the loopback interface: an endpoint that would
+// reach an arbitrary URL on demand is a probe any page in the browser could aim
 // at the user's own network.
+//
+// A TCP connect rather than an HTTP request, because "something is listening"
+// is the entire claim. Asking for a path would assume the bridge implements it,
+// and a bridge that answers 404 is no less running.
 function probeBridge(payload) {
   if (!isObject(payload)) throw new Error("请求内容无效。");
-  const baseUrl = normalizeUrl(payload.baseUrl);
-  const target = new URL(`${baseUrl}/models`);
+  const target = new URL(normalizeUrl(payload.baseUrl));
   if (!isLoopbackHostname(target.hostname)) {
     throw new Error("只能探测本机地址（127.0.0.1、localhost 或 [::1]）。");
   }
-  if (target.protocol !== "http:" && target.protocol !== "https:") {
-    throw new Error("探测地址必须使用 http 或 https。");
-  }
-  const secure = target.protocol === "https:";
-  const client = secure ? https : http;
+  const port = Number(target.port) || (target.protocol === "https:" ? 443 : 80);
   return new Promise((resolve) => {
-    const request = client.request(
-      {
-        host: target.hostname,
-        port: target.port || (secure ? 443 : 80),
-        path: target.pathname,
-        method: "GET",
-        timeout: 2000,
-        // A bridge running on localhost over TLS almost always has a
-        // self-signed certificate. Nothing secret is sent and nothing but
-        // reachability is reported, so refusing it would only produce a
-        // misleading "not running".
-        rejectUnauthorized: false,
-      },
-      (response) => {
-        response.resume();
-        // Any HTTP answer at all — 401 included — means a server is listening.
-        // Saying more than that would be claiming the bridge is the right one.
-        resolve({ status: "listening", httpStatus: response.statusCode });
-      },
-    );
-    request.on("timeout", () => {
-      request.destroy();
-      resolve({ status: "timeout" });
-    });
-    request.on("error", () => resolve({ status: "refused" }));
-    request.end();
+    const socket = net.connect({ host: target.hostname, port });
+    const finish = (status) => {
+      socket.destroy();
+      resolve({ status });
+    };
+    socket.setTimeout(2000);
+    socket.once("connect", () => finish("listening"));
+    // Refused and timed out are the same answer to the user: nothing usable
+    // replied. They are not even distinguishable everywhere — under WSL2
+    // mirrored networking a connect to an unbound loopback port hangs rather
+    // than being refused.
+    socket.once("timeout", () => finish("no-answer"));
+    socket.once("error", () => finish("no-answer"));
   });
 }
 

@@ -180,3 +180,62 @@ test("handles an empty file", () => {
   document.setTopLevel("model", "x");
   assert.equal(document.render(), 'model = "x"\n');
 });
+
+// Taken from a real ~/.codex/config.toml: quoted table keys holding absolute
+// paths with slashes, dots and CJK, which is what Codex writes for per-project
+// trust levels. Getting this wrong would corrupt a user's project settings.
+const REAL_WORLD = `model_provider = "custom"
+model = "gpt-5.6-sol"
+disable_response_storage = true
+plan_mode_reasoning_effort = "xhigh"
+
+[model_providers.custom]
+name = "agentrouter"
+base_url = "http://127.0.0.1:15721/v1"
+wire_api = "responses"
+requires_openai_auth = true
+
+[tui.model_availability_nux]
+"gpt-5.5" = 4
+"gpt-5.6-sol" = 4
+
+[projects."/mnt/d/000.MyData/JianguoyunTongBu/我的简历_23/专项优化/威泰液压"]
+trust_level = "trusted"
+
+[projects."/home/forbackup/Dev/my-projects"]
+trust_level = "trusted"
+`;
+
+test("preserves per-project trust tables keyed by a quoted path", () => {
+  const document = TomlDocument.parse(REAL_WORLD);
+  assert.equal(document.render(), REAL_WORLD);
+  // A quoted key holding slashes and dots is one key, not a dotted path.
+  assert.deepEqual(
+    document.tableKeys('projects./mnt/d/000.MyData/JianguoyunTongBu/我的简历_23/专项优化/威泰液压'),
+    { trust_level: "trusted" },
+  );
+  // Those tables are not children of model_providers and must never be listed
+  // as providers or swept up by a rewrite.
+  assert.deepEqual(document.tableNames("model_providers"), ["custom"]);
+  assert.deepEqual(document.tableNames("tui"), ["model_availability_nux"]);
+});
+
+test("rewrites the owned table in a real file without touching anything else", () => {
+  const document = TomlDocument.parse(REAL_WORLD);
+  document.replaceTable("model_providers.custom", {
+    name: "Kimi",
+    base_url: "https://api.moonshot.cn/v1",
+    wire_api: "responses",
+    requires_openai_auth: true,
+  });
+  document.setTopLevel("model", "kimi-k2.6");
+  const rendered = document.render();
+  assert.match(rendered, /^name = "Kimi"$/m);
+  assert.match(rendered, /^model = "kimi-k2\.6"$/m);
+  // Legacy and unrelated keys stay, and the table keeps its place in the file.
+  assert.match(rendered, /^disable_response_storage = true$/m);
+  assert.match(rendered, /^plan_mode_reasoning_effort = "xhigh"$/m);
+  assert.match(rendered, /^\[projects\."\/mnt\/d\/000\.MyData.*威泰液压"\]$/m);
+  assert.equal(rendered.includes("agentrouter"), false);
+  assert.equal(rendered.indexOf("[model_providers.custom]") < rendered.indexOf("[tui.model_availability_nux]"), true);
+});

@@ -353,9 +353,10 @@ test("bridge-check only ever probes the local machine", async () => {
         baseUrl: `http://127.0.0.1:${bridgePort}/v1`,
       }, null);
       assert.equal(response.status, 200);
-      // Any answer, 401 included, means something is listening. It does not
-      // mean the bridge is the right one.
-      assert.deepEqual(await response.json(), { status: "listening", httpStatus: 401 });
+      // The probe is a TCP connect, so a server that answers 401 — or that has
+      // no /v1/models at all — still counts as listening. It does not mean the
+      // bridge is the right one.
+      assert.deepEqual(await response.json(), { status: "listening" });
 
       for (const baseUrl of [
         "https://example.com/v1",
@@ -374,16 +375,17 @@ test("bridge-check only ever probes the local machine", async () => {
       // probe stays on this machine.
       response = await api.post("/api/codex/bridge-check", { baseUrl: "https://2130706433/v1" }, null);
       assert.equal(response.status, 200);
-      assert.equal((await response.json()).status, "refused");
+      assert.equal((await response.json()).status, "no-answer");
     } finally {
       bridge.close();
     }
 
-    const refused = await api.post("/api/codex/bridge-check", {
+    const gone = await api.post("/api/codex/bridge-check", {
       baseUrl: `http://127.0.0.1:${bridgePort}/v1`,
     }, null);
-    assert.equal(refused.status, 200);
-    assert.equal((await refused.json()).status, "refused");
+    assert.equal(gone.status, 200);
+    // Refused and timed out collapse to one answer: nothing replied.
+    assert.equal((await gone.json()).status, "no-answer");
   });
 });
 
