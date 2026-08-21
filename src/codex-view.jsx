@@ -53,6 +53,10 @@ const UPSTREAM_OPTIONS = [
 // Whether Codex will be talking to this machine. This is a fact about the
 // address; whether the thing listening is a translation bridge is not, so only
 // copy tied to the user's own choice may say "bridge".
+export function codexProviderOf(codex, form) {
+  return (codex.providers || []).find((provider) => provider.id === form.providerId.trim()) || null;
+}
+
 export function isLocalAddress(value) {
   try {
     return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(new URL(value).hostname.toLowerCase());
@@ -597,11 +601,17 @@ function CodexModelsStep({ form, setForm, codex, error, saving, onBack, onSave, 
           <span className="summary-icon">{isLocalAddress(form.baseUrl) ? <Plugs size={34} weight="duotone" /> : <PlugsConnected size={34} weight="duotone" />}</span>
           <div>
             <strong>{form.name || titleFromId(form.providerId || "new-provider")}</strong>
-            <span className="protocol-badge">{isLocalAddress(form.baseUrl) ? "本机地址" : "Responses 直连"}</span>
+            <span className="protocol-badge">{codexProviderOf(codex, form)?.bridge ? "托管桥" : isLocalAddress(form.baseUrl) ? "本机地址" : "Responses 直连"}</span>
             <p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p>
             {/* Adoption is derived on the read path, so say it out loud rather
                 than letting an entry appear from nowhere. */}
             {adopted && <p className="adopted-note"><Info size={17} weight="duotone" />已从现有 config.toml 接管，保存后才会记入本管理器。</p>}
+            {codexProviderOf(codex, form)?.bridge && !codex.bridge?.running && (
+              <p className="adopted-note is-warning">
+                <WarningCircle size={17} weight="fill" />
+                本地桥没有运行，Codex 现在发不出请求。回到「填写凭据」那一步启动它。
+              </p>
+            )}
           </div>
           <div className="gateway-side">
             <div className="saved-credential">
@@ -750,9 +760,11 @@ export function CodexSuccessScreen({ result, onCopy, onReturn, onAdd }) {
       <p className="success-eyebrow">配置已写入 Codex</p>
       <h1>{result.name} 已保存</h1>
       <p className="success-summary">
-        {result.activated
-          ? <>已写入 <code>config.toml</code> 并换上这个供应商的 key，默认模型是 <code>{result.defaultModelId}</code>。</>
-          : <>已保存 {result.modelCount} 个模型。当前生效的供应商没有改动。</>}
+        {!result.activated
+          ? <>已保存 {result.modelCount} 个模型。当前生效的供应商没有改动。</>
+          : result.requiresAuth
+            ? <>已写入 <code>config.toml</code> 并换上这个供应商的 key，默认模型是 <code>{result.defaultModelId}</code>。</>
+            : <>已写入 <code>config.toml</code>，默认模型是 <code>{result.defaultModelId}</code>。这个供应商不需要凭据，所以 <code>auth.json</code> 保持原样没有改动。</>}
       </p>
       <div className="next-step-card">
         <div className="next-step-heading">

@@ -619,6 +619,8 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
 
 .adopted-note { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; color: var(--blue); font-size: 12.5px; }
 .adopted-note svg { flex: none; }
+.adopted-note.is-warning { color: var(--warn-text); }
+.adopted-note.is-warning svg { color: var(--warn-icon); }
 .provider-badge:empty { display: none; }
 .provider-badge { white-space: nowrap; padding: 2px 7px; border-radius: 999px; background: var(--orange-soft); color: var(--orange-dark); font-size: 11px; font-weight: 600; letter-spacing: .01em; }
 
