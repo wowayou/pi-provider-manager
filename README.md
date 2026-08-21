@@ -192,7 +192,7 @@ If the repository is cloned elsewhere, set `PI_PROVIDER_MANAGER_PROJECT_DIR` to 
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi config directory used for auth, models, and settings |
 | `CODEX_HOME` | `~/.codex` | Codex config directory, following Codex's own precedence |
 | `PI_PROVIDER_MANAGER_CODEX_DIR` | value of `CODEX_HOME` | Codex directory override for this manager only |
-| `PI_PROVIDER_MANAGER_LITELLM` | `litellm` on `PATH` | Executable used to start the managed bridge |
+| `PI_PROVIDER_MANAGER_LITELLM` | `litellm` on `PATH` | Executable used to start the managed bridge. Set this when LiteLLM lives in a virtualenv; the launcher passes it on to the service, which does not inherit your shell. |
 | `PI_PROVIDER_MANAGER_PROJECT_DIR` | current matching repo, then `~/pi-provider-manager-ui` | Project/build location |
 | `PI_PROVIDER_MANAGER_PORT` | auto-select from `43127-43146` | Strict local loopback port override |
 | `PI_PROVIDER_MANAGER_NODE` | current `node` executable | Node binary used by the detached service |

@@ -192,7 +192,7 @@ install -m 700 bin/pi-provider-manager-ui ~/.pi/agent/bin/pi-provider-manager-ui
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi 的 auth/models/settings 配置目录 |
 | `CODEX_HOME` | `~/.codex` | Codex 配置目录，沿用 Codex 自己的优先级 |
 | `PI_PROVIDER_MANAGER_CODEX_DIR` | `CODEX_HOME` 的值 | 仅对本管理器生效的 Codex 目录覆盖 |
-| `PI_PROVIDER_MANAGER_LITELLM` | `PATH` 上的 `litellm` | 启动托管桥使用的可执行文件 |
+| `PI_PROVIDER_MANAGER_LITELLM` | `PATH` 上的 `litellm` | 启动托管桥使用的可执行文件。LiteLLM 装在 venv 里时必须设置；启动器会把它转交给后台服务 —— 后台服务不继承你的 shell 环境。 |
 | `PI_PROVIDER_MANAGER_PROJECT_DIR` | 当前匹配仓库，其次 `~/pi-provider-manager-ui` | 项目与构建产物位置 |
 | `PI_PROVIDER_MANAGER_PORT` | 从 `43127-43146` 自动选择 | 严格指定本地服务端口 |
 | `PI_PROVIDER_MANAGER_NODE` | 当前 `node` 可执行文件 | 后台服务使用的 Node 路径 |

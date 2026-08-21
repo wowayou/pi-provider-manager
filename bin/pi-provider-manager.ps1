@@ -51,6 +51,11 @@ if ($env:PI_CODING_AGENT_DIR) {
     $agentDir = Join-Path $HOME ".pi\agent"
 }
 
+# Handed to the detached process explicitly, for the same reason as the paths
+# above: it does not inherit this session's environment.
+$litellmBin = $env:PI_PROVIDER_MANAGER_LITELLM
+if (-not $litellmBin) { $litellmBin = "" }
+
 $codexDirSource = "default-home"
 if ($env:PI_PROVIDER_MANAGER_CODEX_DIR) {
     $codexDir = [System.IO.Path]::GetFullPath($env:PI_PROVIDER_MANAGER_CODEX_DIR)
@@ -123,6 +128,7 @@ if (-not (Test-ManagerPort $port)) {
         PI_CODING_AGENT_DIR = $agentDir
         PI_PROVIDER_MANAGER_CODEX_DIR = $codexDir
         PI_PROVIDER_MANAGER_CODEX_DIR_SOURCE = $codexDirSource
+        PI_PROVIDER_MANAGER_LITELLM = $litellmBin
     }
     try {
         foreach ($entry in $launchEnvironment.GetEnumerator()) {
