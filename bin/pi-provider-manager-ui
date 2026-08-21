@@ -58,8 +58,19 @@ is_manager_port() {
     grep --quiet '"configMode":"preserve-unknown-fields"'
 }
 
+# Asks Node whether the port can be bound rather than whether it can be
+# connected to. bash's /dev/tcp has no connect timeout, and under WSL2 mirrored
+# networking a connect to an unbound loopback port is neither accepted nor
+# refused — it simply never returns, and the launcher hangs with nothing on
+# screen. Binding is also the more accurate question: the server binds
+# 127.0.0.1, so this tests exactly what it will do.
 port_in_use() {
-  (echo >"/dev/tcp/127.0.0.1/$1") >/dev/null 2>&1
+  "$node_bin" -e '
+    const net = require("node:net");
+    const server = net.createServer();
+    server.once("error", () => process.exit(0));
+    server.listen(Number(process.argv[1]), "127.0.0.1", () => server.close(() => process.exit(1)));
+  ' "$1" >/dev/null 2>&1
 }
 
 if [[ -n "${PI_PROVIDER_MANAGER_PORT:-}" ]]; then
