@@ -201,6 +201,10 @@ Two of the six existed only because verification ran somewhere the product does 
 
 Both now have server-side tests, so the gap is closed by CI rather than by remembering to switch environments. Verification of anything that touches the served page or the API should run against `server.mjs`, not only against `vite dev`.
 
+- **Follow-up, `2026-08-21`, development machine.** Codex `0.149.0` was installed locally so this stops depending on a second machine. `codex doctor --json` reports `config.load: ok` both for a realistic pre-existing file and after the manager rewrote its provider table, and `reachability mode` switches to `API key auth`, which confirms Codex resolved the generated provider and took the `auth.json` credential path rather than falling back to ChatGPT. Automated as `npm run test:codex-real`, which skips itself where Codex is absent.
+- **A provider table without `name` breaks everything.** Bisecting a failing `codex doctor` run showed that one `[model_providers.*]` lacking `name` makes Codex refuse the whole config, every other provider included. The manager always writes one, but it preserves hand-written tables verbatim, so it now names any offender in the Codex settings screen rather than leaving the user with an unexplained failure.
+- **`spawn` reporting a missing binary would have crashed the server.** An unlistened `error` event on a `ChildProcess` is re-thrown as an uncaught exception, so clicking "start bridge" without LiteLLM installed would have taken the manager down. Now recorded in the bridge log with the `PI_PROVIDER_MANAGER_LITELLM` hint.
+
 final result: passed
 
 ## Model Deletion Protection Follow-up

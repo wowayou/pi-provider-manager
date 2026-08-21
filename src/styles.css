@@ -599,7 +599,8 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
 .compatibility-card dd { margin: 0; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .compat-note { display: flex; align-items: flex-start; gap: 8px; margin-top: 18px !important; color: var(--compat-note) !important; }
 .compat-note svg { color: var(--green); flex: none; }
-.compat-note.is-warning { color: var(--warn-text) !important; }
+.compat-note.is-warning { color: var(--warn-text) !important; align-items: flex-start; }
+.compat-note.is-warning .mono { margin: 0 3px; }
 .compat-note.is-warning svg { color: var(--warn-icon); }
 .settings-footer { flex: none; z-index: 4; padding: 16px 36px 36px; border-top: 1px solid var(--line); background: var(--panel); display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
 .dirty-note { color: var(--muted); font-size: 12.5px; }

@@ -31,7 +31,7 @@ To reduce breakage:
 Codex is a second adapter target with its own invariants. Four of them are the ones a Codex upgrade is most likely to break, so check each after bumping `codexValidatedVersion`:
 
 1. **`wire_api` values.** Codex accepted `"chat"` until February 2026 and now accepts only `"responses"`; an unknown value makes the whole `config.toml` fail to load. Verify the accepted set in `codex-rs/model-provider-info/src/lib.rs`.
-2. **`[model_providers.<id>]` is `deny_unknown_fields`.** One unrecognised key fails the entire table, so this manager writes only `name`, `base_url`, `wire_api`, and `requires_openai_auth`. Adding a field means confirming the installed Codex accepts it.
+2. **`[model_providers.<id>]` is `deny_unknown_fields`, and `name` is required.** One unrecognised key fails the entire table, so this manager writes only `name`, `base_url`, `wire_api`, and `requires_openai_auth`. Adding a field means confirming the installed Codex accepts it. Omitting `name` is worse than it sounds: verified against `codex-cli 0.149.0`, a single provider table without `name` makes Codex refuse to load the **entire** config, not just that provider. The manager always writes one, but it preserves hand-written tables untouched, so `publicState().providerTablesMissingName` names any that would break the file and the Codex settings screen surfaces them.
 3. **How a third-party provider authenticates.** Today the order is `env_key` → `experimental_bearer_token` → `requires_openai_auth` with `auth.json`. A configured `env_key` whose environment variable is unset is a hard error, which is why this manager sets `requires_openai_auth = true` and never writes `env_key`.
 4. **Reasoning-effort values.** `model_reasoning_effort` and `plan_mode_reasoning_effort` currently accept `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, and `ultra`.
 
@@ -43,6 +43,8 @@ Two further points shape the design rather than the schema:
 Codex layers a `.codex/config.toml` from the working directory tree on top of the user-level file, but `model_provider` and `model_providers` cannot be overridden there — Codex warns and ignores them. This manager therefore writes the user-level `$CODEX_HOME/config.toml` and nothing else; a warning naming those keys concerns the working directory's own file. If a future release makes them project-overridable, revisit whether the manager should see project configs at all.
 
 Unknown top-level keys in `config.toml` are ignored by Codex rather than rejected (`ConfigToml` carries `schemars(deny_unknown_fields)` but not the serde equivalent). That is why a legacy `disable_response_storage` can be preserved without breaking a current install, even though the key is gone from the schema and `store` is hard-coded to `false` in the request builder.
+
+`npm run test:codex-real` runs the real binary against a manager-generated config and asserts `codex doctor --json` reports `checks["config.load"].status === "ok"`. It skips itself when Codex is not installed, so it is the first thing to run after a Codex upgrade and the only check that answers whether Codex actually accepts what we write.
 
 There is no automated Codex release monitor. Codex ships far more often than Pi, and a daily reminder would be noise; check the four items above when a user reports a Codex-side problem or when the baseline is deliberately advanced.
 

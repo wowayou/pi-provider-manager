@@ -98,10 +98,17 @@ Only the profiles this manager generated are removed when it regenerates them �
 Codex cannot talk to these directly and no configuration can change that — a translation layer is required. The manager configures and supervises one for you; you only install it:
 
 ```bash
-pip install 'litellm[proxy]'
+pipx install 'litellm[proxy]'
 ```
 
-Then pick **上游只有 chat/completions** in step one and fill in your *upstream's* address and key. The manager does the rest:
+Debian and Ubuntu — including WSL — refuse a system-wide `pip install` under [PEP 668](https://peps.python.org/pep-0668/), so use `pipx`, or a virtualenv:
+
+```bash
+python3 -m venv ~/.local/litellm && ~/.local/litellm/bin/pip install 'litellm[proxy]'
+export PI_PROVIDER_MANAGER_LITELLM=~/.local/litellm/bin/litellm
+```
+
+Set `PI_PROVIDER_MANAGER_LITELLM` whenever the executable is not on `PATH`. Then pick **上游只有 chat/completions** in step one and fill in your *upstream's* address and key. The manager does the rest:
 
 - writes LiteLLM's `config.yaml` with `use_chat_completions_api: true` for each of your models
 - points Codex at the local proxy (`base_url = "http://127.0.0.1:43210/v1"`, `requires_openai_auth = false`)

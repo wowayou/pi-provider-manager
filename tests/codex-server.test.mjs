@@ -120,6 +120,7 @@ requires_openai_auth = true
 
 [model_providers.myown]
 # a table this manager does not own
+name = "Hand written"
 base_url = "https://hand-written.example/v1"
 wire_api = "responses"
 
@@ -506,5 +507,31 @@ test("refuses a bridge with no upstream key", async () => {
     }));
     assert.equal(response.status, 400);
     assert.match((await response.json()).error, /上游的 API Key/);
+  });
+});
+
+test("names the hand-written provider tables that would stop Codex loading", async () => {
+  // Verified against codex-cli 0.149.0: a [model_providers.*] table without
+  // `name` makes Codex reject the entire config, not just that provider. This
+  // manager preserves such tables rather than repairing them, so the least it
+  // can do is say which one is at fault.
+  const broken = `model_provider = "custom"
+model = "gpt-5.6-sol"
+
+[model_providers.custom]
+name = "Fine"
+base_url = "https://fine.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+
+[model_providers.nameless]
+base_url = "https://nameless.example/v1"
+wire_api = "responses"
+`;
+  await withServer(broken, async (api) => {
+    const { codex } = await api.state();
+    assert.deepEqual(codex.providerTablesMissingName, ["nameless"]);
+    // The manager must not repair it: that table is the user's.
+    assert.equal(api.config(), broken);
   });
 });
