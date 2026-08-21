@@ -31,6 +31,11 @@ else
   codex_dir="$HOME/.codex"
   codex_dir_source="default-home"
 fi
+# The detached WSL process inherits nothing from this shell, so anything the
+# server needs has to be handed over explicitly — including the path to a
+# LiteLLM installed in a virtualenv, which is the usual case on Debian and
+# Ubuntu where a system-wide pip install is refused.
+litellm_bin="${PI_PROVIDER_MANAGER_LITELLM:-}"
 node_bin="${PI_PROVIDER_MANAGER_NODE:-}"
 if [[ -z "$node_bin" ]]; then
   node_bin="$(command -v node || true)"
@@ -112,13 +117,15 @@ if ! is_manager_port "$port"; then
     escaped_project_dir=${project_dir//\'/\'\'}
     escaped_agent_dir=${agent_dir//\'/\'\'}
     escaped_codex_dir=${codex_dir//\'/\'\'}
+    escaped_litellm_bin=${litellm_bin//\'/\'\'}
     escaped_node_bin=${node_bin//\'/\'\'}
     powershell.exe -NoProfile -Command \
-      "\$arguments = @('-d', '${WSL_DISTRO_NAME}', '--', 'env', 'PI_PROVIDER_MANAGER_PORT=${port}', 'PI_PROVIDER_MANAGER_SERVE_UI=1', 'PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE=${agent_dir_source}', 'PI_CODING_AGENT_DIR=${escaped_agent_dir}', 'PI_PROVIDER_MANAGER_CODEX_DIR=${escaped_codex_dir}', 'PI_PROVIDER_MANAGER_CODEX_DIR_SOURCE=${codex_dir_source}', '${escaped_node_bin}', '${escaped_project_dir}/server.mjs'); Start-Process -FilePath 'wsl.exe' -ArgumentList \$arguments -WindowStyle Hidden" \
+      "\$arguments = @('-d', '${WSL_DISTRO_NAME}', '--', 'env', 'PI_PROVIDER_MANAGER_PORT=${port}', 'PI_PROVIDER_MANAGER_SERVE_UI=1', 'PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE=${agent_dir_source}', 'PI_CODING_AGENT_DIR=${escaped_agent_dir}', 'PI_PROVIDER_MANAGER_CODEX_DIR=${escaped_codex_dir}', 'PI_PROVIDER_MANAGER_CODEX_DIR_SOURCE=${codex_dir_source}', 'PI_PROVIDER_MANAGER_LITELLM=${escaped_litellm_bin}', '${escaped_node_bin}', '${escaped_project_dir}/server.mjs'); Start-Process -FilePath 'wsl.exe' -ArgumentList \$arguments -WindowStyle Hidden" \
       >/dev/null 2>&1
   else
     nohup env PI_PROVIDER_MANAGER_PORT="$port" PI_PROVIDER_MANAGER_SERVE_UI=1 PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE="$agent_dir_source" PI_CODING_AGENT_DIR="$agent_dir" \
       PI_PROVIDER_MANAGER_CODEX_DIR="$codex_dir" PI_PROVIDER_MANAGER_CODEX_DIR_SOURCE="$codex_dir_source" \
+      PI_PROVIDER_MANAGER_LITELLM="$litellm_bin" \
       "$node_bin" "$project_dir/server.mjs" \
       >"$log_file" 2>&1 </dev/null &
   fi
@@ -147,6 +154,8 @@ fi
 echo "Pi Provider Manager is ready: $url"
 echo "  Pi config:    $agent_dir"
 echo "  Codex config: $codex_dir"
+# Only worth a line when it is set: an empty value means "find litellm on PATH".
+if [[ -n "$litellm_bin" ]]; then echo "  LiteLLM:      $litellm_bin"; fi
 
 # The browser bridge is best-effort and must never hold the terminal: wslview and
 # powershell.exe can both block, and when they do the launcher looks hung with
