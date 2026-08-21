@@ -31,6 +31,7 @@ Codex has the opposite problem. Its configuration is small but unforgiving: one 
 - **Large catalog UX** — sticky model header, internal scrolling, bulk model-ID import, and warnings when `-max`/`-xhigh` may be thinking levels rather than real model IDs.
 - **Real Pi settings** — default provider/model/thinking, transport, thinking-block visibility, installed Pi version, and compatibility status.
 - **Codex CLI support** — the same sidebar and three-step wizard manage `~/.codex/config.toml` and `auth.json`, switch the active gateway in one click, generate `codex --profile` entries, and preserve every comment and hand-written table in the file.
+- **Chat-Completions-only upstreams** — Codex speaks only the Responses API, so the manager configures and supervises a local LiteLLM bridge for gateways that never implemented it. You install LiteLLM; it writes the config, wires Codex to the proxy, and starts or stops it.
 - **No database lock-in** — Pi remains the source of truth; the app edits Pi's own documented files and never reads or writes `models-store.json`.
 
 ## Files managed
@@ -48,6 +49,7 @@ Codex (`$CODEX_HOME`, default `~/.codex`):
 - `config.toml` — only the manager's own `[model_providers.<id>]` table, its generated `[profiles.*]`, and the top-level model/reasoning keys. Comments, unrelated keys, and provider tables you wrote by hand are preserved byte for byte.
 - `auth.json` — `auth_mode` and `OPENAI_API_KEY` for the active provider. Other keys, including a ChatGPT login, are preserved.
 - `pi-provider-manager-store.json` — this manager's own provider store, `0600`. See [Codex support](#codex-support).
+- `pi-provider-manager-litellm.yaml`, `pi-provider-manager-bridge.json`, `pi-provider-manager-bridge.log` — written only when a provider uses the managed bridge: LiteLLM's generated config, the proxy's runtime record, and its output.
 
 
 ## Codex support
@@ -93,26 +95,23 @@ Only the profiles this manager generated are removed when it regenerates them �
 
 ### Upstreams that only expose `/v1/chat/completions`
 
-Codex cannot talk to these directly and no configuration can change that. Run a translation bridge yourself and point the provider at it:
-
-```yaml
-# ~/.config/litellm/config.yaml
-model_list:
-  - model_name: gpt-5.6-sol
-    litellm_params:
-      model: openai/<upstream-model>
-      api_base: https://upstream.example/v1
-      api_key: os.environ/UPSTREAM_API_KEY
-      use_chat_completions_api: true
-```
+Codex cannot talk to these directly and no configuration can change that — a translation layer is required. The manager configures and supervises one for you; you only install it:
 
 ```bash
-litellm --config ~/.config/litellm/config.yaml --port 4000
+pip install 'litellm[proxy]'
 ```
 
-Then pick the second card in step one — 上游只有 chat/completions, "upstream only has chat/completions" — and give it `http://127.0.0.1:4000/v1`. Tick "this bridge needs no key" to write `requires_openai_auth = false`; the upstream key stays with the bridge and this manager never sees it. [codex-relay](https://github.com/MetaFARS/codex-relay) works the same way.
+Then pick **上游只有 chat/completions** in step one and fill in your *upstream's* address and key. The manager does the rest:
 
-This project deliberately does not implement the translation itself. The moving part is Codex's side of the wire — reasoning items, encrypted reasoning content, tool-call shapes — and Codex ships weekly, so an in-house translator becomes a permanent version-chasing obligation. The sidebar's bridge check only reports whether something is answering on that loopback port; no model traffic passes through this manager.
+- writes LiteLLM's `config.yaml` with `use_chat_completions_api: true` for each of your models
+- points Codex at the local proxy (`base_url = "http://127.0.0.1:43210/v1"`, `requires_openai_auth = false`)
+- starts and stops the proxy from the credentials step
+
+The upstream key never enters either config file. It is stored in the manager's own `0600` store and passed to LiteLLM through `PPM_BRIDGE_UPSTREAM_KEY`, which is what LiteLLM's `api_key: os.environ/...` reference expects. The proxy is pinned to `127.0.0.1` — LiteLLM's own default is `0.0.0.0`, which would publish an unauthenticated proxy holding your key on every interface.
+
+The proxy is started detached, so closing the manager does not cut Codex off. Stopping it only ever signals a process whose command line still names the manager's config file, because process ids get reused.
+
+**This project still does not translate model traffic itself.** Writing a third-party config file and supervising a process is the same kind of work it already does for Pi and Codex; no request passes through the manager. The translation stays LiteLLM's to maintain, which matters because the part that keeps moving is Codex's side of the wire — reasoning items, encrypted reasoning content, tool-call shapes — and Codex ships weekly. [codex-relay](https://github.com/MetaFARS/codex-relay) is an alternative you can run yourself; point a normal provider at it instead.
 
 ### If Codex warns about "project-local config keys"
 
@@ -180,6 +179,7 @@ If the repository is cloned elsewhere, set `PI_PROVIDER_MANAGER_PROJECT_DIR` to 
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi config directory used for auth, models, and settings |
 | `CODEX_HOME` | `~/.codex` | Codex config directory, following Codex's own precedence |
 | `PI_PROVIDER_MANAGER_CODEX_DIR` | value of `CODEX_HOME` | Codex directory override for this manager only |
+| `PI_PROVIDER_MANAGER_LITELLM` | `litellm` on `PATH` | Executable used to start the managed bridge |
 | `PI_PROVIDER_MANAGER_PROJECT_DIR` | current matching repo, then `~/pi-provider-manager-ui` | Project/build location |
 | `PI_PROVIDER_MANAGER_PORT` | auto-select from `43127-43146` | Strict local loopback port override |
 | `PI_PROVIDER_MANAGER_NODE` | current `node` executable | Node binary used by the detached service |

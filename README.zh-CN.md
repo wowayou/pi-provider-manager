@@ -31,6 +31,7 @@ Codex 的问题正好相反：配置很小，但一点都不宽容 —— 只有
 - **适合长模型清单**：表头吸顶、内部滚动、批量粘贴模型 ID，并提示 `-max/-xhigh` 可能只是 thinking level。
 - **真实设置页**：可修改默认 provider/model/thinking、传输方式、thinking 显示，并查看 Pi 版本和兼容状态。
 - **Codex CLI 支持**：同一套侧栏与三步向导管理 `~/.codex/config.toml` 与 `auth.json`，一键切换生效网关，自动生成 `codex --profile` 条目，并逐字节保留文件里的注释和你手写的表。
+- **上游只有 chat/completions 也能用**：Codex 只说 Responses API，管理器会为这类网关配置并起停一个本机 LiteLLM 桥。你只需装好 LiteLLM，配置、接线、起停都由它完成。
 - **不锁定数据**：Pi 自己的配置文件始终是唯一事实来源，程序不会读取或写入 `models-store.json`。
 
 ## 管理的文件
@@ -48,6 +49,7 @@ Codex（`$CODEX_HOME`，缺省 `~/.codex`）：
 - `config.toml` —— 只写本管理器自己的那张 `[model_providers.<id>]`、它生成的 `[profiles.*]`，以及顶层的模型/推理相关键。注释、无关键、你手写的其它供应商表都逐字节保留。
 - `auth.json` —— 只写当前生效供应商的 `auth_mode` 与 `OPENAI_API_KEY`，其余键（包括 ChatGPT 登录态）保留。
 - `pi-provider-manager-store.json` —— 本管理器自己的供应商库，权限 `0600`，见 [Codex 支持](#codex-支持)。
+- `pi-provider-manager-litellm.yaml`、`pi-provider-manager-bridge.json`、`pi-provider-manager-bridge.log` —— 只有供应商用了托管桥时才会写：LiteLLM 的生成配置、代理的运行时记录，以及它的输出。
 
 
 ## Codex 支持
@@ -93,26 +95,23 @@ codex --profile custom-gpt-5-1-codex
 
 ### 上游只提供 `/v1/chat/completions` 时
 
-Codex 直连不了这类上游，靠配置也解决不了。自己跑一个翻译桥，让供应商指向它：
-
-```yaml
-# ~/.config/litellm/config.yaml
-model_list:
-  - model_name: gpt-5.6-sol
-    litellm_params:
-      model: openai/<上游模型>
-      api_base: https://upstream.example/v1
-      api_key: os.environ/UPSTREAM_API_KEY
-      use_chat_completions_api: true
-```
+Codex 直连不了这类上游，靠配置也解决不了 —— 必须有一层翻译。管理器会替你配置并起停它，你只需要装：
 
 ```bash
-litellm --config ~/.config/litellm/config.yaml --port 4000
+pip install 'litellm[proxy]'
 ```
 
-然后在第一步选「上游只有 chat/completions」，地址填 `http://127.0.0.1:4000/v1`，并勾选"这个桥不需要 key"（写入 `requires_openai_auth = false`）。上游真正的 key 归桥保管，本管理器不接触。[codex-relay](https://github.com/MetaFARS/codex-relay) 同理。
+然后在第一步选「上游只有 chat/completions」，填**你上游自己的**地址和 key。剩下的管理器来做：
 
-本项目刻意不自己实现这层翻译。会动的那一侧是 Codex —— reasoning item、加密的 reasoning 内容、tool call 的结构 —— 而 Codex 基本每周发版，自建翻译层等于给项目绑一个长期追版本的负债。界面上的"检查桥是否启动"只报告那个本机端口上有没有东西在应答；没有任何模型流量经过本管理器。
+- 为你的每个模型生成 LiteLLM 的 `config.yaml`，带上 `use_chat_completions_api: true`
+- 把 Codex 指向本机代理（`base_url = "http://127.0.0.1:43210/v1"`、`requires_openai_auth = false`）
+- 在凭据那一步直接起停这个代理
+
+上游的 key 两个配置文件里都不会出现。它存在管理器自己的 `0600` 库里，通过环境变量 `PPM_BRIDGE_UPSTREAM_KEY` 交给 LiteLLM —— 这正是配置里 `api_key: os.environ/...` 期待的形式。代理被强制绑定在 `127.0.0.1`：LiteLLM 自己的默认是 `0.0.0.0`，那会把一个持有你 key、且无鉴权的代理暴露在所有网卡上。
+
+代理是 detach 启动的，关掉管理器不会把 Codex 掐断。停止时只会对「命令行里仍然指向管理器那份配置文件」的进程发信号，因为 pid 会被复用。
+
+**本项目仍然不自己翻译模型流量。** 写第三方配置文件、看管一个进程，和它已经在为 Pi 和 Codex 做的是同一类事；没有任何请求经过管理器。翻译这件事留给 LiteLLM 维护 —— 这很重要，因为一直在动的那一侧是 Codex：reasoning item、加密的 reasoning 内容、tool call 的结构，而 Codex 基本每周发版。[codex-relay](https://github.com/MetaFARS/codex-relay) 是另一个你可以自己跑的选择，那种情况下按普通供应商指向它即可。
 
 ### 如果 Codex 提示「project-local config keys」
 
@@ -180,6 +179,7 @@ install -m 700 bin/pi-provider-manager-ui ~/.pi/agent/bin/pi-provider-manager-ui
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi 的 auth/models/settings 配置目录 |
 | `CODEX_HOME` | `~/.codex` | Codex 配置目录，沿用 Codex 自己的优先级 |
 | `PI_PROVIDER_MANAGER_CODEX_DIR` | `CODEX_HOME` 的值 | 仅对本管理器生效的 Codex 目录覆盖 |
+| `PI_PROVIDER_MANAGER_LITELLM` | `PATH` 上的 `litellm` | 启动托管桥使用的可执行文件 |
 | `PI_PROVIDER_MANAGER_PROJECT_DIR` | 当前匹配仓库，其次 `~/pi-provider-manager-ui` | 项目与构建产物位置 |
 | `PI_PROVIDER_MANAGER_PORT` | 从 `43127-43146` 自动选择 | 严格指定本地服务端口 |
 | `PI_PROVIDER_MANAGER_NODE` | 当前 `node` 可执行文件 | 后台服务使用的 Node 路径 |
