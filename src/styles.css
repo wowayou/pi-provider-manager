@@ -635,6 +635,8 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
 
 .bridge-control { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-sunken); }
 .bridge-control small { color: var(--ink-3); font-size: 12px; line-height: 1.6; }
+.bridge-manual { margin: 0; font-size: 13.5px; color: var(--ink-2); }
+.bridge-command { display: block; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); font-size: 12.5px; line-height: 1.6; overflow-x: auto; white-space: pre; }
 .bridge-status { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; justify-content: space-between; }
 
 .bridge-probe { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: -6px; }
