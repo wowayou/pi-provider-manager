@@ -13,6 +13,10 @@ test("release staging contains runnable launchers and no local Pi data", () => {
   assert.equal(manifest.version, version);
   for (const entry of [
     "server.mjs",
+    "lib/atomic-files.mjs",
+    "lib/codex-config.mjs",
+    "lib/toml-document.mjs",
+    "lib/validation.mjs",
     "dist/client/index.html",
     "bin/pi-provider-manager-ui",
     "bin/pi-provider-manager.ps1",

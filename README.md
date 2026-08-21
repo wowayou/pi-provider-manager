@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md)
 
-A local, Pi-native model catalog and API gateway manager. It gives `auth.json`, `models.json`, and `settings.json` a safe visual workflow without hiding or replacing Pi's native configuration model.
+A local model catalog and API gateway manager for **Pi and the Codex CLI**. It gives each agent's own config files a safe visual workflow without hiding or replacing their native configuration model.
 
 ## Why this exists
 
@@ -16,6 +16,8 @@ Pi is model-centric at runtime but provider-scoped in configuration:
 
 Pi Provider Manager makes that relationship visible instead of forcing users to hand-edit three JSON files.
 
+Codex has the opposite problem. Its configuration is small but unforgiving: one credential slot, one wire protocol it still accepts, and a TOML table where a single unrecognised key fails the whole thing. Switching gateways by hand means editing two files correctly every time, and keeping the key you are not currently using somewhere safe. The same three-step workflow now covers that too — see [Codex support](#codex-support).
+
 ## Highlights
 
 - **Pi-native provider/model workflow** — model IDs, default thinking level, image capability, context/output limits, and per-model API overrides.
@@ -28,9 +30,12 @@ Pi Provider Manager makes that relationship visible instead of forcing users to 
 - **Beginner save handoff** — after saving, the app gives the exact `pi --model provider/model:thinking` command and `/model` verification steps.
 - **Large catalog UX** — sticky model header, internal scrolling, bulk model-ID import, and warnings when `-max`/`-xhigh` may be thinking levels rather than real model IDs.
 - **Real Pi settings** — default provider/model/thinking, transport, thinking-block visibility, installed Pi version, and compatibility status.
+- **Codex CLI support** — the same sidebar and three-step wizard manage `~/.codex/config.toml` and `auth.json`, switch the active gateway in one click, generate `codex --profile` entries, and preserve every comment and hand-written table in the file.
 - **No database lock-in** — Pi remains the source of truth; the app edits Pi's own documented files and never reads or writes `models-store.json`.
 
 ## Files managed
+
+Pi:
 
 - `~/.pi/agent/auth.json`
 - `~/.pi/agent/models.json`
@@ -38,9 +43,86 @@ Pi Provider Manager makes that relationship visible instead of forcing users to 
 
 `models-store.json` is outside the manager's scope and is never read or written.
 
+Codex (`$CODEX_HOME`, default `~/.codex`):
+
+- `config.toml` — only the manager's own `[model_providers.<id>]` table, its generated `[profiles.*]`, and the top-level model/reasoning keys. Comments, unrelated keys, and provider tables you wrote by hand are preserved byte for byte.
+- `auth.json` — `auth_mode` and `OPENAI_API_KEY` for the active provider. Other keys, including a ChatGPT login, are preserved.
+- `pi-provider-manager-store.json` — this manager's own provider store, `0600`. See [Codex support](#codex-support).
+
+
+## Codex support
+
+Codex is shaped differently from Pi, and the design follows from three facts about it:
+
+- It has exactly **one credential slot**: `auth.json` holds a single `OPENAI_API_KEY`.
+- Since February 2026 it speaks **only the Responses API**. `wire_api = "chat"` was removed; writing it makes the whole `config.toml` fail to load.
+- Its config is read **once at startup**. Switching providers affects newly started sessions; a `codex` process already running is unaffected.
+
+### One table, switched in place
+
+`config.toml` carries exactly one manager-owned provider table, so the file stays identical in shape to the snippet vendors publish:
+
+```toml
+model_provider = "custom"
+model = "gpt-5.6-sol"
+model_reasoning_effort = "high"
+
+[model_providers.custom]
+name = "PackyCode"
+base_url = "https://api.packycode.com/v1"
+wire_api = "responses"
+requires_openai_auth = true
+```
+
+Switching providers rewrites that one table and swaps the key in `auth.json`. Because Codex has nowhere to keep an inactive provider, every other provider's base URL, model list, and key live in `pi-provider-manager-store.json` (`0600`, never returned to the browser). `config.toml` stays the truth for what Codex will do; the store is the truth for what else you have configured.
+
+If the table on disk matches nothing in the store — a fresh install, or a hand edit — the **file wins**: it is adopted as a provider and labelled as adopted in the UI. Reading state never writes, so opening the page cannot disturb a working setup.
+
+The table id is `custom` by default and configurable in settings. Codex's built-in ids (`openai`, `ollama`, `lmstudio`, the Bedrock pair) are refused.
+
+### Profiles
+
+Each model on the active provider also gets a profile, so you can switch model without touching the global config:
+
+```bash
+codex                              # the provider's default model
+codex --profile custom-gpt-5-1-codex
+```
+
+Only the profiles this manager generated are removed when it regenerates them — a `[profiles.*]` you wrote yourself survives even if it shares the prefix.
+
+### Upstreams that only expose `/v1/chat/completions`
+
+Codex cannot talk to these directly and no configuration can change that. Run a translation bridge yourself and point the provider at it:
+
+```yaml
+# ~/.config/litellm/config.yaml
+model_list:
+  - model_name: gpt-5.6-sol
+    litellm_params:
+      model: openai/<upstream-model>
+      api_base: https://upstream.example/v1
+      api_key: os.environ/UPSTREAM_API_KEY
+      use_chat_completions_api: true
+```
+
+```bash
+litellm --config ~/.config/litellm/config.yaml --port 4000
+```
+
+Then pick the second card in step one — 上游只有 chat/completions, "upstream only has chat/completions" — and give it `http://127.0.0.1:4000/v1`. Tick "this bridge needs no key" to write `requires_openai_auth = false`; the upstream key stays with the bridge and this manager never sees it. [codex-relay](https://github.com/MetaFARS/codex-relay) works the same way.
+
+This project deliberately does not implement the translation itself. The moving part is Codex's side of the wire — reasoning items, encrypted reasoning content, tool-call shapes — and Codex ships weekly, so an in-house translator becomes a permanent version-chasing obligation. The sidebar's bridge check only reports whether something is answering on that loopback port; no model traffic passes through this manager.
+
+### What switching does and does not carry over
+
+New sessions pick up the change cleanly. **Resuming an old session against a different provider does not work reliably**: Codex asks for `reasoning.encrypted_content` and replays it on later turns, and content encrypted by one provider is meaningless to another. This is Codex's design, not something a switching tool can work around. Finish a conversation on the provider that started it.
+
 ## Project status and CC Switch
 
-This project is feature-complete and in maintenance mode. New work is limited to confirmed defects, security fixes, and Pi compatibility changes; it does not plan to match the broader feature set in [CC Switch](https://github.com/farion1231/cc-switch).
+This project is in maintenance mode. New work is limited to confirmed defects, security fixes, and Pi or Codex compatibility changes; it does not plan to match the broader feature set in [CC Switch](https://github.com/farion1231/cc-switch).
+
+Codex support was added deliberately and stays narrow: providers, credentials, the active selection, and profiles. It does not add presets, model discovery, usage dashboards, or a traffic proxy.
 
 CC Switch 3.20 added a comprehensive Pi integration for provider presets, model discovery, prompts, Skills, sessions, and usage. It deliberately does not read or write Pi's `auth.json`, `defaultProvider`, or `defaultModel`. Pi Provider Manager remains a smaller, database-free tool for that credential/default boundary and the three-file invariants around it. Both can use the same Pi files, but a stale page must reload after another editor changes them.
 
@@ -86,6 +168,8 @@ If the repository is cloned elsewhere, set `PI_PROVIDER_MANAGER_PROJECT_DIR` to 
 | Variable | Auto-detected default | Purpose |
 |---|---|---|
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi config directory used for auth, models, and settings |
+| `CODEX_HOME` | `~/.codex` | Codex config directory, following Codex's own precedence |
+| `PI_PROVIDER_MANAGER_CODEX_DIR` | value of `CODEX_HOME` | Codex directory override for this manager only |
 | `PI_PROVIDER_MANAGER_PROJECT_DIR` | current matching repo, then `~/pi-provider-manager-ui` | Project/build location |
 | `PI_PROVIDER_MANAGER_PORT` | auto-select from `43127-43146` | Strict local loopback port override |
 | `PI_PROVIDER_MANAGER_NODE` | current `node` executable | Node binary used by the detached service |
@@ -109,7 +193,7 @@ See [SECURITY.md](SECURITY.md) for the disclosure policy and threat boundary.
 
 ## Compatibility
 
-The Pi release this manager is validated against is recorded once, as `piValidatedVersion` in `package.json`, and surfaced in Settings next to the Pi version actually detected on your machine. Settings says so plainly when the two differ.
+The Pi release this manager is validated against is recorded once, as `piValidatedVersion` in `package.json`, and surfaced in Settings next to the Pi version actually detected on your machine. Settings says so plainly when the two differ. `codexValidatedVersion` does the same for Codex.
 
 Pi evolves independently, so every release runs the compatibility checklist in [docs/compatibility.md](docs/compatibility.md) and states the validated Pi version in its release notes.
 
@@ -134,6 +218,8 @@ npm ci
 npm run dev -- --host 127.0.0.1 --port 4173 --strictPort
 npm run build
 npm run test:server
+npm run test:codex
+npm run test:ui
 npm run test:sites
 npm run test:pi-update
 ```
@@ -150,8 +236,8 @@ Released under the [MIT License](LICENSE). See [OPEN_SOURCE_CHECKLIST.md](OPEN_S
 
 ## Roadmap
 
-- Stable maintenance: security fixes, confirmed correctness defects, and Pi compatibility updates
+- Stable maintenance: security fixes, confirmed correctness defects, and Pi or Codex compatibility updates
 - No planned CSV/CC-Switch import, model discovery, session browser, Skills, usage dashboard, or proxy features
-- Broader all-in-one workflows belong in CC Switch; this project stays focused on Pi credentials, defaults, and native-file consistency
+- Broader all-in-one workflows belong in CC Switch; this project stays focused on Pi and Codex credentials, defaults, and native-file consistency
 
 See `design-qa.md` and `qa/` for visual comparisons, interaction evidence, and QA history.

@@ -21,6 +21,16 @@ else
   agent_dir="$HOME/.pi/agent"
   agent_dir_source="default-home"
 fi
+if [[ -n "${PI_PROVIDER_MANAGER_CODEX_DIR:-}" ]]; then
+  codex_dir="$PI_PROVIDER_MANAGER_CODEX_DIR"
+  codex_dir_source="PI_PROVIDER_MANAGER_CODEX_DIR"
+elif [[ -n "${CODEX_HOME:-}" ]]; then
+  codex_dir="$CODEX_HOME"
+  codex_dir_source="CODEX_HOME"
+else
+  codex_dir="$HOME/.codex"
+  codex_dir_source="default-home"
+fi
 node_bin="${PI_PROVIDER_MANAGER_NODE:-}"
 if [[ -z "$node_bin" ]]; then
   node_bin="$(command -v node || true)"
@@ -90,12 +100,14 @@ if ! is_manager_port "$port"; then
   if [[ -n "${WSL_DISTRO_NAME:-}" ]] && command -v powershell.exe >/dev/null 2>&1; then
     escaped_project_dir=${project_dir//\'/\'\'}
     escaped_agent_dir=${agent_dir//\'/\'\'}
+    escaped_codex_dir=${codex_dir//\'/\'\'}
     escaped_node_bin=${node_bin//\'/\'\'}
     powershell.exe -NoProfile -Command \
-      "\$arguments = @('-d', '${WSL_DISTRO_NAME}', '--', 'env', 'PI_PROVIDER_MANAGER_PORT=${port}', 'PI_PROVIDER_MANAGER_SERVE_UI=1', 'PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE=${agent_dir_source}', 'PI_CODING_AGENT_DIR=${escaped_agent_dir}', '${escaped_node_bin}', '${escaped_project_dir}/server.mjs'); Start-Process -FilePath 'wsl.exe' -ArgumentList \$arguments -WindowStyle Hidden" \
+      "\$arguments = @('-d', '${WSL_DISTRO_NAME}', '--', 'env', 'PI_PROVIDER_MANAGER_PORT=${port}', 'PI_PROVIDER_MANAGER_SERVE_UI=1', 'PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE=${agent_dir_source}', 'PI_CODING_AGENT_DIR=${escaped_agent_dir}', 'PI_PROVIDER_MANAGER_CODEX_DIR=${escaped_codex_dir}', 'PI_PROVIDER_MANAGER_CODEX_DIR_SOURCE=${codex_dir_source}', '${escaped_node_bin}', '${escaped_project_dir}/server.mjs'); Start-Process -FilePath 'wsl.exe' -ArgumentList \$arguments -WindowStyle Hidden" \
       >/dev/null 2>&1
   else
     nohup env PI_PROVIDER_MANAGER_PORT="$port" PI_PROVIDER_MANAGER_SERVE_UI=1 PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE="$agent_dir_source" PI_CODING_AGENT_DIR="$agent_dir" \
+      PI_PROVIDER_MANAGER_CODEX_DIR="$codex_dir" PI_PROVIDER_MANAGER_CODEX_DIR_SOURCE="$codex_dir_source" \
       "$node_bin" "$project_dir/server.mjs" \
       >"$log_file" 2>&1 </dev/null &
   fi
@@ -111,7 +123,7 @@ if ! is_manager_port "$port"; then
 
   if [[ "$ready" -ne 1 ]]; then
     echo "Pi Provider Manager failed to start." >&2
-    echo "Run manually: PI_PROVIDER_MANAGER_PORT='$port' PI_PROVIDER_MANAGER_SERVE_UI=1 PI_CODING_AGENT_DIR='$agent_dir' '$node_bin' '$project_dir/server.mjs'" >&2
+    echo "Run manually: PI_PROVIDER_MANAGER_PORT='$port' PI_PROVIDER_MANAGER_SERVE_UI=1 PI_CODING_AGENT_DIR='$agent_dir' PI_PROVIDER_MANAGER_CODEX_DIR='$codex_dir' '$node_bin' '$project_dir/server.mjs'" >&2
     exit 1
   fi
 fi

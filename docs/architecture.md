@@ -2,7 +2,7 @@
 
 ## Product boundary
 
-Pi Provider Manager is a local editor for Pi's native provider, model, credential, and runtime-default configuration. Pi remains the runtime and its JSON files remain the source of truth.
+Pi Provider Manager is a local editor for the native provider, model, credential, and runtime-default configuration of two coding agents: Pi and the Codex CLI. Each agent remains the runtime, and its own config files remain the source of truth.
 
 The project does not:
 
@@ -17,6 +17,10 @@ The project does not:
 - **Provider / API gateway**: one entry under `models.json.providers`. It owns one Base URL, one credential, and one default wire protocol, and it may expose models from several upstream model families. In this project, "provider" does not necessarily mean one model vendor.
 - **Model**: a provider-scoped model ID. Pi selects it at runtime as `provider/model`; thinking level remains a separate setting or command suffix.
 - **API / wire protocol**: one of Pi's supported protocol identifiers, currently `openai-responses`, `openai-completions`, `anthropic-messages`, or `google-generative-ai`. A provider sets the default and a model may override it.
+- **Target**: which agent a screen is editing, `pi` or `codex`. The two share the shell — sidebar, three-step wizard, settings screen — and nothing else; they have separate files, separate revisions, and separate vocabulary.
+- **Owned provider table**: the single `[model_providers.<id>]` in Codex's `config.toml` that this manager writes, `custom` by default. Codex's other provider tables belong to the user and are never read, written, or deleted.
+- **Provider store**: `pi-provider-manager-store.json`, this manager's own file inside the Codex directory. It holds every Codex provider's definition and key. See "The Codex exception" below for why it exists.
+- **Bridge**: a Responses-to-Chat-Completions translation proxy the *user* runs (LiteLLM, codex-relay, …) for upstreams that expose only `/v1/chat/completions`. The manager configures a provider to point at one and can probe whether it is listening; it never carries model traffic itself.
 - **Validated Pi version**: the release in `package.json.piValidatedVersion` that completed the compatibility checklist. It is not the same as the Pi version detected on a user's machine.
 - **Latest release versus `main`**: GitHub tags and Releases define what has shipped. `main` may contain additional work under `CHANGELOG.md`'s `Unreleased` section even while `package.json.version` still matches the latest release.
 
@@ -28,7 +32,12 @@ flowchart LR
   Server -->|read/write| Auth[auth.json]
   Server -->|read/write| Models[models.json]
   Server -->|read/write| Settings[settings.json]
+  Server -->|read/write| CodexToml[Codex config.toml]
+  Server -->|read/write| CodexAuth[Codex auth.json]
+  Server -->|read/write| CodexStore[provider store]
   Server -.->|read-only version command| Pi[Installed Pi CLI]
+  Server -.->|read-only version command| Codex[Installed Codex CLI]
+  Server -.->|reachability only, loopback only| Bridge[User-run Responses-to-Chat bridge]
   Sites[Static Sites artifact] -->|preview assets only| Preview[Browser preview]
 
   Monitor[Scheduled maintenance workflow] -.->|release metadata only| Releases[Pi GitHub Releases]
@@ -41,7 +50,7 @@ There are three deliberately separate execution paths:
 2. Vite development runs the same writable `server.mjs` API beside the Vite UI, with a local proxy between them. Use a temporary `PI_CODING_AGENT_DIR`; this path is useful for development but is not sufficient evidence for production headers or static serving.
 3. The Sites artifact is a static preview/handoff package. Its Worker only serves assets and an HTML fallback; it has no access to local Pi files and is not a hosted replacement for the local product.
 
-Only `server.mjs` writes Pi configuration, in the first two paths. Demo mode and the Sites artifact never write it. The Pi update monitor is repository maintenance automation, not a fourth product runtime.
+Only `server.mjs` writes Pi or Codex configuration, in the first two paths. The dotted edges are read-only: version commands and a bridge reachability probe. No model traffic passes through this process for either agent. Demo mode and the Sites artifact never write it. The Pi update monitor is repository maintenance automation, not a fourth product runtime.
 
 ## Component map
 
@@ -64,8 +73,30 @@ Only `server.mjs` writes Pi configuration, in the first two paths. Demo mode and
 | `models.json` | read/write | edits providers, models, protocol selection, and known compatibility fields while preserving unknown fields |
 | `settings.json` | read/write | edits `defaultProvider`, `defaultModel`, `defaultThinkingLevel`, `hideThinkingBlock`, and `transport`; preserves other keys |
 | `models-store.json` | none | intentionally never read or written |
+| `$CODEX_HOME/config.toml` | read/write | the owned `[model_providers.<id>]`, its generated `[profiles.*]`, and the top-level `model`, `model_provider`, `model_reasoning_effort`, `plan_mode_reasoning_effort`, `model_verbosity`, `model_context_window`; every other key, comment, and hand-written provider table is preserved byte for byte |
+| `$CODEX_HOME/auth.json` | read/write | `auth_mode` and `OPENAI_API_KEY` for the active provider only; other keys, including a ChatGPT login's `tokens`, are preserved, and a provider with `requires_openai_auth = false` does not touch the file at all |
+| `$CODEX_HOME/pi-provider-manager-store.json` | read/write | this manager's own provider store, `0600` |
 
 Provider saves and deletions snapshot all three writable files, validate temporary JSON, replace files with private permissions where supported, and restore the snapshots if any write fails. Every state response also carries an opaque HMAC revision over the raw contents of the three files. Provider, provider-delete, and settings writes must echo that revision; a mismatch returns HTTP 409 before any write, so a stale browser tab cannot overwrite a change made by CC Switch, another manager process, or a text editor. The HMAC key is process-local and never exposes a hash that can be tested against a stored credential. Deleting a provider removes its credential by default, may retain it as an auth-only entry for later reuse, and requires a valid replacement provider/model when the target is Pi's current default. Auth-only entries remain available as credential sources but are not rendered as model providers. Settings-only saves use the same validated atomic write primitive for `settings.json`.
+
+
+### The Codex exception to "the config file is the source of truth"
+
+For Pi, the three JSON files are the whole truth and this manager stores nothing of its own. Codex cannot work that way, and the difference is deliberate rather than accidental:
+
+- Codex has exactly one credential slot (`auth.json` → `OPENAI_API_KEY`).
+- This project writes exactly one `[model_providers.<id>]` table, so `config.toml` describes only the provider currently in use — that is what makes the file match, line for line, the snippet a vendor publishes.
+
+Together those mean a second provider's base URL, model list, and key have nowhere to live in Codex's own files. They live in `pi-provider-manager-store.json` instead. So: **`config.toml` remains the truth for what Codex will actually do; the store is the truth for what else you have configured.**
+
+Two rules keep that from becoming a database that quietly diverges from disk:
+
+1. **The file wins.** If the owned table on disk matches no stored provider, it is adopted as one and shown as active. The UI says it was adopted rather than letting an entry appear from nowhere.
+2. **Reading never writes.** Adoption is derived on the read path. Opening the page leaves every file untouched; only an explicit save, switch, or delete writes.
+
+Codex writes are transactional across all three files with the same snapshot-and-restore primitive as the Pi side, and carry their own revision — `state.codex.revision`, distinct from `state.revision` — so editing one agent's config cannot invalidate an in-flight draft for the other.
+
+The manager never proxies model traffic, for Codex no less than for Pi. Upstreams that speak only Chat Completions are configured to point at a bridge the user runs; `POST /api/codex/bridge-check` reports whether something is answering on that loopback port and refuses any host that is not loopback, so the endpoint cannot be borrowed as a probe by a page the browser happens to be visiting.
 
 ### Reproduce retained-credential deletion
 

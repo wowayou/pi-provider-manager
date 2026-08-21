@@ -11,6 +11,9 @@ export function prepareReleaseArtifacts() {
   const stageDir = path.join(artifactDir, bundleName);
   const entries = [
     ["server.mjs", "server.mjs"],
+    // server.mjs imports these directly; the release ships the dependency-free
+    // sources rather than a bundle, so they have to travel with it.
+    ["lib", "lib"],
     ["package.json", "package.json"],
     ["LICENSE", "LICENSE"],
     ["README.md", "README.md"],

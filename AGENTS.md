@@ -26,7 +26,8 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - Treat a persisted model ID as storage identity, not as an ordinary editable label. It is read-only in the form; replacing it means adding the new ID and deleting the old row through the armed, reversible removal flow. Reject identity drift before saving, and never silently choose the first named model when no default radio is selected.
 - Optimize long model catalogs with a sticky header, internal scrolling, compact rows, and bulk model-ID import.
 - Public screenshots and documentation must not expose machine-specific home paths or credentials.
-- The product is now in focused maintenance mode. Do not pursue CC Switch feature parity or revive the unstarted CSV/import, model-discovery, session, Skills, usage, or proxy roadmap unless the owner explicitly reopens it; prioritize security, confirmed correctness defects, and Pi compatibility.
+- The product is in focused maintenance mode. Do not pursue CC Switch feature parity or revive the unstarted CSV/import, model-discovery, session, Skills, usage, or proxy roadmap unless the owner explicitly reopens it; prioritize security, confirmed correctness defects, and Pi compatibility.
+- **The owner explicitly reopened scope once, on 2026-08-21, to add Codex CLI support.** It is a deliberate second target, not feature-parity drift, and it stays narrow: providers, credentials, the active selection, and profiles. Presets, model discovery, usage dashboards, and a traffic proxy remain out of scope. Do not remove Codex support as out-of-bounds maintenance work.
 
 ## Interaction and UI Conventions
 
@@ -49,6 +50,19 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - Blue link styling means an informational disclosure and nothing else. Anything that writes to the form is a button, and anything that overwrites values the user may have typed carries an undo action in its toast.
 - A field must not accept keystrokes its parser will reject. Mark invalid drafts with `aria-invalid` while typing rather than reverting silently on blur, and bound numeric input on both ends so a typo cannot become a plausible-looking value.
 - Treat a key that is absent from the config file as unwritten, not as saved. Filling a default in the UI and then reporting it as already persisted leaves the user unable to write it.
+
+
+## Codex conventions
+
+- **Codex is a second target, not a second product.** It shares the shell — sidebar, three-step wizard, settings screen, success handoff — and shares nothing else. The Pi side keeps the appearance it already had; adding Codex must not restyle it. Its rows carry an empty badge cell only so both targets can use one grid.
+- **Single-table layout, chosen by the owner.** `config.toml` holds exactly one manager-owned `[model_providers.<id>]`, `custom` by default, so the file matches the snippet vendors publish. The cost is that inactive providers have nowhere to live in Codex's own files, so they live in `pi-provider-manager-store.json`. Say this plainly in documentation instead of implying the config file is still the whole truth.
+- **The file wins over the store, and reading never writes.** An owned table matching nothing in the store is adopted as a provider and labelled as adopted in the UI. Adoption is derived on the read path; only an explicit save, switch, or delete touches disk. A page load must never modify a working setup.
+- **Only write fields Codex actually accepts.** `[model_providers.*]` and `[profiles.*]` are `deny_unknown_fields`: one extra key fails the whole table. `wire_api` is `responses` and nothing else. Never write `env_key`, because a configured `env_key` whose variable is unset is a hard startup error — that is precisely why `requires_openai_auth = true` is the auth path.
+- **Never touch what the manager does not own.** Comments, unrelated top-level keys, and hand-written `[model_providers.*]` tables are preserved byte for byte. Generated profiles are deleted by the names recorded in the store, never by prefix match, so a hand-written profile sharing the prefix survives.
+- **The manager does not carry model traffic, for Codex either.** Upstreams that speak only Chat Completions are pointed at a bridge the user runs. `bridge-check` is loopback-only, credential-free, and reports only that something answered — never that the bridge is the right one. Do not implement the Responses-to-Chat translation here: the part that moves is Codex's side of the wire and Codex ships weekly.
+- **State the scope of a switch truthfully.** Codex reads its config once at startup, so switching affects newly started sessions and leaves running ones alone. Never offer `codex resume` as the follow-up command: Codex replays the previous provider's encrypted reasoning content, which another provider cannot read.
+- **Pi and Codex carry separate revisions.** `state.revision` covers the three Pi files, `state.codex.revision` covers the three Codex ones. Do not merge them; editing one agent must not 409 a draft for the other.
+- `lib/` holds dependency-free server modules shipped as source in the release archive. `lib/toml-document.mjs` is also imported by the browser so a pasted vendor snippet is parsed by the same code that writes the file.
 
 ## Handoff — current state as of 2026-08-19
 
@@ -154,7 +168,7 @@ are documented in `docs/compatibility.md`.
 
 ```bash
 git -C . log --oneline -1 && node -e "const p=require('./package.json'); console.log({version:p.version, piValidatedVersion:p.piValidatedVersion})"
-npm ci && npm run build && npm run test:server && npm run test:ui && npm run test:sites && npm run test:pi-update && npm run test:release
+npm ci && npm run build && npm run test:server && npm run test:codex && npm run test:ui && npm run test:sites && npm run test:pi-update && npm run test:release
 npm run check:pi-update
 gh pr list --state open
 gh issue list --state open

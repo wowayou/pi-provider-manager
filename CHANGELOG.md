@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Added Codex CLI support. A Pi/Codex switch at the top of the sidebar routes the same provider list, three-step wizard, settings screen, and success handoff to whichever agent you are configuring; the Pi side is unchanged. The manager writes `$CODEX_HOME/config.toml` and `auth.json`, remembers every provider's definition and key in its own `0600` store, and switches the active gateway in one click.
+- `config.toml` edits are surgical. A small TOML document model rewrites only the manager's own `[model_providers.<id>]` table, its generated `[profiles.*]`, and the top-level model keys; comments, unrelated keys, and provider tables written by hand survive byte for byte. Regenerated profiles are deleted by recorded name rather than by prefix, so a hand-written profile sharing the prefix is not swept away.
+- A `config.toml` that predates the manager is adopted rather than overwritten: if the owned table matches nothing in the store, the file wins and the entry is labelled as adopted. Reading state never writes, so opening the page cannot disturb a working setup.
+- Upstreams that expose only `/v1/chat/completions` are a first-class path in the wizard, pointed at a translation bridge the user runs. `POST /api/codex/bridge-check` reports only whether something answers on that loopback port, refuses any non-loopback host, and sends no credentials. This project does not translate model traffic itself: the moving part is Codex's side of the wire, and Codex ships weekly.
+- Codex writes carry their own revision, separate from Pi's, so editing one agent's configuration cannot invalidate an in-flight draft for the other. All three Codex files move together or roll back together.
+- Added `codexValidatedVersion` to `package.json` and Codex version detection to the server, shown side by side in the Codex settings screen under the same one-copy rule as `piValidatedVersion`.
+- Extracted the atomic-write, validation, and TOML primitives into `lib/`, shipped as source in the release archives; both launchers now resolve and pass the Codex directory explicitly, because a detached WSL process does not inherit the calling shell's environment.
+
+**Validated against Codex `0.149.0`'s configuration schema** (`wire_api` restricted to `responses`, `deny_unknown_fields` on `[model_providers.*]`, the `env_key` → `experimental_bearer_token` → `requires_openai_auth` auth order, and the reasoning-effort value set), read from `openai/codex` at `rust-v0.149.0`. Not yet exercised against a running Codex binary; see `docs/compatibility.md` for the four items to recheck on a Codex upgrade.
+
 ## 0.1.9 - 2026-08-19
 
 - Added optimistic concurrency protection across `auth.json`, `models.json`, and `settings.json`. The server returns an opaque HMAC revision with every state response and requires it on provider, deletion, and settings writes. If CC Switch, another browser tab, or a text editor changed any managed file, the stale request returns HTTP 409 without writing; the UI keeps the draft and offers to reload.

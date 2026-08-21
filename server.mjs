@@ -43,9 +43,15 @@ const SETTINGS_PATH = path.join(AGENT_DIR, "settings.json");
 const CODEX_DIR = path.resolve(
   process.env.PI_PROVIDER_MANAGER_CODEX_DIR || process.env.CODEX_HOME || path.join(os.homedir(), ".codex"),
 );
-const CODEX_DIR_SOURCE = process.env.PI_PROVIDER_MANAGER_CODEX_DIR
-  ? "PI_PROVIDER_MANAGER_CODEX_DIR"
-  : process.env.CODEX_HOME ? "CODEX_HOME" : "default-home";
+// The launcher resolves the directory itself and passes it explicitly, because
+// the detached WSL process does not inherit the calling shell's environment.
+// It reports the real origin separately so the compatibility panel does not
+// claim an override the user never set.
+const CODEX_DIR_SOURCE = process.env.PI_PROVIDER_MANAGER_CODEX_DIR_SOURCE || (
+  process.env.PI_PROVIDER_MANAGER_CODEX_DIR
+    ? "PI_PROVIDER_MANAGER_CODEX_DIR"
+    : process.env.CODEX_HOME ? "CODEX_HOME" : "default-home"
+);
 const REVISION_KEY = crypto.randomBytes(32);
 // Pi and Codex carry separate revisions on purpose: editing one must not
 // invalidate an in-flight draft for the other.
