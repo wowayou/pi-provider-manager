@@ -128,9 +128,14 @@ if ! is_manager_port "$port"; then
   fi
 fi
 
-# Always say where it is listening. Printing this only when the browser is not
-# opened left anyone whose browser bridge misbehaved with no port and no error.
+# Always say where it is listening, and which directories it will edit. Printing
+# this only when the browser is not opened left anyone whose browser bridge
+# misbehaved with no port and no error; naming the directories makes an
+# unset-variable mistake — CODEX_HOME="" silently means the real one — visible
+# before anything is saved.
 echo "Pi Provider Manager is ready: $url"
+echo "  Pi config:    $agent_dir"
+echo "  Codex config: $codex_dir"
 
 # The browser bridge is best-effort and must never hold the terminal: wslview and
 # powershell.exe can both block, and when they do the launcher looks hung with
