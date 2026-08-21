@@ -535,3 +535,37 @@ wire_api = "responses"
     assert.equal(api.config(), broken);
   });
 });
+
+test("a provider needing no credential reports that auth.json was left alone", async () => {
+  await withServer(null, async (api) => {
+    // Save a keyed provider first, so auth.json holds something worth not
+    // clobbering.
+    await api.post("/api/codex/providers", newProvider());
+    assert.equal(api.auth().OPENAI_API_KEY, SECRET);
+
+    // Then switch to one Codex will not authenticate.
+    const response = await api.post("/api/codex/providers", newProvider({
+      providerId: "chatonly",
+      name: "Chat-only gateway",
+      credential: { mode: "keep" },
+      bridge: { upstreamBaseUrl: "https://chatonly.example/v1", apiKey: "sk-upstream-not-real" },
+      models: [{ id: "deepseek-chat", reasoningEffort: "medium" }],
+      defaultModelId: "deepseek-chat",
+    }));
+    assert.equal(response.status, 200);
+
+    // auth.json keeps the previous key: the active provider sends no
+    // Authorization at all, and clobbering it could destroy a ChatGPT login
+    // this manager never created.
+    assert.equal(api.auth().OPENAI_API_KEY, SECRET);
+    assert.match(api.config(), /^requires_openai_auth = false$/m);
+
+    // The state has to carry enough for the UI to say so rather than claim a
+    // credential swap that did not happen.
+    const { codex } = await api.state();
+    const active = codex.providers.find((provider) => provider.isActive);
+    assert.equal(active.id, "chatonly");
+    assert.equal(active.requiresAuth, false);
+    assert.equal(active.bridge.upstreamBaseUrl, "https://chatonly.example/v1");
+  });
+});

@@ -343,15 +343,15 @@ function sidebarProviders(state, target) {
       id: provider.id,
       name: provider.name || titleFromId(provider.id),
       keywords: `${provider.id} ${provider.name || ""} ${provider.baseUrl}`,
-      // Derived from the address, which is a fact, rather than from `upstream`,
-      // which only records a choice made in the wizard and says nothing about a
-      // provider adopted from config.toml.
-      subtitle: `${provider.models.length} 个模型 · ${isLocalAddress(provider.baseUrl) ? "本机地址" : "Responses"}`,
+      // Whether a managed bridge exists is a fact this manager owns, so it is
+      // stated. A merely loopback address is a weaker fact and says so; neither
+      // is the guess the old `upstream` field used to make.
+      subtitle: `${provider.models.length} 个模型 · ${provider.bridge ? "托管桥" : isLocalAddress(provider.baseUrl) ? "本机地址" : "Responses"}`,
       ready: provider.credentialConfigured || provider.requiresAuth === false,
       readyLabel: "凭据已配置",
       notReadyLabel: "未配置凭据",
       badge: provider.isActive ? "生效中" : "",
-      icon: isLocalAddress(provider.baseUrl) ? Plugs : PlugsConnected,
+      icon: provider.bridge || isLocalAddress(provider.baseUrl) ? Plugs : PlugsConnected,
       source: provider,
     }));
   }
@@ -1585,6 +1585,7 @@ export function App() {
         modelCount: named.length,
         defaultModelId: selected.id.trim(),
         activated: Boolean(saved?.isActive),
+        requiresAuth: saved?.requiresAuth !== false,
         command: "codex",
         profiles: saved?.isActive && data.state.codex?.generateProfiles !== false
           ? [owned, ...named.filter((model) => model.id.trim() !== selected.id.trim())
