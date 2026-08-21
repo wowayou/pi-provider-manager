@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-08-21
 
 - Added Codex CLI support. A Pi/Codex switch at the top of the sidebar routes the same provider list, three-step wizard, settings screen, and success handoff to whichever agent you are configuring; the Pi side is unchanged. The manager writes `$CODEX_HOME/config.toml` and `auth.json`, remembers every provider's definition and key in its own `0600` store, and switches the active gateway in one click.
 - `config.toml` edits are surgical. A small TOML document model rewrites only the manager's own `[model_providers.<id>]` table, its generated `[profiles.*]`, and the top-level model keys; comments, unrelated keys, and provider tables written by hand survive byte for byte. Regenerated profiles are deleted by recorded name rather than by prefix, so a hand-written profile sharing the prefix is not swept away.

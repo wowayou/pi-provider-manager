@@ -103,7 +103,7 @@ Forward preservation cannot solve semantic or structural changes. A manager rele
 ## Versioning policy
 
 - Patch release: UI fixes and non-schema behavior
-- Minor release: support for new Pi fields, API types, or import sources
+- Minor release: support for new Pi or Codex fields and API types, or a new agent target
 - Major release: incompatible config model or migration behavior
 
 ## Upstream references

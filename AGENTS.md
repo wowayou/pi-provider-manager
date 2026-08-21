@@ -73,14 +73,14 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 Read this section first, then `design-qa.md` for how the UI got to its current
 form and what has already been reviewed.
 
-**Where things are.** The latest published release is `v0.1.9`; releases
-`v0.1.2` through `v0.1.9` are tagged and published. `main` contains the
+**Where things are.** The latest published release is `v0.2.0`, which added
+Codex CLI support; releases `v0.1.2` through `v0.2.0` are tagged and published. `main` contains the
 structured issue forms, architecture and compatibility documentation, decoupled
 Pi update monitoring, dated real-Pi evidence, Node 24-based GitHub Actions,
 deletion protection for the model Pi is currently using (PR #27), guarded
 provider deletion with optional credential retention (PR #34), optimistic
 concurrency protection, and Linux/WSL plus Windows release archives.
-`package.json.version` is `0.1.9`.
+`package.json.version` is `0.2.0`.
 Every checklist item required before the first public push is done. The source
 of truth for remaining publication work and its prerequisites is
 `OPEN_SOURCE_CHECKLIST.md`; do not copy its item count here.
