@@ -98,10 +98,17 @@ codex --profile custom-gpt-5-1-codex
 Codex 直连不了这类上游，靠配置也解决不了 —— 必须有一层翻译。管理器会替你配置并起停它，你只需要装：
 
 ```bash
-pip install 'litellm[proxy]'
+pipx install 'litellm[proxy]'
 ```
 
-然后在第一步选「上游只有 chat/completions」，填**你上游自己的**地址和 key。剩下的管理器来做：
+Debian / Ubuntu（包括 WSL）按 [PEP 668](https://peps.python.org/pep-0668/) 禁止系统级 `pip install`，会报 `externally-managed-environment`。用 `pipx`，或者装进 venv：
+
+```bash
+python3 -m venv ~/.local/litellm && ~/.local/litellm/bin/pip install 'litellm[proxy]'
+export PI_PROVIDER_MANAGER_LITELLM=~/.local/litellm/bin/litellm
+```
+
+只要可执行文件不在 `PATH` 上，就用 `PI_PROVIDER_MANAGER_LITELLM` 指定它。然后在第一步选「上游只有 chat/completions」，填**你上游自己的**地址和 key。剩下的管理器来做：
 
 - 为你的每个模型生成 LiteLLM 的 `config.yaml`，带上 `use_chat_completions_api: true`
 - 把 Codex 指向本机代理（`base_url = "http://127.0.0.1:43210/v1"`、`requires_openai_auth = false`）

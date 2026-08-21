@@ -104,3 +104,27 @@ test("reports not running when nothing was ever started", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a missing binary is recorded, not thrown at the process", async () => {
+  // spawn reports ENOENT asynchronously. An unlistened "error" event on a
+  // ChildProcess is re-thrown as an uncaught exception, which would take the
+  // whole manager down the moment someone clicked start without LiteLLM
+  // installed.
+  const dir = sandbox();
+  process.env.PI_PROVIDER_MANAGER_LITELLM = path.join(dir, "does-not-exist");
+  try {
+    const runner = createBridgeRunner({ dir });
+    runner.writeConfig({ models: [{ id: "m" }], upstreamBaseUrl: "https://upstream.example/v1" });
+    runner.start({ providerId: "p", port: 44002, upstreamKey: "k" });
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    const log = fs.readFileSync(path.join(dir, "pi-provider-manager-bridge.log"), "utf8");
+    assert.match(log, /找不到/);
+    assert.match(log, /PI_PROVIDER_MANAGER_LITELLM/);
+    // The failed attempt must not leave a pid behind that stop would chase.
+    assert.equal(runner.status().running, false);
+    assert.equal(runner.status().pid, 0);
+  } finally {
+    delete process.env.PI_PROVIDER_MANAGER_LITELLM;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

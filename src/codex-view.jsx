@@ -281,7 +281,8 @@ function BridgeControl({ codex, providerId, onStart, onStop, onNotify }) {
         )}
       </div>
       <small>
-        需要先装好 LiteLLM（<code className="mono">pip install 'litellm[proxy]'</code>）。
+        需要先装好 LiteLLM（<code className="mono">pipx install 'litellm[proxy]'</code>；Debian/Ubuntu 会拒绝系统级 <code className="mono">pip install</code>）。
+        不在 PATH 上就用 <code className="mono">PI_PROVIDER_MANAGER_LITELLM</code> 指定路径。
         管理器只生成它的配置文件并起停进程，不经手任何模型流量；上游的 key 通过环境变量传给它，不写进配置文件。
       </small>
     </div>
@@ -874,6 +875,16 @@ export function CodexSettingsScreen({ state, saving, error, onSave, onBack }) {
               <p className="compat-note is-warning">
                 <WarningCircle size={20} weight="fill" />
                 你安装的 Codex 是 {installed}，本版本验证过的是 {validated}。未知字段仍会保留，但若 Codex 改动了配置结构，请对照兼容性说明确认。
+              </p>
+            )}
+            {(codex.providerTablesMissingName || []).length > 0 && (
+              <p className="compat-note is-warning">
+                <WarningCircle size={20} weight="fill" />
+                <span>
+                  config.toml 里这些供应商表缺少 <code className="mono">name</code>：
+                  {codex.providerTablesMissingName.map((id) => <code key={id} className="mono">[model_providers.{id}]</code>)}
+                  。Codex 会因此拒绝加载<strong>整份</strong>配置。本管理器不会改动你手写的表，请自己补上 <code className="mono">name</code>。
+                </span>
               </p>
             )}
             <p className="compat-note"><ShieldCheck size={20} weight="duotone" />config.toml 里本管理器不认识的键、注释和你手写的其它 <code className="mono">[model_providers.*]</code> 表都会原样保留。</p>
