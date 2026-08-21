@@ -1,11 +1,23 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
+import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+
+import {
+  isObject,
+  parseJsonBytes,
+  readJson,
+  restore,
+  snapshot,
+  writeJsonAtomic,
+} from "./lib/atomic-files.mjs";
+import { createCodexConfig } from "./lib/codex-config.mjs";
+import { ConflictError, PROVIDER_ID_PATTERN, isLoopbackHostname, normalizeUrl } from "./lib/validation.mjs";
 
 const HOST = "127.0.0.1";
 const SERVE_UI = process.env.PI_PROVIDER_MANAGER_SERVE_UI === "1";
@@ -28,7 +40,16 @@ const AGENT_DIR_SOURCE = process.env.PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE || (
 const AUTH_PATH = path.join(AGENT_DIR, "auth.json");
 const MODELS_PATH = path.join(AGENT_DIR, "models.json");
 const SETTINGS_PATH = path.join(AGENT_DIR, "settings.json");
+const CODEX_DIR = path.resolve(
+  process.env.PI_PROVIDER_MANAGER_CODEX_DIR || process.env.CODEX_HOME || path.join(os.homedir(), ".codex"),
+);
+const CODEX_DIR_SOURCE = process.env.PI_PROVIDER_MANAGER_CODEX_DIR
+  ? "PI_PROVIDER_MANAGER_CODEX_DIR"
+  : process.env.CODEX_HOME ? "CODEX_HOME" : "default-home";
 const REVISION_KEY = crypto.randomBytes(32);
+// Pi and Codex carry separate revisions on purpose: editing one must not
+// invalidate an in-flight draft for the other.
+const codex = createCodexConfig({ dir: CODEX_DIR, dirSource: CODEX_DIR_SOURCE, revisionKey: REVISION_KEY });
 const ALLOWED_APIS = new Set([
   "openai-responses",
   "openai-completions",
@@ -37,13 +58,15 @@ const ALLOWED_APIS = new Set([
 ]);
 const ALLOWED_THINKING = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 const ALLOWED_TRANSPORTS = new Set(["auto", "sse", "websocket"]);
-const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 const SETTINGS_KEYS = ["defaultProvider", "defaultModel", "defaultThinkingLevel", "hideThinkingBlock", "transport"];
 const PACKAGE_MANIFEST = JSON.parse(fs.readFileSync(path.join(PROJECT_DIR, "package.json"), "utf8"));
 const APP_VERSION = PACKAGE_MANIFEST.version;
 // The Pi release this manager was last validated against. Single source of truth:
 // docs and release notes quote this, they do not carry their own copy.
 const PI_VALIDATED_VERSION = PACKAGE_MANIFEST.piValidatedVersion || "unknown";
+// Same contract for Codex: one recorded baseline, surfaced beside the version
+// actually detected on the machine.
+const CODEX_VALIDATED_VERSION = PACKAGE_MANIFEST.codexValidatedVersion || "unknown";
 
 function detectPiVersion() {
   const nvmNodes = path.join(os.homedir(), ".nvm", "versions", "node");
@@ -87,77 +110,46 @@ function detectPiVersion() {
 
 const PI_VERSION = detectPiVersion();
 
-function isObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function parseJsonBytes(filePath, bytes) {
-  if (bytes === null) return {};
-  const raw = bytes.toString("utf8");
-  if (!raw.trim()) return {};
-  const parsed = JSON.parse(raw);
-  if (!isObject(parsed)) throw new Error(`${path.basename(filePath)} must contain a JSON object.`);
-  return parsed;
-}
-
-function readJson(filePath) {
-  return parseJsonBytes(filePath, snapshot(filePath));
-}
-
-function writeJsonAtomic(filePath, value) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
-  const temporaryPath = path.join(
-    path.dirname(filePath),
-    `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`,
-  );
-  try {
-    fs.writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, {
-      encoding: "utf8",
-      mode: 0o600,
-      flag: "wx",
-    });
-    JSON.parse(fs.readFileSync(temporaryPath, "utf8"));
-    replaceFile(temporaryPath, filePath);
-    if (process.platform !== "win32") fs.chmodSync(filePath, 0o600);
-  } finally {
-    if (fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath);
+// Codex is a single binary rather than an npm package, so unlike Pi there is
+// no install tree to inspect — only the command itself.
+function detectCodexVersion() {
+  const commands = process.platform === "win32"
+    ? [["codex", ["--version"]]]
+    : [["/bin/bash", ["-lic", "codex --version"]], ["codex", ["--version"]]];
+  for (const [command, args] of commands) {
+    try {
+      const output = execFileSync(command, args, {
+        encoding: "utf8",
+        timeout: 8000,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      const match = output.match(/\d+\.\d+\.\d+/);
+      if (match) return match[0];
+    } catch {}
   }
+  return "unknown";
 }
 
-function replaceFile(source, destination) {
+const CODEX_VERSION = detectCodexVersion();
+
+// A broken or unreadable Codex directory must not take the whole state
+// response down with it: the launcher probes /api/state to decide whether a
+// port already belongs to this manager, and the Pi workflow does not depend
+// on Codex at all.
+function codexState() {
   try {
-    fs.renameSync(source, destination);
+    return { available: true, ...codex.publicState() };
   } catch (error) {
-    if (process.platform !== "win32" || !fs.existsSync(destination)) throw error;
-    fs.copyFileSync(source, destination);
-    fs.unlinkSync(source);
-  }
-}
-
-function snapshot(filePath) {
-  try {
-    return fs.readFileSync(filePath);
-  } catch (error) {
-    if (error.code === "ENOENT") return null;
-    throw error;
-  }
-}
-
-function restore(filePath, bytes) {
-  if (bytes === null) {
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    return;
-  }
-  const temp = `${filePath}.rollback.${process.pid}`;
-  fs.writeFileSync(temp, bytes, { mode: 0o600 });
-  replaceFile(temp, filePath);
-  if (process.platform !== "win32") fs.chmodSync(filePath, 0o600);
-}
-
-class ConflictError extends Error {
-  constructor(message) {
-    super(message);
-    this.statusCode = 409;
+    return {
+      available: false,
+      error: error.message,
+      dir: CODEX_DIR,
+      dirSource: CODEX_DIR_SOURCE,
+      revision: "",
+      providers: [],
+      settings: {},
+      settingsPresent: [],
+    };
   }
 }
 
@@ -257,10 +249,13 @@ function publicState() {
     // Every settings value above is normalized, so a fallback is indistinguishable
     // from a stored value. Say which keys settings.json actually carries.
     settingsPresent: SETTINGS_KEYS.filter((key) => Object.hasOwn(settings, key)),
+    codex: codexState(),
     compatibility: {
       appVersion: APP_VERSION,
       piVersion: PI_VERSION,
       validatedPiVersion: PI_VALIDATED_VERSION,
+      codexVersion: CODEX_VERSION,
+      validatedCodexVersion: CODEX_VALIDATED_VERSION,
       supportedApis: [...ALLOWED_APIS],
       configMode: "preserve-unknown-fields",
       configDirSource: AGENT_DIR_SOURCE,
@@ -269,27 +264,6 @@ function publicState() {
       serviceHost: HOST,
     },
   };
-}
-
-function normalizeUrl(value) {
-  const normalized = String(value || "").trim().replace(/\/+$/, "");
-  if (!normalized) throw new Error("请输入 API 地址。");
-  let parsed;
-  try {
-    parsed = new URL(normalized);
-  } catch {
-    // new URL throws a bare English TypeError, and "api.example.com/v1" without a
-    // scheme is a very common way to land here.
-    throw new Error("API 地址格式无效，请填写完整地址，例如 https://api.example.com/v1。");
-  }
-  if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("API 地址必须使用 http 或 https。");
-  if (
-    parsed.protocol === "http:" &&
-    !["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)
-  ) {
-    throw new Error("远程 API 地址必须使用 HTTPS，避免 key 明文传输。");
-  }
-  return normalized;
 }
 
 function normalizeModel(model, providerApi) {
@@ -540,6 +514,52 @@ function saveSettings(payload) {
   writeJsonAtomic(SETTINGS_PATH, settings);
 }
 
+// Reads whether *something* is answering on a local bridge port. It never sends
+// a credential and never leaves the loopback interface: an endpoint that would
+// fetch an arbitrary URL on demand is a probe any page in the browser could aim
+// at the user's own network.
+function probeBridge(payload) {
+  if (!isObject(payload)) throw new Error("请求内容无效。");
+  const baseUrl = normalizeUrl(payload.baseUrl);
+  const target = new URL(`${baseUrl}/models`);
+  if (!isLoopbackHostname(target.hostname)) {
+    throw new Error("只能探测本机地址（127.0.0.1、localhost 或 [::1]）。");
+  }
+  if (target.protocol !== "http:" && target.protocol !== "https:") {
+    throw new Error("探测地址必须使用 http 或 https。");
+  }
+  const secure = target.protocol === "https:";
+  const client = secure ? https : http;
+  return new Promise((resolve) => {
+    const request = client.request(
+      {
+        host: target.hostname,
+        port: target.port || (secure ? 443 : 80),
+        path: target.pathname,
+        method: "GET",
+        timeout: 2000,
+        // A bridge running on localhost over TLS almost always has a
+        // self-signed certificate. Nothing secret is sent and nothing but
+        // reachability is reported, so refusing it would only produce a
+        // misleading "not running".
+        rejectUnauthorized: false,
+      },
+      (response) => {
+        response.resume();
+        // Any HTTP answer at all — 401 included — means a server is listening.
+        // Saying more than that would be claiming the bridge is the right one.
+        resolve({ status: "listening", httpStatus: response.statusCode });
+      },
+    );
+    request.on("timeout", () => {
+      request.destroy();
+      resolve({ status: "timeout" });
+    });
+    request.on("error", () => resolve({ status: "refused" }));
+    request.end();
+  });
+}
+
 function sendJson(response, status, value) {
   const body = JSON.stringify(value);
   response.writeHead(status, {
@@ -682,6 +702,30 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, { ok: true, state: publicState() });
       return;
     }
+    if (request.method === "POST" && request.url === "/api/codex/providers") {
+      codex.saveProvider(await readBody(request));
+      sendJson(response, 200, { ok: true, state: publicState() });
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/codex/providers/delete") {
+      codex.deleteProvider(await readBody(request));
+      sendJson(response, 200, { ok: true, state: publicState() });
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/codex/activate") {
+      codex.activate(await readBody(request));
+      sendJson(response, 200, { ok: true, state: publicState() });
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/codex/settings") {
+      codex.saveSettings(await readBody(request));
+      sendJson(response, 200, { ok: true, state: publicState() });
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/codex/bridge-check") {
+      sendJson(response, 200, await probeBridge(await readBody(request)));
+      return;
+    }
     if (request.method === "GET" && SERVE_UI && !request.url.startsWith("/api/")) {
       sendStatic(response, request.url);
       return;
@@ -695,5 +739,6 @@ const server = http.createServer(async (request, response) => {
 server.listen(PORT, HOST, () => {
   process.stdout.write(`Pi Provider Manager API listening on http://${HOST}:${PORT}\n`);
   process.stdout.write(`Pi agent directory: ${AGENT_DIR}\n`);
+  process.stdout.write(`Codex directory: ${CODEX_DIR}\n`);
   if (SERVE_UI) process.stdout.write(`Serving built UI from ${CLIENT_DIR}\n`);
 });
