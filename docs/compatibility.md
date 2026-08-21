@@ -1,10 +1,12 @@
-# Pi Compatibility Policy
+# Pi and Codex Compatibility Policy
 
 ## Supported baseline
 
 - The latest locally validated Pi version is `piValidatedVersion` in `package.json`. That field is the only live baseline; the build and server read it, and Settings shows it beside the Pi version detected on the machine. Do not maintain a second current-baseline copy in code, documentation, or automation. Release notes and dated QA evidence may quote the version they actually tested.
-- Managed files: `auth.json`, `models.json`, `settings.json`
+- Managed Pi files: `auth.json`, `models.json`, `settings.json`
 - Out-of-scope Pi file: `models-store.json` is never read or written
+- The latest locally validated Codex version is `codexValidatedVersion` in `package.json`, under the same one-copy rule.
+- Managed Codex files: `config.toml`, `auth.json`, and this manager's own `pi-provider-manager-store.json`
 
 Dated compatibility evidence belongs in `design-qa.md`. It records what was actually exercised, while `piValidatedVersion` remains the only live compatibility baseline.
 
@@ -22,6 +24,25 @@ To reduce breakage:
 6. Multi-file provider updates roll back if any write fails.
 7. The config directory follows Pi's own precedence: `PI_CODING_AGENT_DIR`, then `~/.pi/agent`.
 8. Project path, port, Node binary, browser opening, and WSL distribution are discovered or explicitly overridable; the network host remains loopback-only.
+
+
+## Codex compatibility
+
+Codex is a second adapter target with its own invariants. Four of them are the ones a Codex upgrade is most likely to break, so check each after bumping `codexValidatedVersion`:
+
+1. **`wire_api` values.** Codex accepted `"chat"` until February 2026 and now accepts only `"responses"`; an unknown value makes the whole `config.toml` fail to load. Verify the accepted set in `codex-rs/model-provider-info/src/lib.rs`.
+2. **`[model_providers.<id>]` is `deny_unknown_fields`.** One unrecognised key fails the entire table, so this manager writes only `name`, `base_url`, `wire_api`, and `requires_openai_auth`. Adding a field means confirming the installed Codex accepts it.
+3. **How a third-party provider authenticates.** Today the order is `env_key` → `experimental_bearer_token` → `requires_openai_auth` with `auth.json`. A configured `env_key` whose environment variable is unset is a hard error, which is why this manager sets `requires_openai_auth = true` and never writes `env_key`.
+4. **Reasoning-effort values.** `model_reasoning_effort` and `plan_mode_reasoning_effort` currently accept `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, and `ultra`.
+
+Two further points shape the design rather than the schema:
+
+- **Codex has one credential slot.** `auth.json` holds a single `OPENAI_API_KEY`, so only the active provider's key can live there. Every other provider's key lives in `pi-provider-manager-store.json` with `0600` permissions.
+- **`config.toml` is not the source of truth for inactive providers.** In the single-table layout the manager owns exactly one `[model_providers.<id>]`, so the store carries the rest. If the table on disk does not match anything in the store, the *file* wins and is adopted as a provider entry — the read path never rewrites the file to make the store look right.
+
+Unknown top-level keys in `config.toml` are ignored by Codex rather than rejected (`ConfigToml` carries `schemars(deny_unknown_fields)` but not the serde equivalent). That is why a legacy `disable_response_storage` can be preserved without breaking a current install, even though the key is gone from the schema and `store` is hard-coded to `false` in the request builder.
+
+There is no automated Codex release monitor. Codex ships far more often than Pi, and a daily reminder would be noise; check the four items above when a user reports a Codex-side problem or when the baseline is deliberately advanced.
 
 ## Update monitoring
 

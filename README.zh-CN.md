@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-一个专注于 Pi 的本地模型目录与 API 网关管理器。它不建立自己的数据库，也不替代 Pi，而是安全、可视化地维护 Pi 原生的 `auth.json`、`models.json` 和 `settings.json`。
+一个面向 **Pi 与 Codex CLI** 的本地模型目录与 API 网关管理器。它不替代这两个 agent，而是安全、可视化地维护它们各自的原生配置文件。
 
 ## 我们解决的核心问题
 
@@ -16,6 +16,8 @@ Pi 在运行时以模型为中心，但配置不是“只有模型”：
 
 因此本项目不是普通的“供应商切换器”，而是把 Pi 的 provider/model/thinking 关系做成小白也能理解的本地工作流。
 
+Codex 的问题正好相反：配置很小，但一点都不宽容 —— 只有一个凭据槽、只剩一种还被接受的 wire 协议、而且供应商表里多写一个字段整张表就解析失败。手工换网关意味着每次都要同时改对两个文件，还得把当前没在用的那把 key 放到别处存着。同一套三步流程现在也覆盖了这件事，见[Codex 支持](#codex-支持)。
+
 ## 项目亮点
 
 - **Pi 原生语义**：直接管理 provider、模型 ID、思考强度、图像能力、上下文、最大输出和模型级协议覆盖。
@@ -28,9 +30,12 @@ Pi 在运行时以模型为中心，但配置不是“只有模型”：
 - **保存后有明确闭环**：显示准确的 `pi --model provider/model:thinking` 命令，并指导用户用 `/model` 验证。
 - **适合长模型清单**：表头吸顶、内部滚动、批量粘贴模型 ID，并提示 `-max/-xhigh` 可能只是 thinking level。
 - **真实设置页**：可修改默认 provider/model/thinking、传输方式、thinking 显示，并查看 Pi 版本和兼容状态。
+- **Codex CLI 支持**：同一套侧栏与三步向导管理 `~/.codex/config.toml` 与 `auth.json`，一键切换生效网关，自动生成 `codex --profile` 条目，并逐字节保留文件里的注释和你手写的表。
 - **不锁定数据**：Pi 自己的配置文件始终是唯一事实来源，程序不会读取或写入 `models-store.json`。
 
 ## 管理的文件
+
+Pi：
 
 - `~/.pi/agent/auth.json`
 - `~/.pi/agent/models.json`
@@ -38,9 +43,86 @@ Pi 在运行时以模型为中心，但配置不是“只有模型”：
 
 `models-store.json` 不在本管理器的职责范围内，程序既不读取也不写入它。
 
+Codex（`$CODEX_HOME`，缺省 `~/.codex`）：
+
+- `config.toml` —— 只写本管理器自己的那张 `[model_providers.<id>]`、它生成的 `[profiles.*]`，以及顶层的模型/推理相关键。注释、无关键、你手写的其它供应商表都逐字节保留。
+- `auth.json` —— 只写当前生效供应商的 `auth_mode` 与 `OPENAI_API_KEY`，其余键（包括 ChatGPT 登录态）保留。
+- `pi-provider-manager-store.json` —— 本管理器自己的供应商库，权限 `0600`，见 [Codex 支持](#codex-支持)。
+
+
+## Codex 支持
+
+Codex 和 Pi 的形态很不一样，设计上的取舍都来自它的三个事实：
+
+- 它只有**一个凭据槽**：`auth.json` 里只放得下一个 `OPENAI_API_KEY`。
+- 从 2026 年 2 月起它**只说 Responses API**。`wire_api = "chat"` 已被移除，写进去会让整份 `config.toml` 加载失败。
+- 它的配置**只在启动时读一次**。切换供应商影响的是新开的会话；已经在跑的 `codex` 进程不受影响。
+
+### 单表模式：原地整表重写
+
+`config.toml` 里任何时刻只有一张本管理器拥有的供应商表，所以文件形状和厂商文档里给的片段完全一致：
+
+```toml
+model_provider = "custom"
+model = "gpt-5.6-sol"
+model_reasoning_effort = "high"
+
+[model_providers.custom]
+name = "PackyCode"
+base_url = "https://api.packycode.com/v1"
+wire_api = "responses"
+requires_openai_auth = true
+```
+
+切换供应商 = 整表重写这一张 + 换掉 `auth.json` 里的 key。因为 Codex 没有地方安放"当前没在用"的供应商，其余供应商的地址、模型列表和 key 存在 `pi-provider-manager-store.json`（权限 `0600`，永不回传浏览器）。**`config.toml` 仍然是"Codex 实际会怎么做"的事实来源；供应商库是"你还配了些什么"的事实来源。**
+
+如果磁盘上的这张表和库里对不上 —— 第一次使用，或者你手动改过 —— 以**文件为准**：它会被接管为一个供应商条目，界面上明确标注"已接管"。读取状态永远不写盘，所以打开页面本身不会动到一套正在工作的配置。
+
+表名默认 `custom`，可在设置里改。Codex 的内建 id（`openai`、`ollama`、`lmstudio`、两个 Bedrock）会被拒绝。
+
+### profiles
+
+当前生效供应商的每个模型还会生成一个 profile，这样换模型不用动全局配置：
+
+```bash
+codex                              # 该供应商的默认模型
+codex --profile custom-gpt-5-1-codex
+```
+
+重新生成时只删除本管理器上次记录下来的那批 —— 你自己手写的 `[profiles.*]` 即使前缀相同也会保留。
+
+### 上游只提供 `/v1/chat/completions` 时
+
+Codex 直连不了这类上游，靠配置也解决不了。自己跑一个翻译桥，让供应商指向它：
+
+```yaml
+# ~/.config/litellm/config.yaml
+model_list:
+  - model_name: gpt-5.6-sol
+    litellm_params:
+      model: openai/<上游模型>
+      api_base: https://upstream.example/v1
+      api_key: os.environ/UPSTREAM_API_KEY
+      use_chat_completions_api: true
+```
+
+```bash
+litellm --config ~/.config/litellm/config.yaml --port 4000
+```
+
+然后在第一步选「上游只有 chat/completions」，地址填 `http://127.0.0.1:4000/v1`，并勾选"这个桥不需要 key"（写入 `requires_openai_auth = false`）。上游真正的 key 归桥保管，本管理器不接触。[codex-relay](https://github.com/MetaFARS/codex-relay) 同理。
+
+本项目刻意不自己实现这层翻译。会动的那一侧是 Codex —— reasoning item、加密的 reasoning 内容、tool call 的结构 —— 而 Codex 基本每周发版，自建翻译层等于给项目绑一个长期追版本的负债。界面上的"检查桥是否启动"只报告那个本机端口上有没有东西在应答；没有任何模型流量经过本管理器。
+
+### 切换能带走什么，不能带走什么
+
+新会话会干净地用上新配置。**但换供应商后用 `codex resume` 接续旧会话并不可靠**：Codex 会请求 `reasoning.encrypted_content` 并在后续轮次原样回传，而一家加密的内容另一家读不了。这是 Codex 的设计，任何切换工具都绕不过去。同一段对话请在开始它的那家上聊完。
+
 ## 项目状态与 CC Switch
 
-本项目的功能范围已经完成，现进入维护模式。后续只处理确认过的缺陷、安全修复和 Pi 兼容变化，不再追求与 [CC Switch](https://github.com/farion1231/cc-switch) 的大而全功能对齐。
+本项目处于维护模式。后续只处理确认过的缺陷、安全修复和 Pi / Codex 兼容变化，不再追求与 [CC Switch](https://github.com/farion1231/cc-switch) 的大而全功能对齐。
+
+Codex 支持是有意加入的，范围同样收窄：供应商、凭据、当前生效项和 profiles。不做预设库、模型发现、用量看板，也不做流量代理。
 
 CC Switch 3.20 已完整接入 Pi 的供应商预设、模型发现、提示词、Skills、会话和用量统计，但它明确不读写 Pi 的 `auth.json`、`defaultProvider` 和 `defaultModel`。本项目继续作为一个更小、无数据库的工具，负责凭据/默认项边界以及三份原生配置之间的一致性。两者可以读取同一套 Pi 文件，但一个工具保存后，另一个工具里已经打开的旧页面必须重新读取。
 
@@ -86,6 +168,8 @@ install -m 700 bin/pi-provider-manager-ui ~/.pi/agent/bin/pi-provider-manager-ui
 | 环境变量 | 自动默认值 | 用途 |
 |---|---|---|
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi 的 auth/models/settings 配置目录 |
+| `CODEX_HOME` | `~/.codex` | Codex 配置目录，沿用 Codex 自己的优先级 |
+| `PI_PROVIDER_MANAGER_CODEX_DIR` | `CODEX_HOME` 的值 | 仅对本管理器生效的 Codex 目录覆盖 |
 | `PI_PROVIDER_MANAGER_PROJECT_DIR` | 当前匹配仓库，其次 `~/pi-provider-manager-ui` | 项目与构建产物位置 |
 | `PI_PROVIDER_MANAGER_PORT` | 从 `43127-43146` 自动选择 | 严格指定本地服务端口 |
 | `PI_PROVIDER_MANAGER_NODE` | 当前 `node` 可执行文件 | 后台服务使用的 Node 路径 |
@@ -107,11 +191,13 @@ install -m 700 bin/pi-provider-manager-ui ~/.pi/agent/bin/pi-provider-manager-ui
 
 漏洞披露方式和完整威胁边界见 [SECURITY.md](SECURITY.md)。
 
-## Pi 兼容性
+## Pi 与 Codex 兼容性
 
-本管理器验证过的 Pi 版本只记录在一处 —— `package.json` 的 `piValidatedVersion`，并在设置页与实际检测到的 Pi 版本并列显示；两者不一致时设置页会直接说明。
+本管理器验证过的 Pi 版本只记录在一处 —— `package.json` 的 `piValidatedVersion`，并在设置页与实际检测到的 Pi 版本并列显示；两者不一致时设置页会直接说明。`codexValidatedVersion` 对 Codex 是同样的约定。
 
 未知字段会被保留，但 Pi 如果修改配置结构、API 类型、认证格式、模型能力字段或设置名称，本项目仍需要发布对应兼容更新。每个版本都会跑 [docs/compatibility.md](docs/compatibility.md) 里的兼容性清单，并在 release notes 中写明验证过的 Pi 版本。
+
+Codex 侧没有自动监测：它发版远比 Pi 频繁，每日提醒只会变成噪音。需要复核时，按 [docs/compatibility.md](docs/compatibility.md) 里列出的四项（`wire_api` 取值、供应商表的 deny-unknown、第三方鉴权顺序、推理强度取值）逐条确认。
 
 仓库另有一个每日运行的维护 workflow，只比较该基线与 Pi 最新稳定 GitHub Release；需要复核时，它会创建或更新维护 issue。监测不进入应用运行链：启动和构建不会访问上游，不引入 Pi npm 依赖，也不会自动推进兼容性基线。
 
@@ -136,6 +222,8 @@ npm ci
 npm run dev -- --host 127.0.0.1 --port 4173 --strictPort
 npm run build
 npm run test:server
+npm run test:codex
+npm run test:ui
 npm run test:sites
 npm run test:pi-update
 ```
@@ -150,8 +238,8 @@ npm run test:pi-update
 
 ## 路线图
 
-- 稳定维护：安全修复、确认过的正确性缺陷和 Pi 兼容更新
+- 稳定维护：安全修复、确认过的正确性缺陷和 Pi / Codex 兼容更新
 - 不再计划 CSV/CC-Switch 导入、模型发现、会话浏览、Skills、用量看板或代理功能
-- 更广的一站式工作流交给 CC Switch；本项目保持聚焦于 Pi 凭据、默认项和原生文件一致性
+- 更广的一站式工作流交给 CC Switch；本项目保持聚焦于 Pi 与 Codex 的凭据、默认项和原生文件一致性
 
 视觉对照、交互验证和历史 QA 记录见 `design-qa.md` 与 `qa/`。

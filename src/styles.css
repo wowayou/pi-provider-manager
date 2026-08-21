@@ -684,7 +684,7 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
   .provider-search { margin-bottom: 8px; }
   /* keep provider switching reachable on narrow screens: a scrollable chip rail */
   .provider-list { flex: none; min-height: 48px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; scrollbar-gutter: auto; flex-direction: row; gap: 8px; padding-bottom: 4px; scrollbar-width: thin; }
-  .provider-item { width: auto; flex: none; grid-template-columns: 28px auto 16px; padding: 8px 12px 8px 8px; border: 1px solid var(--line); }
+  .provider-item { width: auto; flex: none; grid-template-columns: 28px auto auto 16px; padding: 8px 12px 8px 8px; border: 1px solid var(--line); }
   .provider-item.is-selected { box-shadow: inset 3px 0 0 var(--orange); }
   .list-empty { flex: 1 1 100%; min-width: 0; margin: 0; }
   .provider-icon { width: 28px; height: 28px; border-radius: 8px; }
@@ -705,6 +705,8 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
   .hint-panel { margin-top: 0; }
   .models-table { overflow-x: auto; }
   .model-table-head, .model-row { min-width: 938px; }
+  /* Codex rows carry four columns, not eight, so they need far less room. */
+  .model-table-head.is-codex, .model-row.is-codex { min-width: 480px; }
   .gateway-summary { grid-template-columns: 48px minmax(0, 1fr); }
   .gateway-side { grid-column: 2; flex-wrap: wrap; }
   .models-header { flex-direction: column; align-items: stretch; gap: 12px; }

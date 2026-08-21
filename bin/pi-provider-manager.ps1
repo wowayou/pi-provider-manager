@@ -51,6 +51,17 @@ if ($env:PI_CODING_AGENT_DIR) {
     $agentDir = Join-Path $HOME ".pi\agent"
 }
 
+$codexDirSource = "default-home"
+if ($env:PI_PROVIDER_MANAGER_CODEX_DIR) {
+    $codexDir = [System.IO.Path]::GetFullPath($env:PI_PROVIDER_MANAGER_CODEX_DIR)
+    $codexDirSource = "PI_PROVIDER_MANAGER_CODEX_DIR"
+} elseif ($env:CODEX_HOME) {
+    $codexDir = [System.IO.Path]::GetFullPath($env:CODEX_HOME)
+    $codexDirSource = "CODEX_HOME"
+} else {
+    $codexDir = Join-Path $HOME ".codex"
+}
+
 $nodePath = $env:PI_PROVIDER_MANAGER_NODE
 if (-not $nodePath) {
     $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
@@ -110,6 +121,8 @@ if (-not (Test-ManagerPort $port)) {
         PI_PROVIDER_MANAGER_SERVE_UI = "1"
         PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE = $agentDirSource
         PI_CODING_AGENT_DIR = $agentDir
+        PI_PROVIDER_MANAGER_CODEX_DIR = $codexDir
+        PI_PROVIDER_MANAGER_CODEX_DIR_SOURCE = $codexDirSource
     }
     try {
         foreach ($entry in $launchEnvironment.GetEnumerator()) {

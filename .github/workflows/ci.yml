@@ -24,6 +24,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run build
       - run: npm run test:server
+      - run: npm run test:codex
       - run: npm run test:sites
       - run: npm run test:pi-update
 
