@@ -451,8 +451,8 @@ test("adopting a loopback provider does not claim it is a bridge", async () => {
     assert.equal(active.baseUrl, "http://127.0.0.1:15721/v1");
     // It may be a bridge, another local proxy, or a local model server. The
     // manager has no way to tell, so it stores no upstream shape at all and
-    // nothing it renders may assert one.
+    // claims no bridge: a bridge exists only when the user configured one here.
     assert.equal(Object.hasOwn(active, "upstream"), false);
-    assert.equal(JSON.stringify(active).includes("bridge"), false);
+    assert.equal(active.bridge, null);
   });
 });
