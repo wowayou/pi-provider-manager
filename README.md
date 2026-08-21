@@ -108,6 +108,12 @@ python3 -m venv ~/.local/litellm && ~/.local/litellm/bin/pip install 'litellm[pr
 export PI_PROVIDER_MANAGER_LITELLM=~/.local/litellm/bin/litellm
 ```
 
+LiteLLM does not pin FastAPI tightly enough. Verified on 2026-08-21: `litellm 1.97.0` with `fastapi 0.141.1` fails to start with `ImportError: cannot import name 'get_flat_dependant'`. If `litellm --version` reports a traceback rather than a version, pin FastAPI:
+
+```bash
+pip install 'fastapi==0.115.14'
+```
+
 Set `PI_PROVIDER_MANAGER_LITELLM` whenever the executable is not on `PATH`. Then pick **上游只有 chat/completions** in step one and fill in your *upstream's* address and key. The manager does the rest:
 
 - writes LiteLLM's `config.yaml` with `use_chat_completions_api: true` for each of your models
