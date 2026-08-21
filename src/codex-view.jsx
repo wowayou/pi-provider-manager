@@ -272,16 +272,19 @@ function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onP
     const parsed = parseCodexSnippet(snippet);
     if (!parsed) { onNotify("没有在这段配置里找到 [model_providers.*] 表。", "error"); return; }
     const previous = form;
+    // The imported model has to become the selected default too; leaving
+    // defaultRowId dangling makes the next save fail with "pick a model".
+    const imported = parsed.model
+      ? { rowId: crypto.randomUUID(), id: parsed.model, reasoningEffort: parsed.reasoningEffort }
+      : null;
     setForm((current) => ({
       ...current,
       providerId: current.providerId || parsed.providerId,
       name: parsed.name,
       baseUrl: parsed.baseUrl,
       requiresAuth: parsed.requiresAuth,
-      models: parsed.model
-        ? [{ rowId: crypto.randomUUID(), id: parsed.model, reasoningEffort: parsed.reasoningEffort }]
-        : current.models,
-      defaultRowId: parsed.model ? undefined : current.defaultRowId,
+      models: imported ? [imported] : current.models,
+      defaultRowId: imported ? imported.rowId : current.defaultRowId,
     }));
     setShowSnippet(false);
     setSnippet("");
