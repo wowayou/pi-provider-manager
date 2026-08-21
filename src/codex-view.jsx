@@ -50,6 +50,17 @@ const UPSTREAM_OPTIONS = [
   },
 ];
 
+// Whether Codex will be talking to this machine. This is a fact about the
+// address; whether the thing listening is a translation bridge is not, so only
+// copy tied to the user's own choice may say "bridge".
+export function isLocalAddress(value) {
+  try {
+    return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(new URL(value).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 function slugify(value) {
   return String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
@@ -269,6 +280,7 @@ function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onP
   const [showSnippet, setShowSnippet] = useState(false);
   const sources = codex.providers.filter((item) => item.id !== form.providerId && item.credentialConfigured);
   const existing = codex.providers.find((item) => item.id === form.providerId);
+  const isLocal = isLocalAddress(form.baseUrl);
 
   const applySnippet = () => {
     const parsed = parseCodexSnippet(snippet);
@@ -334,17 +346,26 @@ function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onP
           </label>
           <label className="form-grid-wide">
             <span>{form.upstream === "bridge" ? "本地桥地址" : "API 地址"}</span>
-            <small>{form.upstream === "bridge" ? "指向你自己跑的翻译桥，必须是本机地址" : "填写接口根地址，不要包含具体模型路径"}</small>
+            <small>
+              {form.upstream === "bridge"
+                ? "指向你自己跑的翻译桥，必须是本机地址"
+                : isLocal
+                  ? "这是本机地址：Codex 会连到这台机器上的这个端口"
+                  : "填写接口根地址，不要包含具体模型路径"}
+            </small>
             <input className="mono" type="url" inputMode="url" value={form.baseUrl} onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))} placeholder={form.upstream === "bridge" ? "http://127.0.0.1:4000/v1" : "https://api.example.com/v1"} spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
           </label>
         </div>
-        {form.upstream === "bridge" && <BridgeProbe baseUrl={form.baseUrl} onProbe={onProbeBridge} />}
+        {isLocal && <BridgeProbe baseUrl={form.baseUrl} onProbe={onProbeBridge} />}
         <fieldset className="credential-box">
           <legend>访问凭据</legend>
-          {form.upstream === "bridge" && (
+          {isLocal && (
             <label className="checkbox-row">
               <input type="checkbox" checked={!form.requiresAuth} onChange={(event) => setForm((current) => ({ ...current, requiresAuth: !event.target.checked }))} />
-              这个桥不需要 key（写入 <code className="mono">requires_openai_auth = false</code>，Codex 不带 Authorization）
+              <span>
+                {form.upstream === "bridge" ? "这个桥不需要 key" : "这个本机服务不需要 key"}
+                （写入 <code className="mono">requires_openai_auth = false</code>，Codex 不带 Authorization）
+              </span>
             </label>
           )}
           {form.requiresAuth && (
@@ -362,7 +383,7 @@ function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onP
           {!form.requiresAuth && (
             <div className="credential-status">
               <Info size={24} weight="duotone" />
-              <div><strong>Codex 不会带凭据</strong><span>上游真正的 key 归桥自己管，本管理器不接触。</span></div>
+              <div><strong>Codex 不会带凭据</strong><span>{form.upstream === "bridge" ? "上游真正的 key 归桥自己管，本管理器不接触。" : "这个本机地址自己处理鉴权，本管理器不接触上游的 key。"}</span></div>
             </div>
           )}
         </fieldset>
@@ -512,10 +533,10 @@ function CodexModelsStep({ form, setForm, codex, error, saving, onBack, onSave, 
           <div><h1>确认模型与推理强度</h1><p>每个模型会生成一个 profile，可以用 <code>codex --profile</code> 单独调用。</p></div>
         </div>
         <div className="gateway-summary">
-          <span className="summary-icon">{form.upstream === "bridge" ? <Plugs size={34} weight="duotone" /> : <PlugsConnected size={34} weight="duotone" />}</span>
+          <span className="summary-icon">{isLocalAddress(form.baseUrl) ? <Plugs size={34} weight="duotone" /> : <PlugsConnected size={34} weight="duotone" />}</span>
           <div>
             <strong>{form.name || titleFromId(form.providerId || "new-provider")}</strong>
-            <span className="protocol-badge">{form.upstream === "bridge" ? "本机地址" : "Responses 直连"}</span>
+            <span className="protocol-badge">{isLocalAddress(form.baseUrl) ? "本机地址" : "Responses 直连"}</span>
             <p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p>
             {/* Adoption is derived on the read path, so say it out loud rather
                 than letting an entry appear from nowhere. */}
@@ -526,7 +547,7 @@ function CodexModelsStep({ form, setForm, codex, error, saving, onBack, onSave, 
               <ShieldCheck size={29} weight="duotone" />
               <span>
                 <strong>{!form.requiresAuth ? "无需凭据" : form.credentialMode === "keep" ? "凭据已安全保存" : "凭据将在保存时写入"}</strong>
-                <small>{!form.requiresAuth ? "上游 key 归本地桥管理" : form.credentialMode === "keep" ? "浏览器无法读取旧 key" : "当前草稿尚未写入 Codex 配置"}</small>
+                <small>{!form.requiresAuth ? "Codex 不会带 Authorization" : form.credentialMode === "keep" ? "浏览器无法读取旧 key" : "当前草稿尚未写入 Codex 配置"}</small>
               </span>
             </div>
             {canDeleteProvider && (

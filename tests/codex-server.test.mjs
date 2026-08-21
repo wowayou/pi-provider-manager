@@ -157,6 +157,9 @@ test("adopts an existing config.toml without writing to it", async () => {
     assert.equal(active.adopted, true);
     // The adopted provider shows the model config.toml really points at.
     assert.deepEqual(active.models.map((model) => model.id), ["gpt-5.6-sol"]);
+    // config.toml declares no upstream shape, so adoption claims none. A
+    // loopback base URL is not evidence of a translation bridge.
+    assert.equal(active.upstream, "direct");
     // Reading state must not rewrite the user's files.
     assert.equal(fs.statSync(api.configPath).mtimeMs, before);
     assert.equal(fs.existsSync(api.storePath), false);
@@ -443,5 +446,16 @@ test("switching to a provider whose key is missing is still refused", async () =
     // The refusal left the working provider in place.
     assert.match(api.config(), /^base_url = "https:\/\/packy\.example\/v1"$/m);
     assert.equal(api.auth().OPENAI_API_KEY, SECRET);
+  });
+});
+
+test("adopting a loopback provider does not claim it is a bridge", async () => {
+  const local = HAND_WRITTEN.replace("https://existing.example/v1", "http://127.0.0.1:15721/v1");
+  await withServer(local, async (api) => {
+    const active = (await api.state()).codex.providers.find((provider) => provider.isActive);
+    assert.equal(active.baseUrl, "http://127.0.0.1:15721/v1");
+    // It may be a bridge, another local proxy, or a local model server. The
+    // manager has no way to tell and must not assert one.
+    assert.equal(active.upstream, "direct");
   });
 });

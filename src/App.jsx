@@ -43,6 +43,7 @@ import {
   CodexWizard,
   blankCodexForm,
   codexProviderToForm,
+  isLocalAddress,
 } from "./codex-view.jsx";
 
 const API_OPTIONS = [
@@ -342,15 +343,15 @@ function sidebarProviders(state, target) {
       id: provider.id,
       name: provider.name || titleFromId(provider.id),
       keywords: `${provider.id} ${provider.name || ""} ${provider.baseUrl}`,
-      // "bridge" is inferred from a loopback base URL for anything adopted
-      // from config.toml, and a loopback upstream is not necessarily a
-      // translation bridge. State the fact, not the guess.
-      subtitle: `${provider.models.length} 个模型 · ${provider.upstream === "bridge" ? "本机地址" : "Responses"}`,
+      // Derived from the address, which is a fact, rather than from `upstream`,
+      // which only records a choice made in the wizard and says nothing about a
+      // provider adopted from config.toml.
+      subtitle: `${provider.models.length} 个模型 · ${isLocalAddress(provider.baseUrl) ? "本机地址" : "Responses"}`,
       ready: provider.credentialConfigured || provider.requiresAuth === false,
       readyLabel: "凭据已配置",
       notReadyLabel: "未配置凭据",
       badge: provider.isActive ? "生效中" : "",
-      icon: provider.upstream === "bridge" ? Plugs : PlugsConnected,
+      icon: isLocalAddress(provider.baseUrl) ? Plugs : PlugsConnected,
       source: provider,
     }));
   }
