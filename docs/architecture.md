@@ -20,7 +20,7 @@ The project does not:
 - **Target**: which agent a screen is editing, `pi` or `codex`. The two share the shell — sidebar, three-step wizard, settings screen — and nothing else; they have separate files, separate revisions, and separate vocabulary.
 - **Owned provider table**: the single `[model_providers.<id>]` in Codex's `config.toml` that this manager writes, `custom` by default. Codex's other provider tables belong to the user and are never read, written, or deleted.
 - **Provider store**: `pi-provider-manager-store.json`, this manager's own file inside the Codex directory. It holds every Codex provider's definition and key. See "The Codex exception" below for why it exists.
-- **Bridge**: a Responses-to-Chat-Completions translation proxy the *user* runs (LiteLLM, codex-relay, …) for upstreams that expose only `/v1/chat/completions`. The manager configures a provider to point at one and can probe whether it is listening; it never carries model traffic itself.
+- **Bridge**: a LiteLLM proxy that translates Codex's Responses requests into an upstream that exposes only `/v1/chat/completions`. The manager writes its config, points the Codex provider at it, and starts and stops the process; the user installs LiteLLM. The manager never carries model traffic itself.
 - **Validated Pi version**: the release in `package.json.piValidatedVersion` that completed the compatibility checklist. It is not the same as the Pi version detected on a user's machine.
 - **Latest release versus `main`**: GitHub tags and Releases define what has shipped. `main` may contain additional work under `CHANGELOG.md`'s `Unreleased` section even while `package.json.version` still matches the latest release.
 
@@ -96,7 +96,11 @@ Two rules keep that from becoming a database that quietly diverges from disk:
 
 Codex writes are transactional across all three files with the same snapshot-and-restore primitive as the Pi side, and carry their own revision — `state.codex.revision`, distinct from `state.revision` — so editing one agent's config cannot invalidate an in-flight draft for the other.
 
-The manager never proxies model traffic, for Codex no less than for Pi. Upstreams that speak only Chat Completions are configured to point at a bridge the user runs; `POST /api/codex/bridge-check` reports whether something is answering on that loopback port and refuses any host that is not loopback, so the endpoint cannot be borrowed as a probe by a page the browser happens to be visiting.
+The manager never proxies model traffic, for Codex no less than for Pi. An upstream that speaks only Chat Completions is reached through a LiteLLM proxy: the manager generates `pi-provider-manager-litellm.yaml`, points the Codex provider at `127.0.0.1`, and supervises the process, but no request passes through this server. Writing a third-party config file and starting a process is the same kind of work the manager already does; implementing the translation would not be, and would tie the project to Codex's release cadence.
+
+Three rules hold that supervision honest. The proxy is pinned to `127.0.0.1`, because LiteLLM defaults to `0.0.0.0` and would otherwise publish an unauthenticated proxy holding the upstream key on every interface. It is started detached, so closing the manager does not cut Codex off mid-session. And a recorded process id is never signalled unless procfs still shows that process running the manager's own config file, since process ids are reused. Bridge runtime state lives outside the config revision, so starting or stopping the proxy cannot invalidate a draft.
+
+`POST /api/codex/bridge-check` reports whether something is answering on a loopback port and refuses any host that is not loopback, so the endpoint cannot be borrowed as a probe by a page the browser happens to be visiting.
 
 ### Reproduce retained-credential deletion
 
