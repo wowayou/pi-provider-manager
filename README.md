@@ -95,26 +95,29 @@ Only the profiles this manager generated are removed when it regenerates them �
 
 ### Upstreams that only expose `/v1/chat/completions`
 
-Codex cannot talk to these directly and no configuration can change that — a translation layer is required. The manager configures and supervises one for you; you only install it:
+Codex cannot talk to these directly and no configuration can change that — a translation layer is required. The manager configures and supervises one for you; you only install it.
+
+Debian and Ubuntu — including WSL — refuse a system-wide `pip install` under [PEP 668](https://peps.python.org/pep-0668/), so use `pipx` or a virtualenv:
 
 ```bash
 pipx install 'litellm[proxy]'
-```
-
-Debian and Ubuntu — including WSL — refuse a system-wide `pip install` under [PEP 668](https://peps.python.org/pep-0668/), so use `pipx`, or a virtualenv:
-
-```bash
+# or
 python3 -m venv ~/.local/litellm && ~/.local/litellm/bin/pip install 'litellm[proxy]'
-export PI_PROVIDER_MANAGER_LITELLM=~/.local/litellm/bin/litellm
 ```
 
-LiteLLM does not pin FastAPI tightly enough. Verified on 2026-08-21: `litellm 1.97.0` with `fastapi 0.141.1` fails to start with `ImportError: cannot import name 'get_flat_dependant'`. If `litellm --version` reports a traceback rather than a version, pin FastAPI:
+Both land somewhere the manager already looks, so no further configuration is needed; the credentials step names the executable it picked.
+
+**Install LiteLLM by itself.** Adding a version pin for anything else to that same command lets the resolver satisfy the pin by downgrading LiteLLM instead, and older releases have no Responses-to-Chat bridging at all — verified against `1.79.0`, which forwards `/v1/responses` straight to the upstream and gets a 404. This project is verified against `1.97.0`.
+
+If `litellm --version` then prints a traceback instead of a version, downgrade FastAPI as a **separate** step:
 
 ```bash
 pip install 'fastapi==0.115.14'
 ```
 
-Set `PI_PROVIDER_MANAGER_LITELLM` whenever the executable is not on `PATH`. Then pick **上游只有 chat/completions** in step one and fill in your *upstream's* address and key. The manager does the rest:
+LiteLLM does not pin FastAPI tightly enough, and `fastapi 0.141.1` fails at import with `cannot import name 'get_flat_dependant'`.
+
+Then pick **上游只有 chat/completions** in step one and fill in your *upstream's* address and key. The manager does the rest:
 
 - writes LiteLLM's `config.yaml` with `use_chat_completions_api: true` for each of your models
 - points Codex at the local proxy (`base_url = "http://127.0.0.1:43210/v1"`, `requires_openai_auth = false`)
@@ -194,7 +197,7 @@ If the repository is cloned elsewhere, set `PI_PROVIDER_MANAGER_PROJECT_DIR` to 
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi config directory used for auth, models, and settings |
 | `CODEX_HOME` | `~/.codex` | Codex config directory, following Codex's own precedence |
 | `PI_PROVIDER_MANAGER_CODEX_DIR` | value of `CODEX_HOME` | Codex directory override for this manager only |
-| `PI_PROVIDER_MANAGER_LITELLM` | `litellm` on `PATH` | Executable used to start the managed bridge. Set this when LiteLLM lives in a virtualenv; the launcher passes it on to the service, which does not inherit your shell. |
+| `PI_PROVIDER_MANAGER_LITELLM` | first of `~/.local/bin/litellm`, `~/.local/litellm/bin/litellm`, a few sibling virtualenv paths, then `PATH` | Executable used to start the managed bridge. Only needed when LiteLLM is somewhere unusual; the credentials step shows which one was picked. |
 | `PI_PROVIDER_MANAGER_PROJECT_DIR` | current matching repo, then `~/pi-provider-manager-ui` | Project/build location |
 | `PI_PROVIDER_MANAGER_PORT` | auto-select from `43127-43146` | Strict local loopback port override |
 | `PI_PROVIDER_MANAGER_NODE` | current `node` executable | Node binary used by the detached service |

@@ -299,8 +299,9 @@ function BridgeControl({ codex, providerId, onStart, onStop, onNotify }) {
         )}
       </div>
       <small>
-        需要先装好 LiteLLM（<code className="mono">pipx install 'litellm[proxy]'</code>；Debian/Ubuntu 会拒绝系统级 <code className="mono">pip install</code>）。
-        不在 PATH 上就用 <code className="mono">PI_PROVIDER_MANAGER_LITELLM</code> 指定路径。
+        {status.binarySource === "PATH"
+          ? <>需要先装好 LiteLLM（<code className="mono">pipx install 'litellm[proxy]'</code>；Debian/Ubuntu 会拒绝系统级 <code className="mono">pip install</code>）。装在别处就用 <code className="mono">PI_PROVIDER_MANAGER_LITELLM</code> 指定路径。</>
+          : <>将使用 <code className="mono">{status.binary}</code>{status.version ? <> · <code className="mono">{status.version}</code></> : null}{status.binarySource === "discovered" ? "（自动找到）" : "（来自 PI_PROVIDER_MANAGER_LITELLM）"}。本项目验证过 1.97.0；更旧的版本可能完全没有 Responses→Chat 桥接。</>}
         管理器只生成它的配置文件并起停进程，不经手任何模型流量；上游的 key 通过环境变量传给它，不写进配置文件。
       </small>
     </div>
