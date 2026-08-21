@@ -135,7 +135,6 @@ function newProvider(overrides = {}) {
     providerId: "packy",
     name: "PackyCode",
     baseUrl: "https://packy.example/v1",
-    upstream: "direct",
     requiresAuth: true,
     credential: { mode: "new", apiKey: SECRET },
     models: [{ id: "gpt-5.6-sol", reasoningEffort: "high" }],
@@ -157,9 +156,6 @@ test("adopts an existing config.toml without writing to it", async () => {
     assert.equal(active.adopted, true);
     // The adopted provider shows the model config.toml really points at.
     assert.deepEqual(active.models.map((model) => model.id), ["gpt-5.6-sol"]);
-    // config.toml declares no upstream shape, so adoption claims none. A
-    // loopback base URL is not evidence of a translation bridge.
-    assert.equal(active.upstream, "direct");
     // Reading state must not rewrite the user's files.
     assert.equal(fs.statSync(api.configPath).mtimeMs, before);
     assert.equal(fs.existsSync(api.storePath), false);
@@ -211,7 +207,6 @@ test("switching providers replaces the owned table with no residue", async () =>
       providerId: "bridge",
       name: "Local bridge",
       baseUrl: "http://127.0.0.1:4000/v1",
-      upstream: "bridge",
       requiresAuth: false,
       credential: { mode: "keep" },
       models: [{ id: "deepseek-chat", reasoningEffort: "medium" }],
@@ -455,7 +450,9 @@ test("adopting a loopback provider does not claim it is a bridge", async () => {
     const active = (await api.state()).codex.providers.find((provider) => provider.isActive);
     assert.equal(active.baseUrl, "http://127.0.0.1:15721/v1");
     // It may be a bridge, another local proxy, or a local model server. The
-    // manager has no way to tell and must not assert one.
-    assert.equal(active.upstream, "direct");
+    // manager has no way to tell, so it stores no upstream shape at all and
+    // nothing it renders may assert one.
+    assert.equal(Object.hasOwn(active, "upstream"), false);
+    assert.equal(JSON.stringify(active).includes("bridge"), false);
   });
 });

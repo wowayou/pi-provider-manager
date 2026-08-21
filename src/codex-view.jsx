@@ -100,7 +100,9 @@ export function codexProviderToForm(provider, codex) {
     providerId: provider.id,
     name: provider.name || titleFromId(provider.id),
     baseUrl: provider.baseUrl,
-    upstream: provider.upstream || "direct",
+    // Only used to highlight a card in step one. The address is the sole
+    // evidence available for a provider that came from config.toml.
+    upstream: isLocalAddress(provider.baseUrl) ? "bridge" : "direct",
     requiresAuth: provider.requiresAuth !== false,
     credentialMode: provider.credentialConfigured ? "keep" : "new",
     apiKey: "",
@@ -345,13 +347,11 @@ function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onP
             <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="PackyCode" autoComplete="off" />
           </label>
           <label className="form-grid-wide">
-            <span>{form.upstream === "bridge" ? "本地桥地址" : "API 地址"}</span>
+            <span>API 地址{isLocal ? "（本机）" : ""}</span>
             <small>
-              {form.upstream === "bridge"
-                ? "指向你自己跑的翻译桥，必须是本机地址"
-                : isLocal
-                  ? "这是本机地址：Codex 会连到这台机器上的这个端口"
-                  : "填写接口根地址，不要包含具体模型路径"}
+              {isLocal
+                ? "Codex 会连到这台机器上的这个端口。如果它是你自己跑的翻译桥，上游的 key 由桥保管。"
+                : "填写接口根地址，不要包含具体模型路径"}
             </small>
             <input className="mono" type="url" inputMode="url" value={form.baseUrl} onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))} placeholder={form.upstream === "bridge" ? "http://127.0.0.1:4000/v1" : "https://api.example.com/v1"} spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
           </label>
@@ -363,8 +363,7 @@ function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onP
             <label className="checkbox-row">
               <input type="checkbox" checked={!form.requiresAuth} onChange={(event) => setForm((current) => ({ ...current, requiresAuth: !event.target.checked }))} />
               <span>
-                {form.upstream === "bridge" ? "这个桥不需要 key" : "这个本机服务不需要 key"}
-                （写入 <code className="mono">requires_openai_auth = false</code>，Codex 不带 Authorization）
+                这个本机服务不需要 key（写入 <code className="mono">requires_openai_auth = false</code>，Codex 不带 Authorization）
               </span>
             </label>
           )}
@@ -383,7 +382,7 @@ function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onP
           {!form.requiresAuth && (
             <div className="credential-status">
               <Info size={24} weight="duotone" />
-              <div><strong>Codex 不会带凭据</strong><span>{form.upstream === "bridge" ? "上游真正的 key 归桥自己管，本管理器不接触。" : "这个本机地址自己处理鉴权，本管理器不接触上游的 key。"}</span></div>
+              <div><strong>Codex 不会带凭据</strong><span>这个本机服务自己处理鉴权，本管理器不接触上游的 key。</span></div>
             </div>
           )}
         </fieldset>
