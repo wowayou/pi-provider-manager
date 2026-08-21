@@ -124,6 +124,8 @@ The upstream key never enters either config file. It is stored in the manager's 
 
 The proxy is started detached, so closing the manager does not cut Codex off. Stopping it only ever signals a process whose command line still names the manager's config file, because process ids get reused.
 
+On a platform where the manager cannot prove a started process is still its own — anything without procfs, which includes native Windows — it will not adopt one. The config is still generated, and the credentials step shows the command to run by hand. Everything else about Codex, including a directly connected provider, is unaffected.
+
 **This project still does not translate model traffic itself.** Writing a third-party config file and supervising a process is the same kind of work it already does for Pi and Codex; no request passes through the manager. The translation stays LiteLLM's to maintain, which matters because the part that keeps moving is Codex's side of the wire — reasoning items, encrypted reasoning content, tool-call shapes — and Codex ships weekly. [codex-relay](https://github.com/MetaFARS/codex-relay) is an alternative you can run yourself; point a normal provider at it instead.
 
 ### If Codex warns about "project-local config keys"

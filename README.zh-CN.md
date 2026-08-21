@@ -124,6 +124,8 @@ pip install 'fastapi==0.115.14'
 
 代理是 detach 启动的，关掉管理器不会把 Codex 掐断。停止时只会对「命令行里仍然指向管理器那份配置文件」的进程发信号，因为 pid 会被复用。
 
+在管理器无法证明「已启动的进程仍是自己那个」的平台上（没有 procfs 的系统，包括原生 Windows），它不会去代管进程。配置照样生成，凭据那一步会给出手动运行的命令。Codex 的其余部分（包括直连供应商）不受影响。
+
 **本项目仍然不自己翻译模型流量。** 写第三方配置文件、看管一个进程，和它已经在为 Pi 和 Codex 做的是同一类事；没有任何请求经过管理器。翻译这件事留给 LiteLLM 维护 —— 这很重要，因为一直在动的那一侧是 Codex：reasoning item、加密的 reasoning 内容、tool call 的结构，而 Codex 基本每周发版。[codex-relay](https://github.com/MetaFARS/codex-relay) 是另一个你可以自己跑的选择，那种情况下按普通供应商指向它即可。
 
 ### 如果 Codex 提示「project-local config keys」

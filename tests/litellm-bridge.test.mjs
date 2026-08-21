@@ -128,3 +128,35 @@ test("a missing binary is recorded, not thrown at the process", async () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("refuses to supervise where process ownership cannot be proven", async (t) => {
+  if (process.platform !== "linux") return t.skip("needs a procfs machine to fake its absence");
+  const dir = sandbox();
+  try {
+    const runner = createBridgeRunner({ dir });
+    // On this machine supervision is possible, so the capability probe says so
+    // and the manual command is still offered for copying.
+    const status = runner.status();
+    assert.equal(status.supervisable, true);
+    assert.match(status.manualCommand, /--host 127\.0\.0\.1 --port 43210$/);
+    // The upstream key is named, never included: this string reaches a browser.
+    assert.match(status.manualCommand, /PPM_BRIDGE_UPSTREAM_KEY=<上游 key>/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the manual command names the key rather than carrying it", async () => {
+  // Whatever the platform, this string is rendered in the page, so it must not
+  // be a place a credential can leak.
+  const dir = sandbox();
+  try {
+    const runner = createBridgeRunner({ dir });
+    runner.writeConfig({ models: [{ id: "m" }], upstreamBaseUrl: "https://upstream.example/v1" });
+    const status = runner.status();
+    assert.equal(status.manualCommand.includes("sk-"), false);
+    assert.equal(status.manualCommand.includes(status.configPath), true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -259,6 +259,24 @@ function BridgeControl({ codex, providerId, onStart, onStop, onNotify }) {
     }
   };
 
+  if (status.supervisable === false) {
+    // Nothing here can prove a started process is still ours, so the manager
+    // will not adopt one. It has done the part it can: the config is written.
+    return (
+      <div className="bridge-control">
+        <span className="probe-result is-warn" role="status">
+          <WarningCircle size={17} weight="fill" />
+          本平台无法托管桥进程
+        </span>
+        <p className="bridge-manual">配置已生成。请自行运行，把 <code className="mono">&lt;上游 key&gt;</code> 换成你填过的那把：</p>
+        <code className="bridge-command mono">{status.manualCommand}</code>
+        <small>
+          管理器只在能确认进程归属的平台上代管进程 —— 否则停止时无法证明要杀的还是它自己启动的那个。
+        </small>
+      </div>
+    );
+  }
+
   return (
     <div className="bridge-control">
       <div className="bridge-status">
@@ -605,7 +623,10 @@ function CodexModelsStep({ form, setForm, codex, error, saving, onBack, onSave, 
             {codexProviderOf(codex, form)?.bridge && !codex.bridge?.running && (
               <p className="adopted-note is-warning">
                 <WarningCircle size={17} weight="fill" />
-                本地桥没有运行，Codex 现在发不出请求。回到「填写凭据」那一步启动它。
+                本地桥没有运行，Codex 现在发不出请求。
+                {codex.bridge?.supervisable === false
+                  ? "本平台需要你自己启动它，命令在「填写凭据」那一步。"
+                  : "回到「填写凭据」那一步启动它。"}
               </p>
             )}
           </div>
