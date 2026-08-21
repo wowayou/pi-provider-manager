@@ -225,9 +225,9 @@ const DEMO_STATE = {
     settings: { model: "gpt-5.6-sol", modelProvider: "custom", reasoningEffort: "high", planModeReasoningEffort: "xhigh", verbosity: "medium", contextWindow: 0, disableResponseStorage: false },
     settingsPresent: ["model", "model_provider", "model_reasoning_effort"],
     providers: [
-      { id: "packy", name: "PackyCode", baseUrl: "https://api.packycode.com/v1", upstream: "direct", requiresAuth: true, models: [{ id: "gpt-5.6-sol", reasoningEffort: "high" }, { id: "gpt-5.1-codex", reasoningEffort: "xhigh" }], defaultModelId: "gpt-5.6-sol", credentialConfigured: true, adopted: false, isActive: true },
-      { id: "kimi", name: "Kimi", baseUrl: "https://api.moonshot.cn/v1", upstream: "direct", requiresAuth: true, models: [{ id: "kimi-k2.6", reasoningEffort: "medium" }], defaultModelId: "kimi-k2.6", credentialConfigured: true, adopted: false, isActive: false },
-      { id: "deepseek-relay", name: "DeepSeek via relay", baseUrl: "http://127.0.0.1:4446/v1", upstream: "bridge", requiresAuth: false, models: [{ id: "deepseek-reasoner", reasoningEffort: "high" }], defaultModelId: "deepseek-reasoner", credentialConfigured: false, adopted: false, isActive: false },
+      { id: "packy", name: "PackyCode", baseUrl: "https://api.packycode.com/v1", requiresAuth: true, models: [{ id: "gpt-5.6-sol", reasoningEffort: "high" }, { id: "gpt-5.1-codex", reasoningEffort: "xhigh" }], defaultModelId: "gpt-5.6-sol", credentialConfigured: true, adopted: false, isActive: true },
+      { id: "kimi", name: "Kimi", baseUrl: "https://api.moonshot.cn/v1", requiresAuth: true, models: [{ id: "kimi-k2.6", reasoningEffort: "medium" }], defaultModelId: "kimi-k2.6", credentialConfigured: true, adopted: false, isActive: false },
+      { id: "deepseek-relay", name: "DeepSeek via relay", baseUrl: "http://127.0.0.1:4446/v1", requiresAuth: false, models: [{ id: "deepseek-reasoner", reasoningEffort: "high" }], defaultModelId: "deepseek-reasoner", credentialConfigured: false, adopted: false, isActive: false },
     ],
   },
   settings: { defaultProvider: "any-claude", defaultModel: "claude-3-5-sonnet", defaultThinkingLevel: "high" },
@@ -1542,7 +1542,6 @@ export function App() {
           providerId: codexForm.providerId.trim(),
           name: codexForm.name.trim(),
           baseUrl: codexForm.baseUrl.trim(),
-          upstream: codexForm.upstream,
           requiresAuth: codexForm.requiresAuth,
           credential: codexForm.requiresAuth
             ? {
