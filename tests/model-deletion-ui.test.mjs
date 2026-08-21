@@ -594,3 +594,200 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
+
+const CODEX_FIXTURE = `# 我自己写的注释，别动
+model_provider = "custom"
+model = "gpt-5.6-sol"
+
+[model_providers.custom]
+name = "现成的供应商"
+base_url = "https://existing.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+
+[model_providers.myown]
+# 手写的表，本管理器不该碰
+base_url = "https://hand-written.example/v1"
+wire_api = "responses"
+
+[tui]
+notifications = true
+`;
+
+test("production UI drives the Codex workspace", { timeout: 90_000 }, async () => {
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-codex-pi-"));
+  const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-codex-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-codex-"));
+  const configPath = path.join(codexDir, "config.toml");
+  fs.writeFileSync(configPath, CODEX_FIXTURE);
+  writeFixture(agentDir);
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server;
+  let chrome;
+  let cdp;
+  let serverOutput = "";
+  let chromeOutput = "";
+
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CODEX_DIR: codexDir,
+        PI_PROVIDER_MANAGER_SERVE_UI: "1",
+        PI_PROVIDER_MANAGER_PORT: String(appPort),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; });
+    server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${appPort}/api/state`);
+
+    chrome = spawn(chromePath, [
+      "--headless",
+      "--no-sandbox",
+      "--disable-gpu",
+      `--remote-debugging-port=${debugPort}`,
+      `--user-data-dir=${profileDir}`,
+      "about:blank",
+    ], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    chrome.stdout.on("data", (chunk) => { chromeOutput += chunk; });
+    chrome.stderr.on("data", (chunk) => { chromeOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
+
+    const target = await fetch(
+      `http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(`http://127.0.0.1:${appPort}`)}`,
+      { method: "PUT" },
+    ).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl);
+    await cdp.send("Page.enable");
+    await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
+    await cdp.waitFor(`document.querySelector('.target-switch')`);
+
+    // The Pi sidebar keeps the look it had before Codex existed: the badge cell
+    // is present so both targets share one grid, but it carries no text.
+    await cdp.waitFor(`document.querySelectorAll('.provider-item').length === 2`);
+    assert.equal(
+      await cdp.evaluate(`[...document.querySelectorAll('.provider-badge')].filter((node) => node.textContent.trim()).length`),
+      0,
+    );
+
+    const clickText = (selector, text) =>
+      cdp.evaluate(`[...document.querySelectorAll(${JSON.stringify(selector)})]
+        .find((node) => node.textContent.includes(${JSON.stringify(text)})).click()`);
+
+    await clickText(".target-switch button", "Codex");
+    await cdp.waitFor(`document.querySelector('.model-row.is-codex .model-name-cell input')`);
+
+    // The table already on disk is adopted, shown as live, and said to be adopted.
+    const adopted = await cdp.evaluate(`({
+      name: document.querySelector('.provider-item .provider-copy strong').textContent,
+      badge: document.querySelector('.provider-badge')?.textContent || "",
+      note: document.querySelector('.adopted-note')?.textContent || "",
+      model: document.querySelector('.model-row.is-codex .model-name-cell input').value,
+    })`);
+    assert.equal(adopted.name, "现成的供应商");
+    assert.equal(adopted.badge, "生效中");
+    assert.match(adopted.note, /已从现有 config\.toml 接管/);
+    assert.equal(adopted.model, "gpt-5.6-sol");
+    // Rendering the adopted entry must not have written anything.
+    assert.equal(fs.readFileSync(configPath, "utf8"), CODEX_FIXTURE);
+
+    // Add a second provider through the wizard.
+    await cdp.evaluate(`document.querySelector('.add-provider').click()`);
+    await cdp.waitFor(`document.querySelector('.protocol-grid.is-duo')`);
+    await clickText(".wizard-footer .primary-button", "下一步");
+    await cdp.waitFor(`document.querySelector('.form-grid input')`);
+    await cdp.evaluate(`(() => {
+      const set = (element, value) => {
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(element, value);
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      const inputs = [...document.querySelectorAll('.form-grid input')];
+      set(inputs[0], 'packy');
+      set(inputs[1], 'PackyCode');
+      set(inputs[2], 'https://packy.example/v1');
+      set(document.querySelector('.key-field input'), 'browser-test-codex-key');
+    })()`);
+    await clickText(".wizard-footer .primary-button", "下一步");
+    await cdp.waitFor(`document.querySelectorAll('.model-row.is-codex').length === 1`);
+
+    // A second model row, so the armed delete has something to remove.
+    await clickText(".models-actions button", "添加模型");
+    await cdp.waitFor(`document.querySelectorAll('.model-row.is-codex').length === 2`);
+    await cdp.evaluate(`(() => {
+      const input = document.querySelectorAll('.model-row.is-codex .model-name-cell input')[1];
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, 'gpt-5.1-codex');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+
+    // First click arms and explains; it must not remove the row.
+    await cdp.evaluate(`document.querySelectorAll('.model-row.is-codex .icon-button')[1].click()`);
+    await cdp.waitFor(`document.querySelector('.toast.is-error')`);
+    assert.equal(await cdp.evaluate(`document.querySelectorAll('.model-row.is-codex').length`), 2);
+    assert.match(await cdp.evaluate(`document.querySelector('.toast').textContent`), /再次点击会移除/);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await cdp.evaluate(`document.querySelectorAll('.model-row.is-codex .icon-button')[1].click()`);
+    await cdp.waitFor(`document.querySelectorAll('.model-row.is-codex').length === 1`);
+    // Every removal offers an undo.
+    await cdp.waitFor(`document.querySelector('.toast-action')`);
+    await cdp.evaluate(`document.querySelector('.toast-action').click()`);
+    await cdp.waitFor(`document.querySelectorAll('.model-row.is-codex').length === 2`);
+
+    await clickText(".wizard-footer .primary-button", "保存并设为当前生效");
+    await cdp.waitFor(`document.querySelector('.success-page')`, 20_000);
+    assert.match(await cdp.evaluate(`document.querySelector('.success-page').textContent`), /开一个新的 codex 会话/);
+    assert.equal(await cdp.evaluate(`document.querySelector('.command-row code').textContent`), "codex");
+
+    const written = fs.readFileSync(configPath, "utf8");
+    assert.match(written, /^# 我自己写的注释，别动$/m);
+    assert.match(written, /^\[model_providers\.myown\]$/m);
+    assert.match(written, /^# 手写的表，本管理器不该碰$/m);
+    assert.match(written, /^\[tui\]$/m);
+    assert.match(written, /^name = "PackyCode"$/m);
+    assert.match(written, /^\[profiles\.custom-gpt-5-1-codex\]$/m);
+    assert.equal((written.match(/\[model_providers\./g) || []).length, 2);
+    // The key belongs in auth.json and the manager's own store, never in the page.
+    assert.equal(written.includes("browser-test-codex-key"), false);
+    assert.equal(
+      JSON.parse(fs.readFileSync(path.join(codexDir, "auth.json"), "utf8")).OPENAI_API_KEY,
+      "browser-test-codex-key",
+    );
+    assert.equal(
+      await cdp.evaluate(`(async () => (await (await fetch('/api/state', { cache: 'no-store' })).text()).includes('browser-test-codex-key'))()`),
+      false,
+    );
+
+    // An external edit between read and write must be refused, not overwritten.
+    fs.writeFileSync(configPath, `${written}\n# 另一个程序刚刚写的\n`);
+    const staleConfig = fs.readFileSync(configPath, "utf8");
+    await clickText(".success-actions button", "返回供应商详情");
+    await cdp.waitFor(`document.querySelector('.model-row.is-codex')`);
+    await clickText(".wizard-footer .primary-button", "保存更改");
+    await cdp.waitFor(`document.querySelector('.toast.is-error .toast-action')`);
+    assert.match(await cdp.evaluate(`document.querySelector('.error-banner').textContent`), /其他程序或标签页/);
+    assert.equal(fs.readFileSync(configPath, "utf8"), staleConfig);
+
+    assert.equal(cdp.errors.length, 0, JSON.stringify(cdp.errors));
+  } catch (error) {
+    error.message += `\nServer output:\n${serverOutput}\nChrome output:\n${chromeOutput}`;
+    throw error;
+  } finally {
+    if (cdp) {
+      await Promise.race([
+        cdp.send("Browser.close").catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+      cdp.close();
+    }
+    await stopProcess(chrome, true);
+    await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(codexDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});

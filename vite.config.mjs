@@ -11,6 +11,7 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(packageManifest.version),
     __PI_VALIDATED_VERSION__: JSON.stringify(packageManifest.piValidatedVersion),
+    __CODEX_VALIDATED_VERSION__: JSON.stringify(packageManifest.codexValidatedVersion),
   },
   optimizeDeps: {
     include: ["react", "react-dom/client", "@phosphor-icons/react"],
