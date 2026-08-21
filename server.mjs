@@ -65,9 +65,16 @@ const bridge = createBridgeRunner({ dir: CODEX_DIR });
 // state rather than thrown.
 function syncBridgeConfig() {
   try {
-    const spec = codex.bridgeSpec(codex.activeProviderId());
+    const spec = codex.bridgeSpec();
     if (spec) bridge.writeConfig(spec);
-  } catch {}
+  } catch (error) {
+    // The Codex write already succeeded; failing here must not undo it. Leave a
+    // trace where the bridge's own problems are looked for rather than
+    // swallowing it silently.
+    try {
+      fs.appendFileSync(bridge.logPath, `\n[pi-provider-manager] 无法生成桥的配置：${error.message}\n`);
+    } catch {}
+  }
 }
 const ALLOWED_APIS = new Set([
   "openai-responses",
@@ -744,8 +751,7 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "POST" && request.url === "/api/codex/bridge/start") {
       const body = await readBody(request);
-      const providerId = String(body.providerId || codex.activeProviderId());
-      const spec = codex.bridgeSpec(providerId);
+      const spec = codex.bridgeSpec(String(body.providerId || ""));
       if (!spec) throw new Error("这个供应商没有配置本地桥。");
       bridge.writeConfig(spec);
       bridge.start(spec);

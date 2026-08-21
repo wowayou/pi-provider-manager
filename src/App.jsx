@@ -1576,7 +1576,6 @@ export function App() {
       const data = await readApiResponse(response, "保存失败");
       setState(data.state);
       const saved = (data.state.codex?.providers || []).find((provider) => provider.id === codexForm.providerId.trim());
-      const owned = data.state.codex?.ownedProviderId || "custom";
       setCodexSelectedId(codexForm.providerId.trim());
       if (saved) setCodexForm(codexProviderToForm(saved, data.state.codex));
       setCodexSaveResult({
@@ -1587,10 +1586,10 @@ export function App() {
         activated: Boolean(saved?.isActive),
         requiresAuth: saved?.requiresAuth !== false,
         command: "codex",
-        profiles: saved?.isActive && data.state.codex?.generateProfiles !== false
-          ? [owned, ...named.filter((model) => model.id.trim() !== selected.id.trim())
-              .map((model) => `${owned}-${model.id.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`)]
-          : [],
+        // Read back what the server actually wrote rather than re-deriving the
+        // names here: a second copy of the slug rules could disagree with the
+        // file and send someone to a profile that does not exist.
+        profiles: saved?.isActive ? data.state.codex?.generatedProfiles || [] : [],
       });
       setView("success");
     } catch (requestError) {

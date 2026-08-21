@@ -27,11 +27,11 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 
+import { CODEX_REASONING_EFFORTS, CODEX_VERBOSITIES, profileSlug } from "../lib/codex-shared.mjs";
 import { TomlDocument } from "../lib/toml-document.mjs";
+import { isLoopbackHostname } from "../lib/validation.mjs";
 import { BulkModal, Spinner, createRadioKeyHandler, titleFromId } from "./ui-kit.jsx";
 
-export const CODEX_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
-export const CODEX_VERBOSITIES = ["low", "medium", "high"];
 
 const UPSTREAM_OPTIONS = [
   {
@@ -59,14 +59,10 @@ export function codexProviderOf(codex, form) {
 
 export function isLocalAddress(value) {
   try {
-    return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(new URL(value).hostname.toLowerCase());
+    return isLoopbackHostname(new URL(value).hostname);
   } catch {
     return false;
   }
-}
-
-function slugify(value) {
-  return String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
 function blankCodexModel(id = "") {
@@ -137,12 +133,12 @@ export function parseCodexSnippet(text) {
   const model = document.getTopLevel("model");
   const effort = document.getTopLevel("model_reasoning_effort");
   return {
-    providerId: slugify(names[0]),
+    providerId: profileSlug(names[0]),
     name: typeof keys.name === "string" && keys.name ? keys.name : titleFromId(names[0]),
     baseUrl: typeof keys.base_url === "string" ? keys.base_url : "",
     requiresAuth: keys.requires_openai_auth !== false,
     model: typeof model === "string" ? model : "",
-    reasoningEffort: CODEX_EFFORTS.includes(effort) ? effort : "high",
+    reasoningEffort: CODEX_REASONING_EFFORTS.includes(effort) ? effort : "high",
   };
 }
 
@@ -364,7 +360,7 @@ function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onN
         <div className="form-grid">
           <label>
             <span>供应商 ID</span><small>本管理器内部标识，用于生成 profile 名</small>
-            <input className="mono" value={form.providerId} onChange={(event) => setForm((current) => ({ ...current, providerId: slugify(event.target.value) }))} placeholder="packy" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
+            <input className="mono" value={form.providerId} onChange={(event) => setForm((current) => ({ ...current, providerId: profileSlug(event.target.value) }))} placeholder="packy" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
           </label>
           <label>
             <span>显示名称</span><small>写入 config.toml 的 name 字段</small>
@@ -491,7 +487,7 @@ function CodexModelRow({ model, isDefault, isLiveModel, onChange, onDefault, onA
       <label>
         <span className="sr-only">推理强度</span>
         <select value={model.reasoningEffort} onChange={(event) => onChange({ ...model, reasoningEffort: event.target.value })}>
-          {CODEX_EFFORTS.map((effort) => <option key={effort} value={effort}>{effort}</option>)}
+          {CODEX_REASONING_EFFORTS.map((effort) => <option key={effort} value={effort}>{effort}</option>)}
         </select>
       </label>
       <label className="default-radio">
@@ -857,13 +853,13 @@ export function CodexSettingsScreen({ state, saving, error, onSave, onBack }) {
             <label>
               <span>推理强度 <code className="mono">model_reasoning_effort</code></span>
               <select value={draft.reasoningEffort} onChange={(event) => setDraft((current) => ({ ...current, reasoningEffort: event.target.value }))}>
-                {CODEX_EFFORTS.map((effort) => <option key={effort} value={effort}>{effort}</option>)}
+                {CODEX_REASONING_EFFORTS.map((effort) => <option key={effort} value={effort}>{effort}</option>)}
               </select>
             </label>
             <label>
               <span>Plan 模式推理强度 <code className="mono">plan_mode_reasoning_effort</code></span>
               <select value={draft.planModeReasoningEffort} onChange={(event) => setDraft((current) => ({ ...current, planModeReasoningEffort: event.target.value }))}>
-                {CODEX_EFFORTS.map((effort) => <option key={effort} value={effort}>{effort}</option>)}
+                {CODEX_REASONING_EFFORTS.map((effort) => <option key={effort} value={effort}>{effort}</option>)}
               </select>
             </label>
             <label>
@@ -907,7 +903,7 @@ export function CodexSettingsScreen({ state, saving, error, onSave, onBack }) {
           <div className="advanced-content">
             <label>
               <span>供应商表名 <code className="mono">model_providers.&lt;id&gt;</code></span>
-              <input className="mono" value={draft.ownedProviderId} onChange={(event) => setDraft((current) => ({ ...current, ownedProviderId: slugify(event.target.value) }))} spellCheck={false} />
+              <input className="mono" value={draft.ownedProviderId} onChange={(event) => setDraft((current) => ({ ...current, ownedProviderId: profileSlug(event.target.value) }))} spellCheck={false} />
               <small>本管理器只写这一张表。不能使用 Codex 的内建 id（openai、ollama、lmstudio 等）。</small>
             </label>
             <label>
