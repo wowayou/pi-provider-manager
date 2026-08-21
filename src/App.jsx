@@ -20,6 +20,8 @@ import {
   MagnifyingGlass,
   Moon,
   OpenAiLogo,
+  Plugs,
+  PlugsConnected,
   Plus,
   Question,
   ShieldCheck,
@@ -32,6 +34,16 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { changedPersistedModel, selectedNamedModel } from "./model-draft.mjs";
+import { BulkModal, Spinner, createRadioKeyHandler, readApiResponse, titleFromId } from "./ui-kit.jsx";
+import {
+  CodexDeleteDialog,
+  CodexSettingsScreen,
+  CodexStepper,
+  CodexSuccessScreen,
+  CodexWizard,
+  blankCodexForm,
+  codexProviderToForm,
+} from "./codex-view.jsx";
 
 const API_OPTIONS = [
   {
@@ -82,17 +94,6 @@ function apiMeta(id) {
     short: id || "仅凭据",
     title: id || "仅凭据",
     icon: Cube,
-  };
-}
-
-function createRadioKeyHandler({ refs, values, selectedIndex, onSelect }) {
-  return (event) => {
-    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
-    if (!step) return;
-    event.preventDefault();
-    const next = (selectedIndex + step + values.length) % values.length;
-    onSelect(values[next]);
-    refs.current[next]?.focus();
   };
 }
 
@@ -168,18 +169,6 @@ function ThemeSwitch({ theme, onTheme }) {
   );
 }
 
-function Spinner({ size = 18 }) {
-  return <CircleNotch className="spinner" size={size} weight="bold" aria-hidden="true" />;
-}
-
-function titleFromId(id) {
-  return id
-    .split(/[-_.]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
 function safeDefaults(modelId = "") {
   if (modelId === "gpt-5.6-sol") return { contextWindow: 1_050_000, maxTokens: 128_000 };
   return { contextWindow: 128_000, maxTokens: 16_384 };
@@ -222,8 +211,24 @@ function blankForm() {
 
 const DEMO_STATE = {
   agentDir: "~/.pi/agent",
-  compatibility: { appVersion: __APP_VERSION__, piVersion: __PI_VALIDATED_VERSION__, validatedPiVersion: __PI_VALIDATED_VERSION__, configMode: "preserve-unknown-fields", configDirSource: "default-home", nodeVersion: "v22.0.0", serviceHost: "127.0.0.1", servicePort: 43127 },
+  compatibility: { appVersion: __APP_VERSION__, piVersion: __PI_VALIDATED_VERSION__, validatedPiVersion: __PI_VALIDATED_VERSION__, codexVersion: __CODEX_VALIDATED_VERSION__, validatedCodexVersion: __CODEX_VALIDATED_VERSION__, configMode: "preserve-unknown-fields", configDirSource: "default-home", nodeVersion: "v22.0.0", serviceHost: "127.0.0.1", servicePort: 43127 },
   authProviders: ["any-claude", "openai", "deepseek", "moonshot", "qwen", "gemini", "minimax"],
+  codex: {
+    available: true,
+    dir: "~/.codex",
+    dirSource: "default-home",
+    revision: "",
+    ownedProviderId: "custom",
+    activeProviderId: "packy",
+    generateProfiles: true,
+    settings: { model: "gpt-5.6-sol", modelProvider: "custom", reasoningEffort: "high", planModeReasoningEffort: "xhigh", verbosity: "medium", contextWindow: 0, disableResponseStorage: false },
+    settingsPresent: ["model", "model_provider", "model_reasoning_effort"],
+    providers: [
+      { id: "packy", name: "PackyCode", baseUrl: "https://api.packycode.com/v1", upstream: "direct", requiresAuth: true, models: [{ id: "gpt-5.6-sol", reasoningEffort: "high" }, { id: "gpt-5.1-codex", reasoningEffort: "xhigh" }], defaultModelId: "gpt-5.6-sol", credentialConfigured: true, adopted: false, isActive: true },
+      { id: "kimi", name: "Kimi", baseUrl: "https://api.moonshot.cn/v1", upstream: "direct", requiresAuth: true, models: [{ id: "kimi-k2.6", reasoningEffort: "medium" }], defaultModelId: "kimi-k2.6", credentialConfigured: true, adopted: false, isActive: false },
+      { id: "deepseek-relay", name: "DeepSeek via relay", baseUrl: "http://127.0.0.1:4446/v1", upstream: "bridge", requiresAuth: false, models: [{ id: "deepseek-reasoner", reasoningEffort: "high" }], defaultModelId: "deepseek-reasoner", credentialConfigured: false, adopted: false, isActive: false },
+    ],
+  },
   settings: { defaultProvider: "any-claude", defaultModel: "claude-3-5-sonnet", defaultThinkingLevel: "high" },
   providers: [
     {
@@ -324,25 +329,90 @@ function Stepper({ step, onStep }) {
   );
 }
 
-function Sidebar({ state, selectedId, onSelect, onAdd, onSettings, activeView, theme, onTheme }) {
+const TARGET_OPTIONS = [
+  { value: "pi", label: "Pi" },
+  { value: "codex", label: "Codex" },
+];
+
+// One list component for both targets. Each target maps its own provider shape
+// onto the same row vocabulary so the navigation stays identical.
+function sidebarProviders(state, target) {
+  if (target === "codex") {
+    return (state.codex?.providers || []).map((provider) => ({
+      id: provider.id,
+      name: provider.name || titleFromId(provider.id),
+      keywords: `${provider.id} ${provider.name || ""} ${provider.baseUrl}`,
+      subtitle: `${provider.models.length} 个模型 · ${provider.upstream === "bridge" ? "经本地桥" : "Responses"}`,
+      ready: provider.credentialConfigured || provider.requiresAuth === false,
+      readyLabel: "凭据已配置",
+      notReadyLabel: "未配置凭据",
+      badge: provider.isActive ? "生效中" : "",
+      icon: provider.upstream === "bridge" ? Plugs : PlugsConnected,
+      source: provider,
+    }));
+  }
+  return state.providers.map((provider) => ({
+    id: provider.id,
+    name: provider.name || titleFromId(provider.id),
+    keywords: `${provider.id} ${provider.name || ""} ${apiMeta(provider.api).short}`,
+    subtitle: `${provider.models.length} 个模型 · ${apiMeta(provider.api).short}`,
+    ready: provider.credentialConfigured,
+    readyLabel: "凭据已配置",
+    notReadyLabel: "未配置凭据",
+    // The Pi sidebar keeps the look it already had; the default provider is
+    // already marked inside the workspace.
+    badge: "",
+    icon: apiMeta(provider.api).icon,
+    source: provider,
+  }));
+}
+
+function TargetSwitch({ target, onTarget }) {
+  const buttonRefs = useRef([]);
+  const selectedIndex = Math.max(0, TARGET_OPTIONS.findIndex((option) => option.value === target));
+  const onKeyDown = createRadioKeyHandler({
+    refs: buttonRefs,
+    values: TARGET_OPTIONS.map((option) => option.value),
+    selectedIndex,
+    onSelect: onTarget,
+  });
+  return (
+    <div className="target-switch" role="radiogroup" aria-label="配置目标" onKeyDown={onKeyDown}>
+      {TARGET_OPTIONS.map((option, index) => (
+        <button
+          key={option.value}
+          type="button"
+          ref={(node) => { buttonRefs.current[index] = node; }}
+          role="radio"
+          aria-checked={target === option.value}
+          tabIndex={index === selectedIndex ? 0 : -1}
+          onClick={() => onTarget(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Sidebar({ state, target, onTarget, selectedId, onSelect, onAdd, onSettings, activeView, theme, onTheme }) {
   const [query, setQuery] = useState("");
-  const providers = state.providers;
+  const providers = sidebarProviders(state, target);
   const keyword = query.trim().toLowerCase();
-  const visible = keyword
-    ? providers.filter((provider) =>
-        `${provider.id} ${provider.name || ""} ${apiMeta(provider.api).short}`.toLowerCase().includes(keyword))
-    : providers;
+  const visible = keyword ? providers.filter((provider) => provider.keywords.toLowerCase().includes(keyword)) : providers;
+  const isCodex = target === "codex";
   return (
     <aside className="sidebar">
       <div className="brand">
         <span className="brand-icon"><img src="/favicon.png" alt="" /></span>
         <span>Pi Provider Manager</span>
       </div>
+      <TargetSwitch target={target} onTarget={(value) => { setQuery(""); onTarget(value); }} />
       <button type="button" className="add-provider" onClick={() => { setQuery(""); onAdd(); }}>
         <Plus size={22} weight="bold" />添加供应商
       </button>
       <p className="sidebar-label">
-        我的供应商 / API 网关
+        {isCodex ? "Codex 供应商" : "我的供应商 / API 网关"}
         {providers.length > 0 && <span className="count-pill">{providers.length}</span>}
       </p>
       {providers.length > 6 && (
@@ -359,29 +429,38 @@ function Sidebar({ state, selectedId, onSelect, onAdd, onSettings, activeView, t
         </div>
       )}
       <nav className="provider-list" aria-label="供应商列表">
-        {visible.map((provider) => (
-          <button
-            type="button"
-            key={provider.id}
-            className={`provider-item ${selectedId === provider.id && activeView === "wizard" ? "is-selected" : ""}`}
-            onClick={() => onSelect(provider)}
-            aria-current={selectedId === provider.id && activeView === "wizard" ? "true" : undefined}
-            title={`${provider.name || titleFromId(provider.id)} · ${provider.id}`}
-          >
-            <span className="provider-icon"><ProviderIcon api={provider.api} size={23} /></span>
-            <span className="provider-copy">
-              <strong>{provider.name || titleFromId(provider.id)}</strong>
-              <small>{provider.models.length} 个模型 · {apiMeta(provider.api).short}</small>
-            </span>
-            {provider.credentialConfigured ? (
-              <CheckCircle className="status-ok" size={18} weight="fill" aria-label="凭据已配置" />
-            ) : (
-              <WarningCircle className="status-warn" size={18} weight="fill" aria-label="未配置凭据" />
-            )}
-          </button>
-        ))}
+        {visible.map((provider) => {
+          const Icon = provider.icon;
+          const isSelected = selectedId === provider.id && activeView === "wizard";
+          return (
+            <button
+              type="button"
+              key={provider.id}
+              className={`provider-item ${isSelected ? "is-selected" : ""}`}
+              onClick={() => onSelect(provider.source)}
+              aria-current={isSelected ? "true" : undefined}
+              title={`${provider.name} · ${provider.id}`}
+            >
+              <span className="provider-icon"><Icon size={23} weight="duotone" aria-hidden="true" /></span>
+              <span className="provider-copy">
+                <strong>{provider.name}</strong>
+                <small>{provider.subtitle}</small>
+              </span>
+              <span className="provider-badge">{provider.badge}</span>
+              {provider.ready ? (
+                <CheckCircle className="status-ok" size={18} weight="fill" aria-label={provider.readyLabel} />
+              ) : (
+                <WarningCircle className="status-warn" size={18} weight="fill" aria-label={provider.notReadyLabel} />
+              )}
+            </button>
+          );
+        })}
         {providers.length === 0 && (
-          <p className="list-empty">还没有供应商。点击上面的“添加供应商”，三步就能接上一个网关。</p>
+          <p className="list-empty">
+            {isCodex
+              ? "还没有 Codex 供应商。点击上面的“添加供应商”，三步就能接上一个网关。"
+              : "还没有供应商。点击上面的“添加供应商”，三步就能接上一个网关。"}
+          </p>
         )}
         {providers.length > 0 && visible.length === 0 && (
           <p className="list-empty">没有名称或 ID 包含“{query.trim()}”的供应商。</p>
@@ -389,7 +468,10 @@ function Sidebar({ state, selectedId, onSelect, onAdd, onSettings, activeView, t
       </nav>
       <div className="beginner-tip">
         <Info size={22} weight="duotone" />
-        <div><strong>新手提示</strong><span>一个 API 网关可以添加多个不同厂商的模型。</span></div>
+        <div>
+          <strong>新手提示</strong>
+          <span>{isCodex ? "Codex 只保留一个生效供应商，切换只影响新开的会话。" : "一个 API 网关可以添加多个不同厂商的模型。"}</span>
+        </div>
       </div>
       <button type="button" className={`settings-button ${activeView === "settings" ? "is-active" : ""}`} onClick={onSettings}><Gear size={20} />设置与兼容性</button>
       <ThemeSwitch theme={theme} onTheme={onTheme} />
@@ -938,43 +1020,6 @@ function ProviderDeleteDialog({ provider, state, deleting, requestError, onClose
   );
 }
 
-function BulkModal({ text, ids, newIds, onText, onClose, onImport }) {
-  useEffect(() => {
-    const onKeyDown = (event) => { if (event.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
-  return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="bulk-modal" role="dialog" aria-modal="true" aria-labelledby="bulk-title">
-        <div className="modal-heading">
-          <div><h2 id="bulk-title">批量添加模型 ID</h2><p>每行一个，也可以用英文逗号分隔。重复项会自动忽略。</p></div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="关闭"><X size={20} /></button>
-        </div>
-        <textarea
-          autoFocus
-          value={text}
-          onChange={(event) => onText(event.target.value)}
-          onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); onImport(); } }}
-          placeholder={"anthropic/claude-opus\nopenai/gpt-5.6-sol\ngoogle/gemini-pro"}
-        />
-        <div className="modal-actions">
-          <span className="modal-count" aria-live="polite">
-            {ids.length === 0
-              ? "还没有可导入的 ID"
-              : ids.length === newIds.length
-                ? `识别到 ${ids.length} 个模型 ID`
-                : `识别到 ${ids.length} 个，其中 ${ids.length - newIds.length} 个已在列表中`}
-          </span>
-          <button type="button" className="secondary-button" onClick={onClose}>取消</button>
-          <button type="button" className="primary-button" disabled={newIds.length === 0} onClick={onImport}>{newIds.length > 0 ? `导入 ${newIds.length} 个模型` : "导入模型"}</button>
-        </div>
-        <p className="modal-shortcut"><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd> 直接导入，<kbd>Esc</kbd> 关闭</p>
-      </section>
-    </div>
-  );
-}
-
 function SuccessScreen({ result, onCopy, onReturn, onAdd }) {
   const [copied, setCopied] = useState(false);
   const commandRef = useRef(null);
@@ -1102,14 +1147,6 @@ function SettingsScreen({ state, saving, error, onSave, onBack }) {
   );
 }
 
-async function readApiResponse(response, fallbackMessage) {
-  const data = await response.json();
-  if (response.ok) return data;
-  const error = new Error(data.error || fallbackMessage);
-  error.status = response.status;
-  throw error;
-}
-
 export function App() {
   const demoMode = useMemo(() => new URLSearchParams(window.location.search).get("demo") === "1", []);
   const [theme, setTheme] = useTheme();
@@ -1126,6 +1163,12 @@ export function App() {
   const [deleteTargetId, setDeleteTargetId] = useState("");
   const [deletingProvider, setDeletingProvider] = useState(false);
   const [deleteProviderError, setDeleteProviderError] = useState("");
+  const [target, setTarget] = useState("pi");
+  const [codexForm, setCodexForm] = useState(blankCodexForm);
+  const [codexStep, setCodexStep] = useState(1);
+  const [codexSelectedId, setCodexSelectedId] = useState("");
+  const [codexSaveResult, setCodexSaveResult] = useState(null);
+  const [codexDeleteTargetId, setCodexDeleteTargetId] = useState("");
   const toastTimer = useRef(null);
   const showToast = useCallback((message, tone = "success", action = null) => {
     setToast({ message, tone, action });
@@ -1410,6 +1453,185 @@ export function App() {
     }
   };
 
+  const codex = state.codex || { providers: [], settings: {}, revision: "" };
+  const codexProvider = (id) => codex.providers.find((provider) => provider.id === id);
+
+  const switchTarget = (next) => {
+    if (next === target) return;
+    setTarget(next);
+    setView("wizard");
+    setError("");
+    setSaveResult(null);
+    setCodexSaveResult(null);
+    if (next === "codex") {
+      const provider = codexProvider(codexSelectedId)
+        || codex.providers.find((item) => item.isActive)
+        || codex.providers[0];
+      if (provider) {
+        setCodexSelectedId(provider.id);
+        setCodexForm(codexProviderToForm(provider, codex));
+        setCodexStep(3);
+      } else {
+        setCodexSelectedId("");
+        setCodexForm(blankCodexForm());
+        setCodexStep(1);
+      }
+    }
+  };
+
+  const startNewCodex = () => {
+    setCodexForm(blankCodexForm());
+    setCodexSelectedId("");
+    setCodexStep(1);
+    setView("wizard");
+    setError("");
+  };
+
+  const selectCodexProvider = (provider) => {
+    setCodexForm(codexProviderToForm(provider, codex));
+    setCodexSelectedId(provider.id);
+    setCodexStep(provider.models.length > 0 ? 3 : 1);
+    setView("wizard");
+    setError("");
+  };
+
+  const validateCodexCredentials = () => {
+    if (!codexForm.providerId.trim()) return "请输入供应商 ID。";
+    if (!codexForm.name.trim()) return "请填写供应商名称。";
+    if (!codexForm.baseUrl.trim()) return "请输入 API 地址。";
+    if (codexForm.requiresAuth && codexForm.credentialMode === "new" && !codexForm.apiKey.trim()) return "请输入 API Key。";
+    if (codexForm.requiresAuth && codexForm.credentialMode === "migrate" && !codexForm.migrateFrom) return "请选择要复制的已有凭据。";
+    return "";
+  };
+
+  const goToCodexModels = () => {
+    const message = validateCodexCredentials();
+    if (message) { setError(message); return; }
+    setError("");
+    setCodexStep(3);
+  };
+
+  const probeBridge = async (baseUrl) => {
+    const response = await fetch("/api/codex/bridge-check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ baseUrl }),
+    });
+    return readApiResponse(response, "探测失败");
+  };
+
+  const saveCodex = async (setActive) => {
+    const message = validateCodexCredentials();
+    if (message) { setError(message); setCodexStep(2); return; }
+    const named = codexForm.models.filter((model) => model.id.trim());
+    if (named.length === 0) { setError("至少填写一个模型 ID。"); return; }
+    const selected = codexForm.models.find((model) => model.rowId === codexForm.defaultRowId && model.id.trim());
+    if (!selected) { setError("请选择一个已命名模型作为该供应商的默认模型。"); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/codex/providers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          revision: codex.revision,
+          providerId: codexForm.providerId.trim(),
+          name: codexForm.name.trim(),
+          baseUrl: codexForm.baseUrl.trim(),
+          upstream: codexForm.upstream,
+          requiresAuth: codexForm.requiresAuth,
+          credential: codexForm.requiresAuth
+            ? {
+                mode: codexForm.credentialMode,
+                apiKey: codexForm.apiKey,
+                fromProvider: codexForm.migrateFrom,
+              }
+            : { mode: "keep" },
+          models: named.map((model) => ({ id: model.id.trim(), reasoningEffort: model.reasoningEffort })),
+          defaultModelId: selected.id.trim(),
+          setActive,
+        }),
+      });
+      const data = await readApiResponse(response, "保存失败");
+      setState(data.state);
+      const saved = (data.state.codex?.providers || []).find((provider) => provider.id === codexForm.providerId.trim());
+      const owned = data.state.codex?.ownedProviderId || "custom";
+      setCodexSelectedId(codexForm.providerId.trim());
+      if (saved) setCodexForm(codexProviderToForm(saved, data.state.codex));
+      setCodexSaveResult({
+        providerId: codexForm.providerId.trim(),
+        name: codexForm.name.trim(),
+        modelCount: named.length,
+        defaultModelId: selected.id.trim(),
+        activated: Boolean(saved?.isActive),
+        command: "codex",
+        profiles: saved?.isActive && data.state.codex?.generateProfiles !== false
+          ? [owned, ...named.filter((model) => model.id.trim() !== selected.id.trim())
+              .map((model) => `${owned}-${model.id.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`)]
+          : [],
+      });
+      setView("success");
+    } catch (requestError) {
+      reportRequestError(requestError, setError);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteCodexProvider = async (payload) => {
+    setDeletingProvider(true);
+    setDeleteProviderError("");
+    try {
+      const response = await fetch("/api/codex/providers/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, revision: codex.revision }),
+      });
+      const data = await readApiResponse(response, "删除失败");
+      setState(data.state);
+      setCodexDeleteTargetId("");
+      setCodexSaveResult(null);
+      setView("wizard");
+      setError("");
+      const next = (data.state.codex?.providers || []).find((provider) => provider.id === payload.replacementProviderId)
+        || (data.state.codex?.providers || []).find((provider) => provider.isActive)
+        || (data.state.codex?.providers || [])[0];
+      if (next) {
+        setCodexSelectedId(next.id);
+        setCodexForm(codexProviderToForm(next, data.state.codex));
+        setCodexStep(3);
+      } else {
+        setCodexSelectedId("");
+        setCodexForm(blankCodexForm());
+        setCodexStep(1);
+      }
+      showToast(<>已删除 Codex 供应商 <code>{payload.providerId}</code></>);
+    } catch (requestError) {
+      reportRequestError(requestError, setDeleteProviderError);
+    } finally {
+      setDeletingProvider(false);
+    }
+  };
+
+  const saveCodexSettings = async (draft) => {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/codex/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...draft, revision: codex.revision }),
+      });
+      const data = await readApiResponse(response, "保存设置失败");
+      setState(data.state);
+      showToast("Codex 设置已写入 config.toml；对新开的会话生效");
+    } catch (requestError) {
+      reportRequestError(requestError, setError);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const copyCommand = async (command) => {
     try {
       await navigator.clipboard.writeText(command);
@@ -1421,6 +1643,12 @@ export function App() {
     }
   };
 
+  const returnToSavedCodexProvider = () => {
+    const provider = codexProvider(codexSaveResult?.providerId);
+    if (provider) selectCodexProvider(provider);
+    else setView("wizard");
+  };
+
   const returnToSavedProvider = () => {
     const provider = state.providers.find((item) => item.id === saveResult?.providerId);
     if (provider) selectProvider(provider);
@@ -1429,17 +1657,70 @@ export function App() {
 
   return (
     <main className="app-shell">
-      <Sidebar state={state} selectedId={selectedId} onSelect={selectProvider} onAdd={startNew} onSettings={() => { setView("settings"); setError(""); }} activeView={view} theme={theme} onTheme={setTheme} />
+      <Sidebar
+        state={state}
+        target={target}
+        onTarget={switchTarget}
+        selectedId={target === "codex" ? codexSelectedId : selectedId}
+        onSelect={target === "codex" ? selectCodexProvider : selectProvider}
+        onAdd={target === "codex" ? startNewCodex : startNew}
+        onSettings={() => { setView("settings"); setError(""); }}
+        activeView={view}
+        theme={theme}
+        onTheme={setTheme}
+      />
       <section className="workspace">
         {loading ? (
           <div className="loading-state" role="status" aria-live="polite">
             <span className="skeleton skeleton-title" />
             <span className="skeleton skeleton-line" />
             <span className="skeleton skeleton-block" />
-            <p>正在读取 Pi 配置…</p>
+            <p>正在读取{target === "codex" ? " Codex " : " Pi "}配置…</p>
           </div>
+        ) : target === "codex" ? (
+          codex.available === false ? (
+            <div className="error-banner is-standalone" role="alert">
+              <WarningCircle size={20} weight="fill" />
+              读取 Codex 配置失败：{codex.error || "未知错误"}（{codex.dir}）
+            </div>
+          ) : view === "settings" ? (
+            <CodexSettingsScreen state={state} saving={saving} error={error} onSave={saveCodexSettings} onBack={() => setView("wizard")} />
+          ) : view === "success" && codexSaveResult ? (
+            <CodexSuccessScreen result={codexSaveResult} onCopy={copyCommand} onReturn={returnToSavedCodexProvider} onAdd={startNewCodex} />
+          ) : (
+            <>
+              <CodexStepper step={codexStep} onStep={setCodexStep} />
+              <CodexWizard
+                step={codexStep}
+                form={codexForm}
+                setForm={setCodexForm}
+                codex={codex}
+                codexVersion={state.compatibility?.codexVersion}
+                error={error}
+                saving={saving}
+                onNext={codexStep === 1 ? () => setCodexStep(2) : goToCodexModels}
+                onBack={() => setCodexStep(codexStep - 1)}
+                onSave={saveCodex}
+                onNotify={showToast}
+                onProbeBridge={probeBridge}
+                onDeleteProvider={() => setCodexDeleteTargetId(codexSelectedId)}
+                canDeleteProvider={Boolean(codexProvider(codexSelectedId))}
+                isActive={Boolean(codexProvider(codexForm.providerId.trim())?.isActive)}
+              />
+            </>
+          )
         ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDeleteProvider={openDeleteProvider} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} />}</>}
       </section>
+      {codexDeleteTargetId && codexProvider(codexDeleteTargetId) && (
+        <CodexDeleteDialog
+          provider={codexProvider(codexDeleteTargetId)}
+          codex={codex}
+          deleting={deletingProvider}
+          requestError={deleteProviderError}
+          onClose={() => { setCodexDeleteTargetId(""); setDeleteProviderError(""); }}
+          onConfirm={deleteCodexProvider}
+        />
+      )}
       {deleteTargetId && state.providers.find((provider) => provider.id === deleteTargetId) && (
         <ProviderDeleteDialog
           provider={state.providers.find((provider) => provider.id === deleteTargetId)}
