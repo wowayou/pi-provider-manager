@@ -128,12 +128,17 @@ if ! is_manager_port "$port"; then
   fi
 fi
 
-if [[ "$open_browser" == "0" ]]; then
-  echo "Pi Provider Manager is ready: $url"
-elif command -v wslview >/dev/null 2>&1; then
-  wslview "$url" >/dev/null 2>&1
-elif command -v powershell.exe >/dev/null 2>&1; then
-  powershell.exe -NoProfile -Command "Start-Process '$url'" >/dev/null 2>&1
-else
-  echo "Pi Provider Manager is ready: $url"
+# Always say where it is listening. Printing this only when the browser is not
+# opened left anyone whose browser bridge misbehaved with no port and no error.
+echo "Pi Provider Manager is ready: $url"
+
+# The browser bridge is best-effort and must never hold the terminal: wslview and
+# powershell.exe can both block, and when they do the launcher looks hung with
+# nothing on screen. Detach it and move on.
+if [[ "$open_browser" != "0" ]]; then
+  if command -v wslview >/dev/null 2>&1; then
+    ( nohup wslview "$url" >/dev/null 2>&1 </dev/null & ) >/dev/null 2>&1
+  elif command -v powershell.exe >/dev/null 2>&1; then
+    ( nohup powershell.exe -NoProfile -Command "Start-Process '$url'" >/dev/null 2>&1 </dev/null & ) >/dev/null 2>&1
+  fi
 fi
