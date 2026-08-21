@@ -16,6 +16,8 @@ import process from "node:process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { findLitellm } from "../lib/litellm-bridge.mjs";
+
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function codexVersion() {
@@ -108,7 +110,11 @@ const installed = codexVersion();
 
 // LiteLLM is only needed by the bridge test. It is heavy and version-sensitive,
 // so its absence skips rather than fails.
-const litellmBinary = process.env.PI_PROVIDER_MANAGER_LITELLM || "litellm";
+//
+// Resolved through the product's own discovery, not a second copy of the rules:
+// probing a different binary than the one the manager would start makes the
+// test skip on exactly the machines where out-of-the-box behaviour matters.
+const litellmBinary = process.env.PI_PROVIDER_MANAGER_LITELLM || findLitellm();
 function litellmAvailable() {
   try {
     return execFileSync(litellmBinary, ["--version"], { encoding: "utf8", timeout: 60_000 }).includes("LiteLLM");
@@ -267,6 +273,10 @@ test("codex reaches a chat-completions-only upstream through the managed bridge"
   // directly this would fail rather than quietly appear to work.
   const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-codex-bridge-"));
   const upstreamPort = await freePort();
+  // The bridge's own port is asked for explicitly rather than left at the
+  // default: a fixed port makes this test collide with a real bridge, with a
+  // parallel run, or with a leftover from a run that was killed mid-flight.
+  const bridgePort = await freePort();
   const upstreamKey = "upstream-key-not-real";
   const upstreamLog = path.join(codexDir, "upstream.log");
   const logStream = fs.openSync(upstreamLog, "a");
@@ -294,7 +304,7 @@ test("codex reaches a chat-completions-only upstream through the managed bridge"
       providerId: "chatonly",
       name: "Chat-only gateway",
       credential: { mode: "keep" },
-      bridge: { upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}/v1`, apiKey: upstreamKey },
+      bridge: { upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}/v1`, apiKey: upstreamKey, port: bridgePort },
       models: [{ id: "fake-chat-model", reasoningEffort: "medium" }],
       defaultModelId: "fake-chat-model",
       setActive: true,
@@ -304,7 +314,7 @@ test("codex reaches a chat-completions-only upstream through the managed bridge"
     const bridgeDeadline = Date.now() + 180_000;
     for (;;) {
       try {
-        const health = await fetch("http://127.0.0.1:43210/health/readiness");
+        const health = await fetch(`http://127.0.0.1:${bridgePort}/health/readiness`);
         if (health.ok) break;
       } catch {}
       if (Date.now() > bridgeDeadline) throw new Error("the managed bridge never became ready");
@@ -329,7 +339,7 @@ test("codex reaches a chat-completions-only upstream through the managed bridge"
     const yaml = fs.readFileSync(path.join(codexDir, "pi-provider-manager-litellm.yaml"), "utf8");
     assert.equal(config.includes(upstreamKey), false);
     assert.equal(yaml.includes(upstreamKey), false);
-    assert.match(config, /^base_url = "http:\/\/127\.0\.0\.1:43210\/v1"$/m);
+    assert.equal(config.includes(`base_url = "http://127.0.0.1:${bridgePort}/v1"`), true);
   } finally {
     upstream.kill();
     fs.closeSync(logStream);

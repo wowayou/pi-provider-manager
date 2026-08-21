@@ -5,7 +5,7 @@ import path from "node:path";
 import process from "node:process";
 import test from "node:test";
 
-import { createBridgeRunner, renderLitellmConfig } from "../lib/litellm-bridge.mjs";
+import { createBridgeRunner, findLitellm, renderLitellmConfig } from "../lib/litellm-bridge.mjs";
 
 function sandbox() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "ppm-bridge-"));
@@ -44,7 +44,17 @@ test("pins LiteLLM to loopback rather than its default 0.0.0.0", async (t) => {
   // stays alive, so the runner's own bookkeeping is exercised too.
   const fake = path.join(dir, "fake-litellm");
   const argvLog = path.join(dir, "argv.txt");
-  fs.writeFileSync(fake, `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > ${JSON.stringify(argvLog)}\nprintf '%s' "$PPM_BRIDGE_UPSTREAM_KEY" > ${JSON.stringify(path.join(dir, "key.txt"))}\nsleep 30\n`, { mode: 0o755 });
+  fs.writeFileSync(
+    fake,
+    // Answers --version promptly, like a healthy LiteLLM: status() asks for it
+    // on the request path and must not be left waiting.
+    `#!/usr/bin/env bash\n`
+    + `if [ "$1" = "--version" ]; then echo "LiteLLM: Current Version = 1.97.0"; exit 0; fi\n`
+    + `printf '%s\\n' "$@" > ${JSON.stringify(argvLog)}\n`
+    + `printf '%s' "$PPM_BRIDGE_UPSTREAM_KEY" > ${JSON.stringify(path.join(dir, "key.txt"))}\n`
+    + `sleep 30\n`,
+    { mode: 0o755 },
+  );
 
   const runner = createBridgeRunner({ dir });
   runner.writeConfig({ models: [{ id: "m" }], upstreamBaseUrl: "https://upstream.example/v1" });
@@ -157,6 +167,70 @@ test("the manual command names the key rather than carrying it", async () => {
     assert.equal(status.manualCommand.includes("sk-"), false);
     assert.equal(status.manualCommand.includes(status.configPath), true);
   } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("finds LiteLLM where PEP 668 forces people to install it", () => {
+  // Debian and Ubuntu refuse a system-wide pip install, so LiteLLM lands in a
+  // virtualenv or under pipx and off PATH. Requiring an environment variable
+  // for the normal case would make the bridge feel broken out of the box.
+  const home = sandbox();
+  try {
+    assert.equal(findLitellm(home), "litellm", "with nothing installed it defers to PATH");
+
+    const pipx = path.join(home, ".local", "bin");
+    fs.mkdirSync(pipx, { recursive: true });
+    const pipxBin = path.join(pipx, "litellm");
+    fs.writeFileSync(pipxBin, "#!/bin/sh\n", { mode: 0o755 });
+    assert.equal(findLitellm(home), pipxBin);
+
+    // A file that is not executable is not a usable answer.
+    fs.chmodSync(pipxBin, 0o644);
+    const venvBin = path.join(home, ".local", "litellm", "bin");
+    fs.mkdirSync(venvBin, { recursive: true });
+    const venvExe = path.join(venvBin, "litellm");
+    fs.writeFileSync(venvExe, "#!/bin/sh\n", { mode: 0o755 });
+    assert.equal(findLitellm(home), venvExe);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("says how the executable was chosen", () => {
+  const dir = sandbox();
+  const explicit = path.join(dir, "my-litellm");
+  process.env.PI_PROVIDER_MANAGER_LITELLM = explicit;
+  try {
+    assert.equal(createBridgeRunner({ dir }).status().binarySource, "PI_PROVIDER_MANAGER_LITELLM");
+  } finally {
+    delete process.env.PI_PROVIDER_MANAGER_LITELLM;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a hanging binary cannot stall the status path", async (t) => {
+  if (process.platform === "win32") return t.skip("POSIX shell script");
+  // status() is reached by every /api/state, and it asks the binary for its
+  // version. A LiteLLM that hangs — or anything else sitting at that path —
+  // must not turn a page load into a long wait.
+  const dir = sandbox();
+  const hanging = path.join(dir, "hangs");
+  fs.writeFileSync(hanging, "#!/usr/bin/env bash\nsleep 60\n", { mode: 0o755 });
+  process.env.PI_PROVIDER_MANAGER_LITELLM = hanging;
+  try {
+    const runner = createBridgeRunner({ dir });
+    const started = Date.now();
+    const status = runner.status();
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed < 10_000, `status() took ${elapsed}ms`);
+    assert.equal(status.version, "", "an unanswerable probe reports no version rather than guessing");
+    // And the answer is cached, so the next caller pays nothing at all.
+    const again = Date.now();
+    runner.status();
+    assert.ok(Date.now() - again < 500);
+  } finally {
+    delete process.env.PI_PROVIDER_MANAGER_LITELLM;
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

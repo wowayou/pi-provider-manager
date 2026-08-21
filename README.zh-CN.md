@@ -95,26 +95,29 @@ codex --profile custom-gpt-5-1-codex
 
 ### 上游只提供 `/v1/chat/completions` 时
 
-Codex 直连不了这类上游，靠配置也解决不了 —— 必须有一层翻译。管理器会替你配置并起停它，你只需要装：
+Codex 直连不了这类上游，靠配置也解决不了 —— 必须有一层翻译。管理器会替你配置并起停它，你只需要装。
+
+Debian / Ubuntu（包括 WSL）按 [PEP 668](https://peps.python.org/pep-0668/) 禁止系统级 `pip install`，用 `pipx` 或 venv：
 
 ```bash
 pipx install 'litellm[proxy]'
-```
-
-Debian / Ubuntu（包括 WSL）按 [PEP 668](https://peps.python.org/pep-0668/) 禁止系统级 `pip install`，会报 `externally-managed-environment`。用 `pipx`，或者装进 venv：
-
-```bash
+# 或
 python3 -m venv ~/.local/litellm && ~/.local/litellm/bin/pip install 'litellm[proxy]'
-export PI_PROVIDER_MANAGER_LITELLM=~/.local/litellm/bin/litellm
 ```
 
-LiteLLM 没有把 FastAPI 版本钉死。2026-08-21 实测：`litellm 1.97.0` 配 `fastapi 0.141.1` 起不来，报 `ImportError: cannot import name 'get_flat_dependant'`。如果 `litellm --version` 吐的是 traceback 而不是版本号，把 FastAPI 降一下：
+这两种落到的位置管理器都会自己找，不需要再配任何东西；凭据那一步会显示它实际选中了哪个可执行文件。
+
+**LiteLLM 要单独装。** 在同一条命令里附带别的版本钉子，解析器会转而把 LiteLLM 降级去满足那个钉子，而旧版**完全没有** Responses→Chat 的桥接能力 —— `1.79.0` 实测会把 `/v1/responses` 原样转发给上游然后拿到 404。本项目验证过的是 `1.97.0`。
+
+如果之后 `litellm --version` 吐的是 traceback 而不是版本号，再**单独**降 FastAPI：
 
 ```bash
 pip install 'fastapi==0.115.14'
 ```
 
-只要可执行文件不在 `PATH` 上，就用 `PI_PROVIDER_MANAGER_LITELLM` 指定它。然后在第一步选「上游只有 chat/completions」，填**你上游自己的**地址和 key。剩下的管理器来做：
+LiteLLM 没把 FastAPI 钉死，而 `fastapi 0.141.1` 会在 import 时报 `cannot import name 'get_flat_dependant'`。
+
+然后在第一步选「上游只有 chat/completions」，填**你上游自己的**地址和 key。剩下的管理器来做：
 
 - 为你的每个模型生成 LiteLLM 的 `config.yaml`，带上 `use_chat_completions_api: true`
 - 把 Codex 指向本机代理（`base_url = "http://127.0.0.1:43210/v1"`、`requires_openai_auth = false`）
@@ -194,7 +197,7 @@ install -m 700 bin/pi-provider-manager-ui ~/.pi/agent/bin/pi-provider-manager-ui
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi 的 auth/models/settings 配置目录 |
 | `CODEX_HOME` | `~/.codex` | Codex 配置目录，沿用 Codex 自己的优先级 |
 | `PI_PROVIDER_MANAGER_CODEX_DIR` | `CODEX_HOME` 的值 | 仅对本管理器生效的 Codex 目录覆盖 |
-| `PI_PROVIDER_MANAGER_LITELLM` | `PATH` 上的 `litellm` | 启动托管桥使用的可执行文件。LiteLLM 装在 venv 里时必须设置；启动器会把它转交给后台服务 —— 后台服务不继承你的 shell 环境。 |
+| `PI_PROVIDER_MANAGER_LITELLM` | 依次查找 `~/.local/bin/litellm`、`~/.local/litellm/bin/litellm` 等常见 venv 路径，最后回落到 `PATH` | 启动托管桥使用的可执行文件。只有装在冷僻位置时才需要设置；凭据那一步会显示实际选中的是哪个。 |
 | `PI_PROVIDER_MANAGER_PROJECT_DIR` | 当前匹配仓库，其次 `~/pi-provider-manager-ui` | 项目与构建产物位置 |
 | `PI_PROVIDER_MANAGER_PORT` | 从 `43127-43146` 自动选择 | 严格指定本地服务端口 |
 | `PI_PROVIDER_MANAGER_NODE` | 当前 `node` 可执行文件 | 后台服务使用的 Node 路径 |
