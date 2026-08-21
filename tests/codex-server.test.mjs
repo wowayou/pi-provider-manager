@@ -386,3 +386,60 @@ test("bridge-check only ever probes the local machine", async () => {
     assert.equal((await refused.json()).status, "refused");
   });
 });
+
+test("settings keep the reasoning effort the user just chose", async () => {
+  await withServer(null, async (api) => {
+    await api.post("/api/codex/providers", newProvider());
+    assert.match(api.config(), /^model_reasoning_effort = "high"$/m);
+
+    // The active model owns model_reasoning_effort, so a settings change has to
+    // reach it too; otherwise rewriting the provider table reverts the key and
+    // the control silently does nothing.
+    const response = await api.post("/api/codex/settings", {
+      reasoningEffort: "xhigh",
+      planModeReasoningEffort: "medium",
+      verbosity: "low",
+    });
+    assert.equal(response.status, 200);
+    const config = api.config();
+    assert.match(config, /^model_reasoning_effort = "xhigh"$/m);
+    assert.match(config, /^plan_mode_reasoning_effort = "medium"$/m);
+    assert.match(config, /^model_verbosity = "low"$/m);
+    assert.match(config, /^\[profiles\.custom\]$/m);
+    // The profile for the same model follows, rather than keeping the old value.
+    assert.equal(/model_reasoning_effort = "high"/.test(config), false);
+
+    const { codex } = await api.state();
+    assert.equal(codex.settings.reasoningEffort, "xhigh");
+    assert.equal(codex.providers.find((provider) => provider.id === "packy").models[0].reasoningEffort, "xhigh");
+  });
+});
+
+test("editing settings does not demand a key for the provider already in use", async () => {
+  // The adopted provider has no stored credential, because config.toml cannot
+  // carry one. Changing an unrelated setting must not be blocked by that.
+  await withServer(HAND_WRITTEN, async (api) => {
+    const before = await api.state();
+    assert.equal(before.codex.providers[0].credentialConfigured, false);
+
+    const response = await api.post("/api/codex/settings", { reasoningEffort: "low" });
+    assert.equal(response.status, 200);
+    assert.match(api.config(), /^model_reasoning_effort = "low"$/m);
+    // auth.json belongs to Codex's own login state; a settings edit never
+    // invents one.
+    assert.equal(fs.existsSync(api.authPath), false);
+  });
+});
+
+test("switching to a provider whose key is missing is still refused", async () => {
+  await withServer(HAND_WRITTEN, async (api) => {
+    const adoptedId = (await api.state()).codex.providers[0].id;
+    await api.post("/api/codex/providers", newProvider());
+    const response = await api.post("/api/codex/activate", { providerId: adoptedId });
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /需要 API Key/);
+    // The refusal left the working provider in place.
+    assert.match(api.config(), /^base_url = "https:\/\/packy\.example\/v1"$/m);
+    assert.equal(api.auth().OPENAI_API_KEY, SECRET);
+  });
+});
