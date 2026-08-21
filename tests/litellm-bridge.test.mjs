@@ -211,24 +211,39 @@ test("says how the executable was chosen", () => {
 
 test("a hanging binary cannot stall the status path", async (t) => {
   if (process.platform === "win32") return t.skip("POSIX shell script");
-  // status() is reached by every /api/state, and it asks the binary for its
-  // version. A LiteLLM that hangs — or anything else sitting at that path —
-  // must not turn a page load into a long wait.
+  // status() is reached by every /api/state. `litellm --version` takes eight to
+  // nine seconds even when healthy, so the probe must never be something a
+  // request waits on.
   const dir = sandbox();
   const hanging = path.join(dir, "hangs");
   fs.writeFileSync(hanging, "#!/usr/bin/env bash\nsleep 60\n", { mode: 0o755 });
   process.env.PI_PROVIDER_MANAGER_LITELLM = hanging;
+  let runner;
   try {
-    const runner = createBridgeRunner({ dir });
+    runner = createBridgeRunner({ dir });
     const started = Date.now();
     const status = runner.status();
-    const elapsed = Date.now() - started;
-    assert.ok(elapsed < 10_000, `status() took ${elapsed}ms`);
-    assert.equal(status.version, "", "an unanswerable probe reports no version rather than guessing");
-    // And the answer is cached, so the next caller pays nothing at all.
-    const again = Date.now();
-    runner.status();
-    assert.ok(Date.now() - again < 500);
+    assert.ok(Date.now() - started < 1000, "status() waited on the version probe");
+    assert.equal(status.version, "", "an unfinished probe reports no version rather than guessing");
+  } finally {
+    delete process.env.PI_PROVIDER_MANAGER_LITELLM;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the version appears once the probe finishes", async (t) => {
+  if (process.platform === "win32") return t.skip("POSIX shell script");
+  // Reporting the version is the whole point: an install too old to bridge is
+  // otherwise indistinguishable from a broken upstream.
+  const dir = sandbox();
+  const fake = path.join(dir, "litellm");
+  fs.writeFileSync(fake, '#!/usr/bin/env bash\necho "LiteLLM: Current Version = 1.97.0"\n', { mode: 0o755 });
+  process.env.PI_PROVIDER_MANAGER_LITELLM = fake;
+  try {
+    const runner = createBridgeRunner({ dir });
+    assert.equal(runner.status().version, "", "not known yet on the first call");
+    await runner.versionSettled();
+    assert.equal(runner.status().version, "1.97.0");
   } finally {
     delete process.env.PI_PROVIDER_MANAGER_LITELLM;
     fs.rmSync(dir, { recursive: true, force: true });
