@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 - 2026-08-22
+
+- Fixed the LiteLLM version never being reported. `litellm --version` takes eight to nine seconds — it imports a very large Python package — and the probe ran inside the status path with a three-second bound, so it always timed out and the credentials step showed nothing. That mattered: an install too old to bridge is otherwise indistinguishable from a broken upstream, and 0.2.0's own release notes told people to check that number. The probe now runs in the background and the answer appears once it lands, so no request ever waits on it and a binary that never answers costs nothing.
+
 ## 0.2.0 - 2026-08-22
 
 - Added Codex CLI support. A Pi/Codex switch at the top of the sidebar routes the same provider list, three-step wizard, settings screen, and success handoff to whichever agent you are configuring; the Pi side is unchanged. The manager writes `$CODEX_HOME/config.toml` and `auth.json`, remembers every provider's definition and key in its own `0600` store, and switches the active gateway in one click.

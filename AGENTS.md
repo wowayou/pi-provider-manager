@@ -65,6 +65,7 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - **The upstream key belongs to the bridge, not to Codex.** It goes in the manager's `0600` store and reaches LiteLLM through an environment variable; it must never be written into `config.toml`, `auth.json`, or the generated YAML. A bridged provider writes `requires_openai_auth = false` and carries no Codex credential at all.
 - **State the scope of a switch truthfully.** Codex reads its config once at startup, so switching affects newly started sessions and leaves running ones alone. Never offer `codex resume` as the follow-up command: Codex replays the previous provider's encrypted reasoning content, which another provider cannot read.
 - **Pi and Codex carry separate revisions.** `state.revision` covers the three Pi files, `state.codex.revision` covers the three Codex ones. Do not merge them; editing one agent must not 409 a draft for the other.
+- **Nothing on the /api/state path may shell out and wait.** `status()` is reached by every state read, and `litellm --version` alone takes eight to nine seconds. Probe in the background and report the answer when it lands.
 - **A skipped test is a failed test here.** `test:codex-real` skips itself where Codex or LiteLLM is missing, so the summary line reads "3 passed" whether the bridge was proven or silently sat out. Check the skipped count, and make any availability probe resolve the binary through the product's own discovery — probing something else makes it skip on exactly the machines where the behaviour matters.
 - **`npm run test:codex-real` proves the two claims nothing else can.** A stand-in gateway on loopback records the `Authorization` header, so the direct path is checked all the way from writing the files to Codex sending the stored credential; a second one answers 404 on `/v1/responses`, so the bridged path fails loudly if Codex ever reaches the upstream directly. Both run `codex exec` for real, offline and keyless. Keep them that way — a test that needs a live key is a test nobody runs.
 - **It is the only check that answers whether Codex accepts what we write.** Everything else verifies against a schema read from source, which cannot. It runs the installed binary and asserts `codex doctor --json` loaded the config; it skips itself where Codex is absent. Run it after any change to what goes into `config.toml`, and after a Codex upgrade.
@@ -75,14 +76,14 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 Read this section first, then `design-qa.md` for how the UI got to its current
 form and what has already been reviewed.
 
-**Where things are.** The latest published release is `v0.2.0`, which added
+**Where things are.** The latest published release is `v0.2.1`; `v0.2.0` added
 Codex CLI support; releases `v0.1.2` through `v0.2.0` are tagged and published. `main` contains the
 structured issue forms, architecture and compatibility documentation, decoupled
 Pi update monitoring, dated real-Pi evidence, Node 24-based GitHub Actions,
 deletion protection for the model Pi is currently using (PR #27), guarded
 provider deletion with optional credential retention (PR #34), optimistic
 concurrency protection, and Linux/WSL plus Windows release archives.
-`package.json.version` is `0.2.0`.
+`package.json.version` is `0.2.1`.
 Every checklist item required before the first public push is done. The source
 of truth for remaining publication work and its prerequisites is
 `OPEN_SOURCE_CHECKLIST.md`; do not copy its item count here.

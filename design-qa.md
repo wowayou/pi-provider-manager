@@ -214,6 +214,8 @@ Both now have server-side tests, so the gap is closed by CI rather than by remem
 - **Out-of-the-box verification, `2026-08-22`.** `npm run test:codex-real` passes 4/4 with **no environment variables set at all** — the manager discovers LiteLLM itself, starts the bridge, and Codex completes a turn through it. Skipped counts as failed for this purpose: an earlier run reported "3 passed" while silently skipping the bridge, because the test probed `litellm` on PATH while the product had learned to look elsewhere. Both now resolve the binary the same way.
 - **LiteLLM's install order decides whether bridging exists at all.** Pinning FastAPI in the same command as `litellm[proxy]` lets the resolver satisfy the pin by downgrading LiteLLM to `1.79.0`, which has no Responses-to-Chat bridging: it forwards `/v1/responses` to the upstream and surfaces the upstream's 404, which reads like a broken gateway. Installed alone it resolves to `1.97.0`, which works. Both READMEs now say to install it by itself, and the credentials step reports the executable and version actually in use.
 
+- **The published archive was checked, and that is what caught the last defect, `2026-08-22`.** Downloading and running `v0.2.0` showed the LiteLLM version blank: `litellm --version` takes eight to nine seconds, and the probe sat in the status path behind a three-second bound, so it could never succeed. Building from source had hidden nothing — the bug was in the code, not the packaging — but nothing before that step had actually read the value the release notes told people to check. Fixed in `0.2.1` by moving the probe off the request path.
+
 final result: passed
 
 ## Model Deletion Protection Follow-up
