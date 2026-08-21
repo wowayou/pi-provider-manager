@@ -241,10 +241,12 @@ function BridgeProbe({ baseUrl, onProbe }) {
       setChecking(false);
     }
   };
+  // Refused and timed out are one answer to the user: nothing replied. Under
+  // WSL2 mirrored networking they are not even distinguishable — a connect to
+  // an unbound loopback port hangs instead of being refused.
   const label = {
-    listening: "端口有服务在应答",
-    refused: "连接被拒绝，桥可能没启动",
-    timeout: "连接超时",
+    listening: "这个端口上有服务在监听",
+    "no-answer": "没有拿到应答：桥可能没启动，或这个端口上没有监听",
   }[result?.status];
   return (
     <div className="bridge-probe">
@@ -257,7 +259,7 @@ function BridgeProbe({ baseUrl, onProbe }) {
           {label || result.message}
         </span>
       )}
-      <small>只探测本机端口，不发送任何凭据。有服务在应答不代表它就是正确的桥。</small>
+      <small>只对本机端口做一次 TCP 连接，不发送任何凭据、不请求任何路径。有服务在监听不代表它就是正确的桥。</small>
     </div>
   );
 }
@@ -513,7 +515,7 @@ function CodexModelsStep({ form, setForm, codex, error, saving, onBack, onSave, 
           <span className="summary-icon">{form.upstream === "bridge" ? <Plugs size={34} weight="duotone" /> : <PlugsConnected size={34} weight="duotone" />}</span>
           <div>
             <strong>{form.name || titleFromId(form.providerId || "new-provider")}</strong>
-            <span className="protocol-badge">{form.upstream === "bridge" ? "经本地桥" : "Responses 直连"}</span>
+            <span className="protocol-badge">{form.upstream === "bridge" ? "本机地址" : "Responses 直连"}</span>
             <p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p>
             {/* Adoption is derived on the read path, so say it out loud rather
                 than letting an entry appear from nowhere. */}
