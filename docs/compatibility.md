@@ -40,6 +40,8 @@ Two further points shape the design rather than the schema:
 - **Codex has one credential slot.** `auth.json` holds a single `OPENAI_API_KEY`, so only the active provider's key can live there. Every other provider's key lives in `pi-provider-manager-store.json` with `0600` permissions.
 - **`config.toml` is not the source of truth for inactive providers.** In the single-table layout the manager owns exactly one `[model_providers.<id>]`, so the store carries the rest. If the table on disk does not match anything in the store, the *file* wins and is adopted as a provider entry — the read path never rewrites the file to make the store look right.
 
+Codex layers a `.codex/config.toml` from the working directory tree on top of the user-level file, but `model_provider` and `model_providers` cannot be overridden there — Codex warns and ignores them. This manager therefore writes the user-level `$CODEX_HOME/config.toml` and nothing else; a warning naming those keys concerns the working directory's own file. If a future release makes them project-overridable, revisit whether the manager should see project configs at all.
+
 Unknown top-level keys in `config.toml` are ignored by Codex rather than rejected (`ConfigToml` carries `schemars(deny_unknown_fields)` but not the serde equivalent). That is why a legacy `disable_response_storage` can be preserved without breaking a current install, even though the key is gone from the schema and `store` is hard-coded to `false` in the request builder.
 
 There is no automated Codex release monitor. Codex ships far more often than Pi, and a daily reminder would be noise; check the four items above when a user reports a Codex-side problem or when the baseline is deliberately advanced.

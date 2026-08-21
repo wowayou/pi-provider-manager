@@ -114,6 +114,16 @@ Then pick the second card in step one — 上游只有 chat/completions, "upstre
 
 This project deliberately does not implement the translation itself. The moving part is Codex's side of the wire — reasoning items, encrypted reasoning content, tool-call shapes — and Codex ships weekly, so an in-house translator becomes a permanent version-chasing obligation. The sidebar's bridge check only reports whether something is answering on that loopback port; no model traffic passes through this manager.
 
+### If Codex warns about "project-local config keys"
+
+Codex also reads a `.codex/config.toml` from the working directory tree, and warns when one carries keys it will not honour there:
+
+```
+⚠ Ignored unsupported project-local config keys in <dir>/.codex/config.toml: model_provider, model_providers
+```
+
+This is about that directory's own file, not the one this manager edits. `model_provider` and `model_providers` are user-level only, which is exactly where the manager writes them — `$CODEX_HOME/config.toml`. The usual way to meet this warning is running `codex` from a home directory that happens to contain a `.codex/`, such as `/mnt/c/Users/<you>` under WSL when Codex is also installed on Windows. Run Codex from your project directory instead.
+
 ### What switching does and does not carry over
 
 New sessions pick up the change cleanly. **Resuming an old session against a different provider does not work reliably**: Codex asks for `reasoning.encrypted_content` and replays it on later turns, and content encrypted by one provider is meaningless to another. This is Codex's design, not something a switching tool can work around. Finish a conversation on the provider that started it.
