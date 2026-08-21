@@ -108,6 +108,12 @@ python3 -m venv ~/.local/litellm && ~/.local/litellm/bin/pip install 'litellm[pr
 export PI_PROVIDER_MANAGER_LITELLM=~/.local/litellm/bin/litellm
 ```
 
+LiteLLM 没有把 FastAPI 版本钉死。2026-08-21 实测：`litellm 1.97.0` 配 `fastapi 0.141.1` 起不来，报 `ImportError: cannot import name 'get_flat_dependant'`。如果 `litellm --version` 吐的是 traceback 而不是版本号，把 FastAPI 降一下：
+
+```bash
+pip install 'fastapi==0.115.14'
+```
+
 只要可执行文件不在 `PATH` 上，就用 `PI_PROVIDER_MANAGER_LITELLM` 指定它。然后在第一步选「上游只有 chat/completions」，填**你上游自己的**地址和 key。剩下的管理器来做：
 
 - 为你的每个模型生成 LiteLLM 的 `config.yaml`，带上 `use_chat_completions_api: true`
