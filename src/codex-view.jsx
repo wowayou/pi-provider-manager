@@ -45,7 +45,7 @@ const UPSTREAM_OPTIONS = [
     id: "bridge",
     title: "上游只有 chat/completions",
     subtitle: "经本地桥",
-    description: "Codex 已不再支持 chat 协议，需要一个本地翻译桥把 Responses 转成 Chat Completions。",
+    description: "Codex 已不再支持 chat 协议。管理器会配置一个本地 LiteLLM 桥替你翻译，你只要填上游地址和 key。",
     icon: Plugs,
   },
 ];
@@ -80,6 +80,10 @@ export function blankCodexForm() {
     credentialMode: "new",
     apiKey: "",
     migrateFrom: "",
+    // Filled in only when step one picks the chat/completions path: the
+    // upstream's own address and key, which the local bridge will hold.
+    bridgeUpstreamUrl: "",
+    bridgeApiKey: "",
     models: [first],
     // Keyed by row rather than by model id, for the same reason as the Pi side:
     // the id is editable and keying on it drops the default on a typo fix.
@@ -102,11 +106,13 @@ export function codexProviderToForm(provider, codex) {
     baseUrl: provider.baseUrl,
     // Only used to highlight a card in step one. The address is the sole
     // evidence available for a provider that came from config.toml.
-    upstream: isLocalAddress(provider.baseUrl) ? "bridge" : "direct",
+    upstream: provider.bridge ? "bridge" : "direct",
     requiresAuth: provider.requiresAuth !== false,
     credentialMode: provider.credentialConfigured ? "keep" : "new",
     apiKey: "",
     migrateFrom: sources[0]?.id || "",
+    bridgeUpstreamUrl: provider.bridge?.upstreamBaseUrl || "",
+    bridgeApiKey: "",
     models,
     defaultRowId: (models.find((model) => model.id === provider.defaultModelId) || models[0]).rowId,
   };
@@ -168,13 +174,9 @@ function UpstreamStep({ form, setForm, codexVersion, onNext }) {
   const [showHint, setShowHint] = useState(false);
   const cardRefs = useRef([]);
   const selectedIndex = Math.max(0, UPSTREAM_OPTIONS.findIndex((option) => option.id === form.upstream));
-  const choose = (upstream) => setForm((current) => ({
-    ...current,
-    upstream,
-    // A bridge holds the upstream key itself, so Codex usually needs none.
-    requiresAuth: upstream === "bridge" ? false : true,
-    baseUrl: upstream === "bridge" && !current.baseUrl ? "http://127.0.0.1:4000/v1" : current.baseUrl,
-  }));
+  // The bridge path collects the *upstream's* address and key; the local
+  // address Codex talks to is derived by the manager, not typed by the user.
+  const choose = (upstream) => setForm((current) => ({ ...current, upstream }));
   const onKeyDown = createRadioKeyHandler({
     refs: cardRefs,
     values: UPSTREAM_OPTIONS.map((option) => option.id),
@@ -240,49 +242,59 @@ function UpstreamStep({ form, setForm, codexVersion, onNext }) {
   );
 }
 
-function BridgeProbe({ baseUrl, onProbe }) {
-  const [result, setResult] = useState(null);
-  const [checking, setChecking] = useState(false);
-  useEffect(() => { setResult(null); }, [baseUrl]);
-  const run = async () => {
-    setChecking(true);
+function BridgeControl({ codex, providerId, onStart, onStop, onNotify }) {
+  const [busy, setBusy] = useState("");
+  const status = codex.bridge || {};
+  const isThisProvider = status.providerId === providerId;
+  const running = Boolean(status.running) && isThisProvider;
+
+  const run = async (action, fn) => {
+    setBusy(action);
     try {
-      setResult(await onProbe(baseUrl));
+      await fn();
     } catch (error) {
-      setResult({ status: "error", message: error.message });
+      onNotify(error.message, "error");
     } finally {
-      setChecking(false);
+      setBusy("");
     }
   };
-  // Refused and timed out are one answer to the user: nothing replied. Under
-  // WSL2 mirrored networking they are not even distinguishable — a connect to
-  // an unbound loopback port hangs instead of being refused.
-  const label = {
-    listening: "这个端口上有服务在监听",
-    "no-answer": "没有拿到应答：桥可能没启动，或这个端口上没有监听",
-  }[result?.status];
+
   return (
-    <div className="bridge-probe">
-      <button type="button" className="secondary-button compact-button" disabled={checking || !baseUrl} onClick={run}>
-        {checking ? <><Spinner size={16} />探测中…</> : <><Plugs size={18} />检查桥是否启动</>}
-      </button>
-      {result && (
-        <span className={`probe-result is-${result.status === "listening" ? "ok" : "warn"}`} role="status">
-          {result.status === "listening" ? <CheckCircle size={17} weight="fill" /> : <WarningCircle size={17} weight="fill" />}
-          {label || result.message}
+    <div className="bridge-control">
+      <div className="bridge-status">
+        <span className={`probe-result is-${running ? "ok" : "warn"}`} role="status">
+          {running ? <CheckCircle size={17} weight="fill" /> : <WarningCircle size={17} weight="fill" />}
+          {running
+            ? `本地桥正在运行（127.0.0.1:${status.port}）`
+            : status.unverified
+              ? "有一个之前启动的进程还在，但无法确认是否属于本管理器"
+              : "本地桥未运行 —— Codex 现在发不出请求"}
         </span>
-      )}
-      <small>只对本机端口做一次 TCP 连接，不发送任何凭据、不请求任何路径。有服务在监听不代表它就是正确的桥。</small>
+        {running ? (
+          <button type="button" className="secondary-button compact-button" disabled={Boolean(busy)} onClick={() => run("stop", onStop)}>
+            {busy === "stop" ? <><Spinner size={16} />停止中…</> : <><Plugs size={18} />停止桥</>}
+          </button>
+        ) : (
+          <button type="button" className="outline-button compact-button" disabled={Boolean(busy)} onClick={() => run("start", onStart)}>
+            {busy === "start" ? <><Spinner size={16} />启动中…</> : <><PlugsConnected size={18} />启动桥</>}
+          </button>
+        )}
+      </div>
+      <small>
+        需要先装好 LiteLLM（<code className="mono">pip install 'litellm[proxy]'</code>）。
+        管理器只生成它的配置文件并起停进程，不经手任何模型流量；上游的 key 通过环境变量传给它，不写进配置文件。
+      </small>
     </div>
   );
 }
 
-function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onProbeBridge, onNotify }) {
+function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onNotify, onStartBridge, onStopBridge }) {
   const [snippet, setSnippet] = useState("");
   const [showSnippet, setShowSnippet] = useState(false);
   const sources = codex.providers.filter((item) => item.id !== form.providerId && item.credentialConfigured);
   const existing = codex.providers.find((item) => item.id === form.providerId);
-  const isLocal = isLocalAddress(form.baseUrl);
+  const isBridge = form.upstream === "bridge";
+  const isLocal = !isBridge && isLocalAddress(form.baseUrl);
 
   const applySnippet = () => {
     const parsed = parseCodexSnippet(snippet);
@@ -315,7 +327,14 @@ function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onP
     <section className="step-content form-step">
       <div className="step-scroll">
         <div className="section-heading">
-          <div><h1>填写地址与凭据</h1><p>key 由本管理器保管，生效时写入 Codex 的 auth.json；保存后不会再显示。</p></div>
+          <div>
+            <h1>填写地址与凭据</h1>
+            <p>
+              {isBridge
+                ? "上游的 key 由本管理器保管并交给本地桥，不会写入 Codex 的配置；保存后不会再显示。"
+                : "key 由本管理器保管，生效时写入 Codex 的 auth.json；保存后不会再显示。"}
+            </p>
+          </div>
           <button type="button" className="help-link" aria-expanded={showSnippet} onClick={() => setShowSnippet((value) => !value)}>
             <ListPlus size={19} />粘贴厂商给的 config.toml
           </button>
@@ -347,19 +366,61 @@ function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onP
             <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="PackyCode" autoComplete="off" />
           </label>
           <label className="form-grid-wide">
-            <span>API 地址{isLocal ? "（本机）" : ""}</span>
+            <span>{isBridge ? "上游 API 地址" : `API 地址${isLocal ? "（本机）" : ""}`}</span>
             <small>
-              {isLocal
-                ? "Codex 会连到这台机器上的这个端口。如果它是你自己跑的翻译桥，上游的 key 由桥保管。"
-                : "填写接口根地址，不要包含具体模型路径"}
+              {isBridge
+                ? "填你的供应商地址（只提供 /v1/chat/completions 的那个）。Codex 不会直接连它 —— 管理器会让 Codex 连本机的桥。"
+                : isLocal
+                  ? "Codex 会连到这台机器上的这个端口。"
+                  : "填写接口根地址，不要包含具体模型路径"}
             </small>
-            <input className="mono" type="url" inputMode="url" value={form.baseUrl} onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))} placeholder={form.upstream === "bridge" ? "http://127.0.0.1:4000/v1" : "https://api.example.com/v1"} spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
+            <input
+              className="mono"
+              type="url"
+              inputMode="url"
+              value={isBridge ? form.bridgeUpstreamUrl : form.baseUrl}
+              onChange={(event) => setForm((current) => (isBridge
+                ? { ...current, bridgeUpstreamUrl: event.target.value }
+                : { ...current, baseUrl: event.target.value }))}
+              placeholder="https://api.example.com/v1"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              autoComplete="off"
+            />
           </label>
         </div>
-        {isLocal && <BridgeProbe baseUrl={form.baseUrl} onProbe={onProbeBridge} />}
         <fieldset className="credential-box">
-          <legend>访问凭据</legend>
-          {isLocal && (
+          <legend>{isBridge ? "上游凭据" : "访问凭据"}</legend>
+          {isBridge && (
+            <>
+              <label className="key-field">
+                <span>上游 API Key</span>
+                <div>
+                  <Key size={20} />
+                  <input
+                    className="mono"
+                    type="password"
+                    autoComplete="new-password"
+                    value={form.bridgeApiKey}
+                    onChange={(event) => setForm((current) => ({ ...current, bridgeApiKey: event.target.value }))}
+                    placeholder={existing?.bridge ? "留空表示沿用已保存的 key" : "输入后不会回显"}
+                  />
+                </div>
+              </label>
+              <div className="credential-status">
+                <Info size={24} weight="duotone" />
+                <div>
+                  <strong>这把 key 交给本地桥，不进 Codex 配置</strong>
+                  <span>Codex 只连本机的桥，写入 <code className="mono">requires_openai_auth = false</code>，不带 Authorization。</span>
+                </div>
+              </div>
+              {existing?.bridge && (
+                <BridgeControl codex={codex} providerId={form.providerId.trim()} onStart={onStartBridge} onStop={onStopBridge} onNotify={onNotify} />
+              )}
+            </>
+          )}
+          {!isBridge && isLocal && (
             <label className="checkbox-row">
               <input type="checkbox" checked={!form.requiresAuth} onChange={(event) => setForm((current) => ({ ...current, requiresAuth: !event.target.checked }))} />
               <span>
@@ -367,7 +428,7 @@ function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onP
               </span>
             </label>
           )}
-          {form.requiresAuth && (
+          {!isBridge && form.requiresAuth && (
             <>
               <div className="credential-tabs">
                 {existing?.credentialConfigured && <button type="button" className={form.credentialMode === "keep" ? "is-active" : ""} onClick={() => setForm((current) => ({ ...current, credentialMode: "keep" }))}>保留现有 key</button>}
@@ -379,7 +440,7 @@ function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onP
               {form.credentialMode === "migrate" && <div className="migrate-fields"><label><span>选择已有供应商</span><select value={form.migrateFrom} onChange={(event) => setForm((current) => ({ ...current, migrateFrom: event.target.value }))}>{sources.map((item) => <option key={item.id} value={item.id}>{item.name}（{item.id}）</option>)}</select></label><small>Codex 的凭据由本管理器保管，复制不会删除来源供应商的 key。</small></div>}
             </>
           )}
-          {!form.requiresAuth && (
+          {!isBridge && !form.requiresAuth && (
             <div className="credential-status">
               <Info size={24} weight="duotone" />
               <div><strong>Codex 不会带凭据</strong><span>这个本机服务自己处理鉴权，本管理器不接触上游的 key。</span></div>

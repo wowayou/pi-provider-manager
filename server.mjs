@@ -17,6 +17,7 @@ import {
   writeJsonAtomic,
 } from "./lib/atomic-files.mjs";
 import { createCodexConfig } from "./lib/codex-config.mjs";
+import { createBridgeRunner } from "./lib/litellm-bridge.mjs";
 import { ConflictError, PROVIDER_ID_PATTERN, isLoopbackHostname, normalizeUrl } from "./lib/validation.mjs";
 
 const HOST = "127.0.0.1";
@@ -56,6 +57,18 @@ const REVISION_KEY = crypto.randomBytes(32);
 // Pi and Codex carry separate revisions on purpose: editing one must not
 // invalidate an in-flight draft for the other.
 const codex = createCodexConfig({ dir: CODEX_DIR, dirSource: CODEX_DIR_SOURCE, revisionKey: REVISION_KEY });
+const bridge = createBridgeRunner({ dir: CODEX_DIR });
+
+// Keeps LiteLLM's config file in step with the store after any write that
+// could have changed a provider's bridge or model list. A failure here must
+// not undo a Codex write that already succeeded, so it is reported through
+// state rather than thrown.
+function syncBridgeConfig() {
+  try {
+    const spec = codex.bridgeSpec(codex.activeProviderId());
+    if (spec) bridge.writeConfig(spec);
+  } catch {}
+}
 const ALLOWED_APIS = new Set([
   "openai-responses",
   "openai-completions",
@@ -142,9 +155,20 @@ const CODEX_VERSION = detectCodexVersion();
 // response down with it: the launcher probes /api/state to decide whether a
 // port already belongs to this manager, and the Pi workflow does not depend
 // on Codex at all.
+function bridgeStatus() {
+  try {
+    const status = bridge.status();
+    // Never expose the absolute log path's contents or the binary's resolution;
+    // paths themselves are already visible in the compatibility panel.
+    return status;
+  } catch (error) {
+    return { running: false, error: error.message };
+  }
+}
+
 function codexState() {
   try {
-    return { available: true, ...codex.publicState() };
+    return { available: true, ...codex.publicState(), bridge: bridgeStatus() };
   } catch (error) {
     return {
       available: false,
@@ -696,22 +720,41 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "POST" && request.url === "/api/codex/providers") {
       codex.saveProvider(await readBody(request));
+      syncBridgeConfig();
       sendJson(response, 200, { ok: true, state: publicState() });
       return;
     }
     if (request.method === "POST" && request.url === "/api/codex/providers/delete") {
       codex.deleteProvider(await readBody(request));
+      syncBridgeConfig();
       sendJson(response, 200, { ok: true, state: publicState() });
       return;
     }
     if (request.method === "POST" && request.url === "/api/codex/activate") {
       codex.activate(await readBody(request));
+      syncBridgeConfig();
       sendJson(response, 200, { ok: true, state: publicState() });
       return;
     }
     if (request.method === "POST" && request.url === "/api/codex/settings") {
       codex.saveSettings(await readBody(request));
+      syncBridgeConfig();
       sendJson(response, 200, { ok: true, state: publicState() });
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/codex/bridge/start") {
+      const body = await readBody(request);
+      const providerId = String(body.providerId || codex.activeProviderId());
+      const spec = codex.bridgeSpec(providerId);
+      if (!spec) throw new Error("这个供应商没有配置本地桥。");
+      bridge.writeConfig(spec);
+      bridge.start(spec);
+      sendJson(response, 200, { ok: true, bridge: bridgeStatus() });
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/codex/bridge/stop") {
+      const result = bridge.stop();
+      sendJson(response, 200, { ok: true, stopped: result.stopped, bridge: bridgeStatus() });
       return;
     }
     if (request.method === "POST" && request.url === "/api/codex/bridge-check") {

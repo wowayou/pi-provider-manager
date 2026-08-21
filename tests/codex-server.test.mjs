@@ -456,3 +456,55 @@ test("adopting a loopback provider does not claim it is a bridge", async () => {
     assert.equal(active.bridge, null);
   });
 });
+
+test("a bridged provider points Codex at the local proxy and keeps the upstream key out of reach", async () => {
+  await withServer(null, async (api) => {
+    const upstreamSecret = "sk-upstream-not-a-real-key";
+    const response = await api.post("/api/codex/providers", newProvider({
+      providerId: "chatonly",
+      name: "Chat-only gateway",
+      baseUrl: "https://ignored.example/v1",
+      credential: { mode: "keep" },
+      bridge: { upstreamBaseUrl: "https://chatonly.example/v1", apiKey: upstreamSecret },
+      models: [{ id: "deepseek-chat", reasoningEffort: "medium" }],
+      defaultModelId: "deepseek-chat",
+    }));
+    assert.equal(response.status, 200);
+    assert.equal((await response.text()).includes(upstreamSecret), false);
+
+    const config = api.config();
+    // Codex talks to the proxy on this machine, not to the upstream, and needs
+    // no credential of its own.
+    assert.match(config, /^base_url = "http:\/\/127\.0\.0\.1:43210\/v1"$/m);
+    assert.match(config, /^requires_openai_auth = false$/m);
+    assert.equal(config.includes("chatonly.example"), false);
+    // A provider Codex will not authenticate must not touch auth.json.
+    assert.equal(fs.existsSync(api.authPath), false);
+
+    // LiteLLM's config is generated, and the upstream key is referenced through
+    // the environment rather than written into it.
+    const yaml = fs.readFileSync(path.join(api.codexDir, "pi-provider-manager-litellm.yaml"), "utf8");
+    assert.match(yaml, /^ {6}api_base: "https:\/\/chatonly\.example\/v1"$/m);
+    assert.match(yaml, /^ {6}use_chat_completions_api: true$/m);
+    assert.equal(yaml.includes(upstreamSecret), false);
+
+    const { codex } = await api.state();
+    const provider = codex.providers.find((item) => item.id === "chatonly");
+    assert.equal(provider.bridge.upstreamBaseUrl, "https://chatonly.example/v1");
+    assert.equal(provider.bridge.credentialConfigured, true);
+    assert.equal(JSON.stringify(codex).includes(upstreamSecret), false);
+    assert.equal(codex.bridge.running, false);
+  });
+});
+
+test("refuses a bridge with no upstream key", async () => {
+  await withServer(null, async (api) => {
+    const response = await api.post("/api/codex/providers", newProvider({
+      providerId: "chatonly",
+      credential: { mode: "keep" },
+      bridge: { upstreamBaseUrl: "https://chatonly.example/v1" },
+    }));
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /上游的 API Key/);
+  });
+});

@@ -1502,6 +1502,12 @@ export function App() {
   const validateCodexCredentials = () => {
     if (!codexForm.providerId.trim()) return "请输入供应商 ID。";
     if (!codexForm.name.trim()) return "请填写供应商名称。";
+    if (codexForm.upstream === "bridge") {
+      if (!codexForm.bridgeUpstreamUrl.trim()) return "请输入上游 API 地址。";
+      const savedBridge = codexProvider(codexForm.providerId.trim())?.bridge;
+      if (!codexForm.bridgeApiKey.trim() && !savedBridge?.credentialConfigured) return "请输入上游 API Key。";
+      return "";
+    }
     if (!codexForm.baseUrl.trim()) return "请输入 API 地址。";
     if (codexForm.requiresAuth && codexForm.credentialMode === "new" && !codexForm.apiKey.trim()) return "请输入 API Key。";
     if (codexForm.requiresAuth && codexForm.credentialMode === "migrate" && !codexForm.migrateFrom) return "请选择要复制的已有凭据。";
@@ -1515,13 +1521,19 @@ export function App() {
     setCodexStep(3);
   };
 
-  const probeBridge = async (baseUrl) => {
-    const response = await fetch("/api/codex/bridge-check", {
+  const bridgeAction = async (action) => {
+    const response = await fetch(`/api/codex/bridge/${action}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ baseUrl }),
+      body: JSON.stringify({ providerId: codexForm.providerId.trim() }),
     });
-    return readApiResponse(response, "探测失败");
+    const data = await readApiResponse(response, action === "start" ? "启动桥失败" : "停止桥失败");
+    // The bridge is runtime state, not configuration, so refresh it without
+    // disturbing a draft: only the codex.bridge slice changes.
+    setState((current) => ({ ...current, codex: { ...current.codex, bridge: data.bridge } }));
+    showToast(action === "start"
+      ? "已启动本地桥；几秒后再看状态，首次启动 LiteLLM 会慢一些"
+      : "已停止本地桥");
   };
 
   const saveCodex = async (setActive) => {
@@ -1542,8 +1554,11 @@ export function App() {
           providerId: codexForm.providerId.trim(),
           name: codexForm.name.trim(),
           baseUrl: codexForm.baseUrl.trim(),
-          requiresAuth: codexForm.requiresAuth,
-          credential: codexForm.requiresAuth
+          // A bridged provider carries no credential of its own: the server
+          // forces requires_openai_auth = false, and the upstream key travels
+          // in the bridge block instead.
+          requiresAuth: codexForm.upstream === "bridge" ? false : codexForm.requiresAuth,
+          credential: codexForm.upstream !== "bridge" && codexForm.requiresAuth
             ? {
                 mode: codexForm.credentialMode,
                 apiKey: codexForm.apiKey,
@@ -1552,6 +1567,9 @@ export function App() {
             : { mode: "keep" },
           models: named.map((model) => ({ id: model.id.trim(), reasoningEffort: model.reasoningEffort })),
           defaultModelId: selected.id.trim(),
+          bridge: codexForm.upstream === "bridge"
+            ? { upstreamBaseUrl: codexForm.bridgeUpstreamUrl.trim(), apiKey: codexForm.bridgeApiKey }
+            : undefined,
           setActive,
         }),
       });
@@ -1705,7 +1723,8 @@ export function App() {
                 onBack={() => setCodexStep(codexStep - 1)}
                 onSave={saveCodex}
                 onNotify={showToast}
-                onProbeBridge={probeBridge}
+                onStartBridge={() => bridgeAction("start")}
+                onStopBridge={() => bridgeAction("stop")}
                 onDeleteProvider={() => setCodexDeleteTargetId(codexSelectedId)}
                 canDeleteProvider={Boolean(codexProvider(codexSelectedId))}
                 isActive={Boolean(codexProvider(codexForm.providerId.trim())?.isActive)}
