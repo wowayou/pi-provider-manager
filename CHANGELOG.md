@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Fixed the restart command the launcher prints naming the wrong process. It used this launcher's own directory, which is wrong in exactly the situation anyone reads it: during an upgrade the running instance lives in the previous release's directory, so the command matched nothing and the new launcher kept reusing the old server. It now names the running instance's process id — reported by 0.3.0 and later in `compatibility.servicePid`, and looked up from the port for anything older.
+- Added tests for the bash launcher, which had none and shipped two bugs in consecutive releases. They cover the unconditional URL and directory lines, and that a reused instance is described by itself rather than by the calling shell.
+
 ## 0.3.0 - 2026-08-22
 
 - Added global prompt management for both agents. Each instruction file holds one document at a time and the alternatives live in this manager's own `0600` store, the same shape the Codex provider list already uses. Pi reads `AGENTS.md`, `SYSTEM.md`, and `APPEND_SYSTEM.md` from `~/.pi/agent`; Codex reads `AGENTS.md` from `$CODEX_HOME` — verified against Pi's own README and, for Codex, by finding the file's text in `codex debug prompt-input`. One screen serves both agents because the server declares which files each one reads, so neither is special-cased. A file that predates the manager is adopted rather than presented as absent, on the read path only, and deleting the document currently in a file requires naming its replacement.

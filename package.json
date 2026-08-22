@@ -22,6 +22,7 @@
     "test:server": "node --test tests/server.test.mjs tests/model-draft.test.mjs",
     "test:codex": "node --test tests/toml-document.test.mjs tests/litellm-bridge.test.mjs tests/codex-server.test.mjs",
     "test:prompts": "node --test tests/prompt-library.test.mjs",
+    "test:launcher": "node --test tests/launcher.test.mjs",
     "test:codex-real": "node --test tests/codex-real-binary.test.mjs",
     "test:ui": "node --test tests/model-deletion-ui.test.mjs",
     "test:pi-update": "node --test tests/pi-update-monitor.test.mjs",
