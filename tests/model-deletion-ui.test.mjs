@@ -749,7 +749,7 @@ test("production UI drives the Codex workspace", { timeout: 90_000 }, async () =
     assert.match(written, /^# 手写的表，本管理器不该碰$/m);
     assert.match(written, /^\[tui\]$/m);
     assert.match(written, /^name = "PackyCode"$/m);
-    assert.match(written, /^\[profiles\.custom-gpt-5-1-codex\]$/m);
+    assert.equal(/^\[profiles\./m.test(written), false, "profile tables are legacy in current Codex");
     assert.equal((written.match(/\[model_providers\./g) || []).length, 2);
     // The key belongs in auth.json and the manager's own store, never in the page.
     assert.equal(written.includes("browser-test-codex-key"), false);

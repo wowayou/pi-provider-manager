@@ -27,7 +27,7 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 
-import { CODEX_REASONING_EFFORTS, CODEX_VERBOSITIES, profileSlug } from "../lib/codex-shared.mjs";
+import { CODEX_REASONING_EFFORTS, CODEX_VERBOSITIES, idSlug } from "../lib/codex-shared.mjs";
 import { TomlDocument } from "../lib/toml-document.mjs";
 import { isLoopbackHostname } from "../lib/validation.mjs";
 import { BulkModal, Spinner, createRadioKeyHandler, titleFromId } from "./ui-kit.jsx";
@@ -133,7 +133,7 @@ export function parseCodexSnippet(text) {
   const model = document.getTopLevel("model");
   const effort = document.getTopLevel("model_reasoning_effort");
   return {
-    providerId: profileSlug(names[0]),
+    providerId: idSlug(names[0]),
     name: typeof keys.name === "string" && keys.name ? keys.name : titleFromId(names[0]),
     baseUrl: typeof keys.base_url === "string" ? keys.base_url : "",
     requiresAuth: keys.requires_openai_auth !== false,
@@ -378,8 +378,8 @@ function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onN
         )}
         <div className="form-grid">
           <label>
-            <span>供应商 ID</span><small>本管理器内部标识，用于生成 profile 名</small>
-            <input className="mono" value={form.providerId} onChange={(event) => setForm((current) => ({ ...current, providerId: profileSlug(event.target.value) }))} placeholder="packy" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
+            <span>供应商 ID</span><small>本管理器内部标识</small>
+            <input className="mono" value={form.providerId} onChange={(event) => setForm((current) => ({ ...current, providerId: idSlug(event.target.value) }))} placeholder="packy" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
           </label>
           <label>
             <span>显示名称</span><small>写入 config.toml 的 name 字段</small>
@@ -547,7 +547,7 @@ function CodexModelsStep({ form, setForm, codex, error, saving, onBack, onSave, 
 
   const armRemoveModel = (model) => onNotify(
     model.id.trim()
-      ? <>再次点击会移除 <code>{model.id.trim()}</code>，它生成的 profile 也会一并删除。</>
+      ? <>再次点击会移除 <code>{model.id.trim()}</code>。</>
       : "再次点击会移除这个未命名模型行。",
     "error",
   );
@@ -610,7 +610,7 @@ function CodexModelsStep({ form, setForm, codex, error, saving, onBack, onSave, 
     <section className="step-content models-step">
       <div className="step-scroll">
         <div className="section-heading">
-          <div><h1>确认模型与推理强度</h1><p>每个模型会生成一个 profile，可以用 <code>codex --profile</code> 单独调用。</p></div>
+          <div><h1>确认模型与推理强度</h1><p>默认模型会写进 <code>config.toml</code>；其余模型用 <code>codex -m &lt;model&gt;</code> 开会话时指定。</p></div>
         </div>
         <div className="gateway-summary">
           <span className="summary-icon">{isLocalAddress(form.baseUrl) ? <Plugs size={34} weight="duotone" /> : <PlugsConnected size={34} weight="duotone" />}</span>
@@ -645,7 +645,7 @@ function CodexModelsStep({ form, setForm, codex, error, saving, onBack, onSave, 
           </div>
         </div>
         <div className="models-header">
-          <div><h2>模型列表<span className="count-pill">{namedModels}</span></h2><p>默认模型会写入 config.toml 的 <code className="mono">model</code>，其余模型只生成 profile。</p></div>
+          <div><h2>模型列表<span className="count-pill">{namedModels}</span></h2><p>默认模型会写入 config.toml 的 <code className="mono">model</code>，其余模型留给 <code className="mono">codex -m</code>。</p></div>
           <div className="models-actions">
             <button type="button" className="secondary-button compact-button" onClick={() => setShowBulk(true)} title="批量添加模型 ID" aria-label="批量添加"><ListPlus size={18} /><span className="button-label">批量添加</span></button>
             <button type="button" className="outline-button compact-button" onClick={addModel} title="添加模型" aria-label="添加模型"><Plus size={19} /><span className="button-label">添加模型</span></button>
@@ -800,10 +800,11 @@ export function CodexSuccessScreen({ result, onCopy, onReturn, onAdd }) {
         </div>
         <ol>
           <li>启动后用 <code>/model</code> 确认模型是 <code>{result.defaultModelId}</code></li>
-          {result.profiles.length > 1 && (
+          {result.otherModels.length > 0 && (
             <li>
-              同一供应商的其它模型可以直接指定 profile：
-              {result.profiles.slice(1).map((name) => <code key={name} className="profile-chip">codex --profile {name}</code>)}
+              <span>换成这个供应商的其它模型，用 <code className="mono">-m</code> 开新会话（要同时改推理强度就再加
+              <code className="mono">-c model_reasoning_effort="low"</code>）：</span>
+              {result.otherModels.map((id) => <code key={id} className="profile-chip">codex -m {id}</code>)}
             </li>
           )}
           <li>发一句简单消息试通；限流或 5xx 属于上游服务状态，不代表配置没写进去</li>
@@ -833,7 +834,6 @@ export function CodexSettingsScreen({ state, saving, error, onSave, onBack }) {
     verbosity: codex.settings?.verbosity || "medium",
     contextWindow: codex.settings?.contextWindow || 0,
     ownedProviderId: codex.ownedProviderId || "custom",
-    generateProfiles: codex.generateProfiles !== false,
     disableResponseStorage: Boolean(codex.settings?.disableResponseStorage),
   }), [codex, providers]);
   const [draft, setDraft] = useState(saved);
@@ -925,16 +925,12 @@ export function CodexSettingsScreen({ state, saving, error, onSave, onBack }) {
           <div className="advanced-content">
             <label>
               <span>供应商表名 <code className="mono">model_providers.&lt;id&gt;</code></span>
-              <input className="mono" value={draft.ownedProviderId} onChange={(event) => setDraft((current) => ({ ...current, ownedProviderId: profileSlug(event.target.value) }))} spellCheck={false} />
+              <input className="mono" value={draft.ownedProviderId} onChange={(event) => setDraft((current) => ({ ...current, ownedProviderId: idSlug(event.target.value) }))} spellCheck={false} />
               <small>本管理器只写这一张表。不能使用 Codex 的内建 id（openai、ollama、lmstudio 等）。</small>
             </label>
             <label>
               <span>上下文容量 <code className="mono">model_context_window</code></span>
               <input className="mono" inputMode="numeric" value={draft.contextWindow || ""} onChange={(event) => setDraft((current) => ({ ...current, contextWindow: Number(event.target.value.replace(/[^0-9]/g, "")) || 0 }))} placeholder="留空表示不写入" />
-            </label>
-            <label className="setting-toggle">
-              <input type="checkbox" checked={draft.generateProfiles} onChange={(event) => setDraft((current) => ({ ...current, generateProfiles: event.target.checked }))} />
-              <span><strong>为每个模型生成 profile</strong><small>可以用 <code className="mono">codex --profile</code> 在同一供应商内换模型。</small></span>
             </label>
             <label className="setting-toggle">
               <input type="checkbox" checked={draft.disableResponseStorage} onChange={(event) => setDraft((current) => ({ ...current, disableResponseStorage: event.target.checked }))} />

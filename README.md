@@ -30,7 +30,7 @@ Codex has the opposite problem. Its configuration is small but unforgiving: one 
 - **Beginner save handoff** — after saving, the app gives the exact `pi --model provider/model:thinking` command and `/model` verification steps.
 - **Large catalog UX** — sticky model header, internal scrolling, bulk model-ID import, and warnings when `-max`/`-xhigh` may be thinking levels rather than real model IDs.
 - **Real Pi settings** — default provider/model/thinking, transport, thinking-block visibility, installed Pi version, and compatibility status.
-- **Codex CLI support** — the same sidebar and three-step wizard manage `~/.codex/config.toml` and `auth.json`, switch the active gateway in one click, generate `codex --profile` entries, and preserve every comment and hand-written table in the file.
+- **Codex CLI support** — the same sidebar and three-step wizard manage `~/.codex/config.toml` and `auth.json`, switch the active gateway in one click, and preserve every comment and hand-written table in the file.
 - **Chat-Completions-only upstreams** — Codex speaks only the Responses API, so the manager configures and supervises a local LiteLLM bridge for gateways that never implemented it. You install LiteLLM; it writes the config, wires Codex to the proxy, and starts or stops it.
 - **No database lock-in** — Pi remains the source of truth; the app edits Pi's own documented files and never reads or writes `models-store.json`.
 
@@ -46,7 +46,7 @@ Pi:
 
 Codex (`$CODEX_HOME`, default `~/.codex`):
 
-- `config.toml` — only the manager's own `[model_providers.<id>]` table, its generated `[profiles.*]`, and the top-level model/reasoning keys. Comments, unrelated keys, and provider tables you wrote by hand are preserved byte for byte.
+- `config.toml` — only the manager's own `[model_providers.<id>]` table and the top-level model/reasoning keys. Comments, unrelated keys, and provider tables you wrote by hand are preserved byte for byte.
 - `auth.json` — `auth_mode` and `OPENAI_API_KEY` for the active provider. Other keys, including a ChatGPT login, are preserved.
 - `pi-provider-manager-store.json` — this manager's own provider store, `0600`. See [Codex support](#codex-support).
 - `pi-provider-manager-litellm.yaml`, `pi-provider-manager-bridge.json`, `pi-provider-manager-bridge.log` — written only when a provider uses the managed bridge: LiteLLM's generated config, the proxy's runtime record, and its output.
@@ -82,16 +82,19 @@ If the table on disk matches nothing in the store — a fresh install, or a hand
 
 The table id is `custom` by default and configurable in settings. Codex's built-in ids (`openai`, `ollama`, `lmstudio`, the Bedrock pair) are refused.
 
-### Profiles
+### Switching model within a provider
 
-Each model on the active provider also gets a profile, so you can switch model without touching the global config:
+The default model is written to `config.toml`. For the provider's other models, name one on the command line:
 
 ```bash
 codex                              # the provider's default model
-codex --profile custom-gpt-5-1-codex
+codex -m gpt-5.1-codex             # another model on the same provider
+codex -m gpt-5.1-codex -c model_reasoning_effort="low"
 ```
 
-Only the profiles this manager generated are removed when it regenerates them — a `[profiles.*]` you wrote yourself survives even if it shares the prefix.
+This manager writes no `[profiles.*]` tables. Codex 0.149.0 treats profiles in `config.toml` as legacy and **refuses `--profile <name>` outright** while a matching table is present, so generating them broke the command they were meant to enable. Versions 0.2.0 and 0.2.1 did generate them; the next save removes exactly the ones they recorded, and a `[profiles.*]` you wrote yourself is left alone even if it shares the prefix.
+
+Note that a bridged provider only serves the models you listed in the wizard — LiteLLM answers for those and nothing else, so `-m` with an unconfigured model fails at the bridge. Add it in the UI first.
 
 ### Upstreams that only expose `/v1/chat/completions`
 
@@ -149,7 +152,7 @@ New sessions pick up the change cleanly. **Resuming an old session against a dif
 
 This project is in maintenance mode. New work is limited to confirmed defects, security fixes, and Pi or Codex compatibility changes; it does not plan to match the broader feature set in [CC Switch](https://github.com/farion1231/cc-switch).
 
-Codex support was added deliberately and stays narrow: providers, credentials, the active selection, and profiles. It does not add presets, model discovery, usage dashboards, or a traffic proxy.
+Codex support was added deliberately and stays narrow: providers, credentials, and the active selection. It does not add presets, model discovery, usage dashboards, or a traffic proxy.
 
 CC Switch 3.20 added a comprehensive Pi integration for provider presets, model discovery, prompts, Skills, sessions, and usage. It deliberately does not read or write Pi's `auth.json`, `defaultProvider`, or `defaultModel`. Pi Provider Manager remains a smaller, database-free tool for that credential/default boundary and the three-file invariants around it. Both can use the same Pi files, but a stale page must reload after another editor changes them.
 

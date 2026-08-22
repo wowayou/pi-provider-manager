@@ -112,7 +112,14 @@ fi
 
 url="http://127.0.0.1:${port}/"
 
-if ! is_manager_port "$port"; then
+# Reusing an already-running manager is the point of the port scan, but saying
+# nothing about it made "restart it" an instruction nobody could carry out: the
+# launcher printed the same lines either way, so a manager still running with a
+# stale view of the machine looked freshly started.
+reused=0
+if is_manager_port "$port"; then reused=1; fi
+
+if [[ "$reused" -eq 0 ]]; then
   if [[ -n "${WSL_DISTRO_NAME:-}" ]] && command -v powershell.exe >/dev/null 2>&1; then
     escaped_project_dir=${project_dir//\'/\'\'}
     escaped_agent_dir=${agent_dir//\'/\'\'}
@@ -152,8 +159,34 @@ fi
 # unset-variable mistake — CODEX_HOME="" silently means the real one — visible
 # before anything is saved.
 echo "Pi Provider Manager is ready: $url"
-echo "  Pi config:    $agent_dir"
-echo "  Codex config: $codex_dir"
+if [[ "$reused" -eq 1 ]]; then
+  # A reused server is using whatever it was started with, which need not match
+  # this shell. Report what it says about itself rather than what we computed,
+  # or the directory lines would be a confident guess.
+  running="$(curl --silent --fail --max-time 2 "http://127.0.0.1:$port/api/state" 2>/dev/null |
+    "$node_bin" -e '
+      let s = "";
+      process.stdin.on("data", (c) => { s += c; }).on("end", () => {
+        try {
+          const state = JSON.parse(s);
+          process.stdout.write([
+            state.compatibility?.appVersion || "",
+            state.agentDir || "",
+            state.codex?.dir || "",
+          ].join("\n"));
+        } catch {}
+      });
+    ' 2>/dev/null || true)"
+  running_version="$(printf '%s' "$running" | sed -n 1p)"
+  echo "  (reused the instance already running on this port${running_version:+, version $running_version})"
+  echo "  Pi config:    $(printf '%s' "$running" | sed -n 2p)"
+  echo "  Codex config: $(printf '%s' "$running" | sed -n 3p)"
+  echo "  Restart it to pick up an upgrade or a newly installed LiteLLM:"
+  echo "    pkill -f '$project_dir/server.mjs' && '$0'"
+else
+  echo "  Pi config:    $agent_dir"
+  echo "  Codex config: $codex_dir"
+fi
 # Only worth a line when it is set: an empty value means "find litellm on PATH".
 if [[ -n "$litellm_bin" ]]; then echo "  LiteLLM:      $litellm_bin"; fi
 
