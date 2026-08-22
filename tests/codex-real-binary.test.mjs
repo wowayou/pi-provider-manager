@@ -177,7 +177,47 @@ trust_level = "trusted"
     assert.match(after, /^# hand-written note$/m);
     assert.match(after, /^\[model_providers\.myown\]$/m);
     assert.match(after, /^\[projects\."\/mnt\/d\/000\.MyData\/我的简历_23\/专项优化\/威泰液压"\]$/m);
-    assert.match(after, /^\[profiles\.custom-gpt-5-1-codex\]$/m);
+    assert.equal(/^\[profiles\./m.test(after), false, "profile tables are legacy in current Codex");
+  } finally {
+    fs.rmSync(codexDir, { recursive: true, force: true });
+  }
+});
+
+// The check that was missing when profile generation shipped: `codex doctor`
+// said the config was fine, because it is — a legacy `[profiles.*]` table
+// still parses. It is the `--profile` selector that rejects it, so only
+// running the advertised command finds this. If Codex ever reverses the
+// decision, this test says so.
+test("Codex rejects --profile against a legacy table in config.toml", { skip: installed ? false : "codex is not installed" }, () => {
+  const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-codex-legacy-"));
+  try {
+    fs.writeFileSync(path.join(codexDir, "config.toml"), [
+      'model_provider = "custom"',
+      'model = "a-model"',
+      "",
+      "[model_providers.custom]",
+      'name = "T"',
+      // Deliberately unreachable: this must fail at config load, before any
+      // request, so the test never depends on the network.
+      'base_url = "http://127.0.0.1:9/v1"',
+      'wire_api = "responses"',
+      "requires_openai_auth = true",
+      "",
+      "[profiles.custom]",
+      'model = "a-model"',
+      'model_provider = "custom"',
+      "",
+    ].join("\n"));
+    const run = spawnSync("codex", ["exec", "--profile", "custom", "--skip-git-repo-check", "hi"], {
+      encoding: "utf8",
+      timeout: 30_000,
+      cwd: os.tmpdir(),
+      env: { ...process.env, CODEX_HOME: codexDir },
+    });
+    const output = `${run.stdout || ""}\n${run.stderr || ""}`;
+    assert.notEqual(run.status, 0, `--profile unexpectedly succeeded:\n${output}`);
+    assert.match(output, /legacy/, output);
+    assert.match(output, /\[profiles\.custom\]/, output);
   } finally {
     fs.rmSync(codexDir, { recursive: true, force: true });
   }

@@ -249,3 +249,39 @@ test("the version appears once the probe finishes", async (t) => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("notices a LiteLLM installed after the manager was already running", async (t) => {
+  if (process.platform === "win32") return t.skip("POSIX executable bit");
+  // The README's own order is: open the manager, discover you need the bridge,
+  // install LiteLLM. Resolving the executable once at startup meant that
+  // install was never seen — and because the launcher reuses an already
+  // running manager rather than restarting it, there was no supported way to
+  // make it look again. Reported from a real WSL2 install.
+  const dir = sandbox();
+  const home = sandbox();
+  const realHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const runner = createBridgeRunner({ dir });
+    assert.equal(runner.status().binarySource, "PATH", "nothing installed yet");
+    assert.equal(await runner.versionSettled(), "", "no binary, no version");
+
+    const binDir = path.join(home, ".local", "litellm", "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const exe = path.join(binDir, "litellm");
+    fs.writeFileSync(exe, '#!/bin/sh\necho "litellm 1.97.0"\n', { mode: 0o755 });
+
+    const status = runner.status();
+    assert.equal(status.binary, exe, "the same runner finds it without a restart");
+    assert.equal(status.binarySource, "discovered");
+    assert.ok(status.manualCommand.includes(exe), "the fallback command names the new path too");
+    // The failed probe against the binary that did not exist yet must not be
+    // reported as this one's answer.
+    assert.equal(await runner.versionSettled(), "1.97.0");
+  } finally {
+    if (realHome === undefined) delete process.env.HOME;
+    else process.env.HOME = realHome;
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});

@@ -30,7 +30,7 @@ Codex 的问题正好相反：配置很小，但一点都不宽容 —— 只有
 - **保存后有明确闭环**：显示准确的 `pi --model provider/model:thinking` 命令，并指导用户用 `/model` 验证。
 - **适合长模型清单**：表头吸顶、内部滚动、批量粘贴模型 ID，并提示 `-max/-xhigh` 可能只是 thinking level。
 - **真实设置页**：可修改默认 provider/model/thinking、传输方式、thinking 显示，并查看 Pi 版本和兼容状态。
-- **Codex CLI 支持**：同一套侧栏与三步向导管理 `~/.codex/config.toml` 与 `auth.json`，一键切换生效网关，自动生成 `codex --profile` 条目，并逐字节保留文件里的注释和你手写的表。
+- **Codex CLI 支持**：同一套侧栏与三步向导管理 `~/.codex/config.toml` 与 `auth.json`，一键切换生效网关，并逐字节保留文件里的注释和你手写的表。
 - **上游只有 chat/completions 也能用**：Codex 只说 Responses API，管理器会为这类网关配置并起停一个本机 LiteLLM 桥。你只需装好 LiteLLM，配置、接线、起停都由它完成。
 - **不锁定数据**：Pi 自己的配置文件始终是唯一事实来源，程序不会读取或写入 `models-store.json`。
 
@@ -46,7 +46,7 @@ Pi：
 
 Codex（`$CODEX_HOME`，缺省 `~/.codex`）：
 
-- `config.toml` —— 只写本管理器自己的那张 `[model_providers.<id>]`、它生成的 `[profiles.*]`，以及顶层的模型/推理相关键。注释、无关键、你手写的其它供应商表都逐字节保留。
+- `config.toml` —— 只写本管理器自己的那张 `[model_providers.<id>]`，以及顶层的模型/推理相关键。注释、无关键、你手写的其它供应商表都逐字节保留。
 - `auth.json` —— 只写当前生效供应商的 `auth_mode` 与 `OPENAI_API_KEY`，其余键（包括 ChatGPT 登录态）保留。
 - `pi-provider-manager-store.json` —— 本管理器自己的供应商库，权限 `0600`，见 [Codex 支持](#codex-支持)。
 - `pi-provider-manager-litellm.yaml`、`pi-provider-manager-bridge.json`、`pi-provider-manager-bridge.log` —— 只有供应商用了托管桥时才会写：LiteLLM 的生成配置、代理的运行时记录，以及它的输出。
@@ -82,16 +82,19 @@ requires_openai_auth = true
 
 表名默认 `custom`，可在设置里改。Codex 的内建 id（`openai`、`ollama`、`lmstudio`、两个 Bedrock）会被拒绝。
 
-### profiles
+### 在同一供应商内换模型
 
-当前生效供应商的每个模型还会生成一个 profile，这样换模型不用动全局配置：
+默认模型会写进 `config.toml`。该供应商的其它模型，开会话时在命令行上指定：
 
 ```bash
 codex                              # 该供应商的默认模型
-codex --profile custom-gpt-5-1-codex
+codex -m gpt-5.1-codex             # 同一供应商的另一个模型
+codex -m gpt-5.1-codex -c model_reasoning_effort="low"
 ```
 
-重新生成时只删除本管理器上次记录下来的那批 —— 你自己手写的 `[profiles.*]` 即使前缀相同也会保留。
+本管理器不写任何 `[profiles.*]`。Codex 0.149.0 已把 `config.toml` 里的 profile 判为 legacy，只要存在同名表就**直接拒绝 `--profile <name>`**，于是生成它反而弄坏了它本该启用的那条命令。0.2.0 和 0.2.1 确实生成过；下一次保存会精确删掉它们记录下来的那批，你自己手写的 `[profiles.*]` 即使前缀相同也不会被碰。
+
+注意走桥的供应商只服务你在向导里列出的模型 —— LiteLLM 只应答这些，所以 `-m` 指定一个没配过的模型会在桥这一层失败，得先回界面把它加上。
 
 ### 上游只提供 `/v1/chat/completions` 时
 
@@ -149,7 +152,7 @@ Codex 还会从当前工作目录往上找 `.codex/config.toml`，遇到它在�
 
 本项目处于维护模式。后续只处理确认过的缺陷、安全修复和 Pi / Codex 兼容变化，不再追求与 [CC Switch](https://github.com/farion1231/cc-switch) 的大而全功能对齐。
 
-Codex 支持是有意加入的，范围同样收窄：供应商、凭据、当前生效项和 profiles。不做预设库、模型发现、用量看板，也不做流量代理。
+Codex 支持是有意加入的，范围同样收窄：供应商、凭据和当前生效项。不做预设库、模型发现、用量看板，也不做流量代理。
 
 CC Switch 3.20 已完整接入 Pi 的供应商预设、模型发现、提示词、Skills、会话和用量统计，但它明确不读写 Pi 的 `auth.json`、`defaultProvider` 和 `defaultModel`。本项目继续作为一个更小、无数据库的工具，负责凭据/默认项边界以及三份原生配置之间的一致性。两者可以读取同一套 Pi 文件，但一个工具保存后，另一个工具里已经打开的旧页面必须重新读取。
 

@@ -264,26 +264,69 @@ test("leaves hand-written tables, comments and profiles alone", async () => {
   });
 });
 
-test("generates one profile per model and cleans up the previous set", async () => {
+test("writes no profile tables at all", async () => {
+  // Codex 0.149.0 demoted `[profiles.*]` in config.toml to legacy and refuses
+  // `--profile <name>` outright while a matching table is present, so a table
+  // written here breaks the very command it exists to enable.
   await withServer(null, async (api) => {
-    let response = await api.post("/api/codex/providers", newProvider({
+    const response = await api.post("/api/codex/providers", newProvider({
       models: [
         { id: "gpt-5.6-sol", reasoningEffort: "high" },
         { id: "gpt-5.1-codex", reasoningEffort: "medium" },
       ],
     }));
     assert.equal(response.status, 200);
-    let config = api.config();
-    assert.match(config, /^\[profiles\.custom\]$/m);
-    assert.match(config, /^\[profiles\.custom-gpt-5-1-codex\]$/m);
+    const config = api.config();
     assert.match(config, /^model_provider = "custom"$/m);
+    assert.equal(/^\[profiles\./m.test(config), false, "no profile table may be written");
+  });
+});
 
-    // Dropping a model must drop the profile it generated.
-    response = await api.post("/api/codex/providers", newProvider());
+test("removes the profile tables older versions wrote, and only those", async () => {
+  // Anyone who used v0.2.0 or v0.2.1 has these in their config.toml already.
+  // Leaving them there keeps `codex --profile custom` failing forever, so the
+  // next save has to clear them — without touching one the user wrote.
+  const legacy = `model_provider = "custom"
+
+[model_providers.custom]
+name = "Existing"
+base_url = "https://existing.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+
+[profiles.custom]
+model = "gpt-5.6-sol"
+model_provider = "custom"
+
+[profiles.custom-gpt-5-1-codex]
+model = "gpt-5.1-codex"
+model_provider = "custom"
+
+[profiles.custom-hand-written]
+model = "kept"
+`;
+  await withServer(legacy, async (api) => {
+    // The ledger an older release left behind, naming what it generated.
+    fs.writeFileSync(api.storePath, JSON.stringify({
+      version: 1,
+      ownedProviderId: "custom",
+      activeProviderId: "",
+      generatedProfiles: ["custom", "custom-gpt-5-1-codex"],
+      providers: {},
+    }));
+
+    const response = await api.post("/api/codex/providers", newProvider());
     assert.equal(response.status, 200);
-    config = api.config();
-    assert.match(config, /^\[profiles\.custom\]$/m);
-    assert.equal(/profiles\.custom-gpt-5-1-codex/.test(config), false);
+
+    const config = api.config();
+    assert.equal(/^\[profiles\.custom\]$/m.test(config), false, "the generated profile must go");
+    assert.equal(/^\[profiles\.custom-gpt-5-1-codex\]$/m.test(config), false);
+    // Not in the ledger, so not ours to delete — even sharing the prefix.
+    assert.match(config, /^\[profiles\.custom-hand-written\]$/m);
+    assert.match(config, /^model = "kept"$/m);
+
+    const store = JSON.parse(fs.readFileSync(api.storePath, "utf8"));
+    assert.deepEqual(store.generatedProfiles, [], "the ledger is emptied once acted on");
   });
 });
 
@@ -406,8 +449,7 @@ test("settings keep the reasoning effort the user just chose", async () => {
     assert.match(config, /^model_reasoning_effort = "xhigh"$/m);
     assert.match(config, /^plan_mode_reasoning_effort = "medium"$/m);
     assert.match(config, /^model_verbosity = "low"$/m);
-    assert.match(config, /^\[profiles\.custom\]$/m);
-    // The profile for the same model follows, rather than keeping the old value.
+    // The effort the user just chose, rather than the value stored earlier.
     assert.equal(/model_reasoning_effort = "high"/.test(config), false);
 
     const { codex } = await api.state();

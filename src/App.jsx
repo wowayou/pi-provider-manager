@@ -221,7 +221,6 @@ const DEMO_STATE = {
     revision: "",
     ownedProviderId: "custom",
     activeProviderId: "packy",
-    generateProfiles: true,
     settings: { model: "gpt-5.6-sol", modelProvider: "custom", reasoningEffort: "high", planModeReasoningEffort: "xhigh", verbosity: "medium", contextWindow: 0, disableResponseStorage: false },
     settingsPresent: ["model", "model_provider", "model_reasoning_effort"],
     providers: [
@@ -1586,10 +1585,9 @@ export function App() {
         activated: Boolean(saved?.isActive),
         requiresAuth: saved?.requiresAuth !== false,
         command: "codex",
-        // Read back what the server actually wrote rather than re-deriving the
-        // names here: a second copy of the slug rules could disagree with the
-        // file and send someone to a profile that does not exist.
-        profiles: saved?.isActive ? data.state.codex?.generatedProfiles || [] : [],
+        // The provider's other models, for the `codex -m` hint. Codex sends
+        // whatever string it is given, so these need no slugging.
+        otherModels: named.map((model) => model.id.trim()).filter((id) => id !== selected.id.trim()),
       });
       setView("success");
     } catch (requestError) {
