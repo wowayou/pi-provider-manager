@@ -855,7 +855,9 @@ test("production UI drives the prompt library for both agents", { timeout: 90_00
       .find((node) => node.textContent.includes(${JSON.stringify(name)}))?.querySelector('.live-default-badge')`);
 
     await cdp.evaluate(`document.querySelector('.nav-prompts').click()`);
-    await cdp.waitFor(`document.querySelector('.prompt-editor textarea')`);
+    // The textarea exists one paint before the effect fills it, so waiting on
+    // the element alone snapshots an empty draft on a slow runner.
+    await cdp.waitFor(`document.querySelector('.prompt-editor textarea')?.value.includes('我手写的规则')`);
 
     // Pi declares three files; the hand-written one is adopted and shown live.
     const opened = await cdp.evaluate(`({

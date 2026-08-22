@@ -62,7 +62,10 @@ test("pins LiteLLM to loopback rather than its default 0.0.0.0", async (t) => {
   const started = createBridgeRunner({ dir });
   try {
     started.start({ providerId: "p", port: 43999, upstreamKey: "upstream-secret" });
-    for (let attempt = 0; attempt < 50 && !fs.existsSync(argvLog); attempt += 1) {
+    // Wait for the file the stand-in writes *last*. Waiting on argv.txt let a
+    // slow runner read key.txt in the gap between the two writes.
+    const keyPath = path.join(dir, "key.txt");
+    for (let attempt = 0; attempt < 100 && !fs.existsSync(keyPath); attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     const argv = fs.readFileSync(argvLog, "utf8").trim().split("\n");
@@ -74,7 +77,7 @@ test("pins LiteLLM to loopback rather than its default 0.0.0.0", async (t) => {
     assert.equal(argv[argv.indexOf("--config") + 1], runner.configPath);
     // The key reaches the process through the environment, as the config's
     // os.environ reference requires.
-    assert.equal(fs.readFileSync(path.join(dir, "key.txt"), "utf8"), "upstream-secret");
+    assert.equal(fs.readFileSync(keyPath, "utf8"), "upstream-secret");
     assert.equal(started.status().running, true);
     assert.equal(started.stop().stopped, true);
     assert.equal(started.status().running, false);
