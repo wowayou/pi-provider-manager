@@ -933,9 +933,18 @@ test("production UI drives the prompt library for both agents", { timeout: 90_00
 
     assert.equal(serverOutput.includes("Error"), false, serverOutput);
   } finally {
-    if (cdp) await cdp.close();
-    if (chrome) { try { process.kill(-chrome.pid); } catch { chrome.kill(); } }
-    if (server) server.kill();
+    // The same teardown the other two browser tests use. A hand-rolled kill
+    // that does not await the exit leaves Chrome writing its profile directory
+    // while rmSync walks it, which fails with ENOTEMPTY.
+    if (cdp) {
+      await Promise.race([
+        cdp.send("Browser.close").catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+      cdp.close();
+    }
+    await stopProcess(chrome, true);
+    await stopProcess(server);
     fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     fs.rmSync(codexDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

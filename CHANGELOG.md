@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 - 2026-08-22
 
 - Added global prompt management for both agents. Each instruction file holds one document at a time and the alternatives live in this manager's own `0600` store, the same shape the Codex provider list already uses. Pi reads `AGENTS.md`, `SYSTEM.md`, and `APPEND_SYSTEM.md` from `~/.pi/agent`; Codex reads `AGENTS.md` from `$CODEX_HOME` — verified against Pi's own README and, for Codex, by finding the file's text in `codex debug prompt-input`. One screen serves both agents because the server declares which files each one reads, so neither is special-cased. A file that predates the manager is adopted rather than presented as absent, on the read path only, and deleting the document currently in a file requires naming its replacement.
 - Prompt text is returned to the browser, unlike a credential. That is a deliberate exception, recorded in `AGENTS.md`: a document nobody can read back cannot be edited, and anything secret belongs in a credential.
