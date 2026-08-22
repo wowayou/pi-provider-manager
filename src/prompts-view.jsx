@@ -211,7 +211,7 @@ export function PromptsScreen({ target, state, saving, error, onSave, onActivate
               {selected && !isNew && (
                 <button
                   type="button"
-                  className={`danger-button ${armedDelete === selectedId ? "is-armed" : ""}`}
+                  className={`prompt-delete ${armedDelete === selectedId ? "is-armed" : ""}`}
                   disabled={saving || deleteBlocked}
                   onClick={requestDelete}
                 >
