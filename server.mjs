@@ -334,6 +334,9 @@ function publicState() {
       nodeVersion: process.version,
       servicePort: PORT,
       serviceHost: HOST,
+      // So a launcher that finds this instance already running can offer to
+      // stop exactly it, rather than pattern-matching a path it only assumed.
+      servicePid: process.pid,
     },
   };
 }

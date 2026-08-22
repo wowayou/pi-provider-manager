@@ -173,16 +173,29 @@ if [[ "$reused" -eq 1 ]]; then
             state.compatibility?.appVersion || "",
             state.agentDir || "",
             state.codex?.dir || "",
+            state.compatibility?.servicePid || "",
           ].join("\n"));
         } catch {}
       });
     ' 2>/dev/null || true)"
   running_version="$(printf '%s' "$running" | sed -n 1p)"
+  running_pid="$(printf '%s' "$running" | sed -n 4p)"
+  # An instance older than 0.3.0 does not report its process id. Ask the kernel
+  # who holds the port instead — anything else is a guess, and the guess this
+  # used to print named *this* launcher's directory, which is exactly the
+  # directory the running instance is not in during an upgrade.
+  if [[ -z "$running_pid" ]] && command -v ss >/dev/null 2>&1; then
+    running_pid="$(ss -ltnpH "sport = :$port" 2>/dev/null | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2)"
+  fi
   echo "  (reused the instance already running on this port${running_version:+, version $running_version})"
   echo "  Pi config:    $(printf '%s' "$running" | sed -n 2p)"
   echo "  Codex config: $(printf '%s' "$running" | sed -n 3p)"
   echo "  Restart it to pick up an upgrade or a newly installed LiteLLM:"
-  echo "    pkill -f '$project_dir/server.mjs' && '$0'"
+  if [[ -n "$running_pid" ]]; then
+    echo "    kill $running_pid && '$0'"
+  else
+    echo "    Could not determine its process id. Find it with: pgrep -af server.mjs"
+  fi
 else
   echo "  Pi config:    $agent_dir"
   echo "  Codex config: $codex_dir"

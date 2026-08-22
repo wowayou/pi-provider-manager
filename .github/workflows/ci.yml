@@ -26,6 +26,7 @@ jobs:
       - run: npm run test:server
       - run: npm run test:codex
       - run: npm run test:prompts
+      - run: npm run test:launcher
       - run: npm run test:sites
       - run: npm run test:pi-update
 
