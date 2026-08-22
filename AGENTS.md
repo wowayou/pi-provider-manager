@@ -27,6 +27,7 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - Optimize long model catalogs with a sticky header, internal scrolling, compact rows, and bulk model-ID import.
 - Public screenshots and documentation must not expose machine-specific home paths or credentials.
 - The product is in focused maintenance mode. Do not pursue CC Switch feature parity or revive the unstarted CSV/import, model-discovery, session, Skills, usage, or proxy roadmap unless the owner explicitly reopens it; prioritize security, confirmed correctness defects, and Pi compatibility.
+- **The owner explicitly reopened scope a second time, on 2026-08-22, to add global prompt management.** Both agents' instruction files live in the config directory this manager already owns, so `lib/prompt-library.mjs` serves both from one declaration of which files each agent reads. Prompt text is returned to the browser on purpose — a document nobody can read back cannot be edited — which is a stated exception to the credential rule, not a leak.
 - **The owner explicitly reopened scope once, on 2026-08-21, to add Codex CLI support.** It is a deliberate second target, not feature-parity drift, and it stays narrow: providers, credentials, and the active selection. Presets, model discovery, usage dashboards, and a traffic proxy remain out of scope. Do not remove Codex support as out-of-bounds maintenance work.
 
 ## Interaction and UI Conventions

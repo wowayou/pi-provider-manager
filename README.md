@@ -96,6 +96,21 @@ This manager writes no `[profiles.*]` tables. Codex 0.149.0 treats profiles in `
 
 Note that a bridged provider only serves the models you listed in the wizard — LiteLLM answers for those and nothing else, so `-m` with an unconfigured model fails at the bridge. Add it in the UI first.
 
+### Global prompts
+
+Both agents read their global instructions from the directory this manager already owns, so one screen serves both. Each file holds one document at a time; the alternatives live in the manager's own store, exactly as inactive providers do.
+
+| Agent | File | Effect |
+|---|---|---|
+| Pi | `~/.pi/agent/AGENTS.md` | concatenated with the project's and parent directories' `AGENTS.md` |
+| Pi | `~/.pi/agent/SYSTEM.md` | replaces the default system prompt entirely |
+| Pi | `~/.pi/agent/APPEND_SYSTEM.md` | appended to the default system prompt |
+| Codex | `$CODEX_HOME/AGENTS.md` | concatenated with the project's `AGENTS.md` |
+
+A file that predates the manager is adopted rather than presented as absent, on the read path only — opening the screen never writes. Deleting the document that is currently in a file requires naming its replacement, the same rule as deleting a live provider.
+
+Prompt text is returned to the browser, unlike a credential. That is deliberate: a document nobody can read back cannot be edited. Anything secret belongs in a credential, not in a prompt.
+
 ### Upstreams that only expose `/v1/chat/completions`
 
 Codex cannot talk to these directly and no configuration can change that — a translation layer is required. The manager configures and supervises one for you; you only install it.
@@ -154,7 +169,7 @@ This project is in maintenance mode. New work is limited to confirmed defects, s
 
 Codex support was added deliberately and stays narrow: providers, credentials, and the active selection. It does not add presets, model discovery, usage dashboards, or a traffic proxy.
 
-CC Switch 3.20 added a comprehensive Pi integration for provider presets, model discovery, prompts, Skills, sessions, and usage. It deliberately does not read or write Pi's `auth.json`, `defaultProvider`, or `defaultModel`. Pi Provider Manager remains a smaller, database-free tool for that credential/default boundary and the three-file invariants around it. Both can use the same Pi files, but a stale page must reload after another editor changes them.
+CC Switch 3.20 added a comprehensive Pi integration for provider presets, model discovery, prompts, Skills, sessions, and usage. It deliberately does not read or write Pi's `auth.json`, `defaultProvider`, or `defaultModel`. Pi Provider Manager remains a smaller, database-free tool for that credential/default boundary, the three-file invariants around it, and the global instruction files beside them. Both can use the same Pi files, but a stale page must reload after another editor changes them.
 
 ## Install a release archive
 

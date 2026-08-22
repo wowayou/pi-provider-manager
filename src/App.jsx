@@ -11,6 +11,7 @@ import {
   Copy,
   Cube,
   Desktop,
+  FileText,
   Gear,
   GoogleLogo,
   Info,
@@ -34,6 +35,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { changedPersistedModel, selectedNamedModel } from "./model-draft.mjs";
+import { PromptsScreen } from "./prompts-view.jsx";
 import { BulkModal, Spinner, createRadioKeyHandler, readApiResponse, titleFromId } from "./ui-kit.jsx";
 import {
   CodexDeleteDialog,
@@ -210,8 +212,40 @@ function blankForm() {
   };
 }
 
+const DEMO_PROMPT_LIMITS = { maxBytes: 262144, maxDocuments: 50 };
+function demoSlot(id, file, note, documents, activeId) {
+  return { id, file, path: `…/${file}`, label: file, note, present: documents.length > 0, activeId, adoptedId: "", documents, };
+}
+
 const DEMO_STATE = {
   agentDir: "~/.pi/agent",
+  prompts: {
+    pi: {
+      dir: "~/.pi/agent",
+      revision: "",
+      limits: DEMO_PROMPT_LIMITS,
+      slots: [
+        demoSlot("agents", "AGENTS.md", "与父目录、当前目录的 AGENTS.md 拼接后一起送给模型。", [
+          { id: "chinese", name: "中文优先", text: "# 我的规则\n\n始终使用中文回复。\n提交前先跑测试。\n", adopted: false, isActive: true },
+          { id: "english", name: "English", text: "Answer in English.\n", adopted: false, isActive: false },
+        ], "chinese"),
+        demoSlot("system", "SYSTEM.md", "整体替换默认系统提示。写错会影响 Pi 的全部行为。", [], ""),
+        demoSlot("append-system", "APPEND_SYSTEM.md", "追加在默认系统提示之后，不替换它。", [
+          { id: "safety", name: "安全守则", text: "永远不要提交密钥。\n", adopted: false, isActive: true },
+        ], "safety"),
+      ],
+    },
+    codex: {
+      dir: "~/.codex",
+      revision: "",
+      limits: DEMO_PROMPT_LIMITS,
+      slots: [
+        demoSlot("agents", "AGENTS.md", "与项目里的 AGENTS.md 拼接后一起送给模型。", [
+          { id: "default", name: "默认", text: "# Codex\n\n改动要小而可复核。\n", adopted: false, isActive: true },
+        ], "default"),
+      ],
+    },
+  },
   compatibility: { appVersion: __APP_VERSION__, piVersion: __PI_VALIDATED_VERSION__, validatedPiVersion: __PI_VALIDATED_VERSION__, codexVersion: __CODEX_VALIDATED_VERSION__, validatedCodexVersion: __CODEX_VALIDATED_VERSION__, configMode: "preserve-unknown-fields", configDirSource: "default-home", nodeVersion: "v22.0.0", serviceHost: "127.0.0.1", servicePort: 43127 },
   authProviders: ["any-claude", "openai", "deepseek", "moonshot", "qwen", "gemini", "minimax"],
   codex: {
@@ -398,7 +432,7 @@ function TargetSwitch({ target, onTarget }) {
   );
 }
 
-function Sidebar({ state, target, onTarget, selectedId, onSelect, onAdd, onSettings, activeView, theme, onTheme }) {
+function Sidebar({ state, target, onTarget, selectedId, onSelect, onAdd, onSettings, onPrompts, activeView, theme, onTheme }) {
   const [query, setQuery] = useState("");
   const providers = sidebarProviders(state, target);
   const keyword = query.trim().toLowerCase();
@@ -476,7 +510,8 @@ function Sidebar({ state, target, onTarget, selectedId, onSelect, onAdd, onSetti
           <span>{isCodex ? "Codex 只保留一个生效供应商，切换只影响新开的会话。" : "一个 API 网关可以添加多个不同厂商的模型。"}</span>
         </div>
       </div>
-      <button type="button" className={`settings-button ${activeView === "settings" ? "is-active" : ""}`} onClick={onSettings}><Gear size={20} />设置与兼容性</button>
+      <button type="button" className={`settings-button nav-prompts ${activeView === "prompts" ? "is-active" : ""}`} onClick={onPrompts}><FileText size={20} />提示词</button>
+      <button type="button" className={`settings-button nav-settings ${activeView === "settings" ? "is-active" : ""}`} onClick={onSettings}><Gear size={20} />设置与兼容性</button>
       <ThemeSwitch theme={theme} onTheme={onTheme} />
     </aside>
   );
@@ -1597,6 +1632,37 @@ export function App() {
     }
   };
 
+  const promptRequest = async (route, payload) => {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch(route, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, target, revision: state.prompts?.[target]?.revision }),
+      });
+      const data = await readApiResponse(response, "保存失败");
+      setState(data.state);
+      return true;
+    } catch (requestError) {
+      reportRequestError(requestError, setError);
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+  const savePrompt = async (payload) => {
+    if (await promptRequest("/api/prompts", payload)) {
+      showToast(payload.activate ? `已保存并写入 ${payload.slot === "agents" ? "AGENTS.md" : "文件"}` : "已保存");
+    }
+  };
+  const activatePrompt = async (payload) => {
+    if (await promptRequest("/api/prompts/activate", payload)) showToast("已切换生效的提示词");
+  };
+  const deletePrompt = async (payload) => {
+    if (await promptRequest("/api/prompts/delete", payload)) showToast("已删除");
+  };
+
   const deleteCodexProvider = async (payload) => {
     setDeletingProvider(true);
     setDeleteProviderError("");
@@ -1684,6 +1750,7 @@ export function App() {
         onSelect={target === "codex" ? selectCodexProvider : selectProvider}
         onAdd={target === "codex" ? startNewCodex : startNew}
         onSettings={() => { setView("settings"); setError(""); }}
+        onPrompts={() => { setView("prompts"); setError(""); }}
         activeView={view}
         theme={theme}
         onTheme={setTheme}
@@ -1696,6 +1763,18 @@ export function App() {
             <span className="skeleton skeleton-block" />
             <p>正在读取{target === "codex" ? " Codex " : " Pi "}配置…</p>
           </div>
+        ) : view === "prompts" ? (
+          <PromptsScreen
+            target={target}
+            state={state}
+            saving={saving}
+            error={error}
+            onSave={savePrompt}
+            onActivate={activatePrompt}
+            onDelete={deletePrompt}
+            onNotify={showToast}
+            onBack={() => { setView("wizard"); setError(""); }}
+          />
         ) : target === "codex" ? (
           codex.available === false ? (
             <div className="error-banner is-standalone" role="alert">

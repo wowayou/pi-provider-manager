@@ -18,6 +18,7 @@ import {
 } from "./lib/atomic-files.mjs";
 import { createCodexConfig } from "./lib/codex-config.mjs";
 import { createBridgeRunner } from "./lib/litellm-bridge.mjs";
+import { createPromptLibrary } from "./lib/prompt-library.mjs";
 import { ConflictError, PROVIDER_ID_PATTERN, isLoopbackHostname, normalizeUrl } from "./lib/validation.mjs";
 
 const HOST = "127.0.0.1";
@@ -58,6 +59,39 @@ const REVISION_KEY = crypto.randomBytes(32);
 // invalidate an in-flight draft for the other.
 const codex = createCodexConfig({ dir: CODEX_DIR, dirSource: CODEX_DIR_SOURCE, revisionKey: REVISION_KEY });
 const bridge = createBridgeRunner({ dir: CODEX_DIR });
+
+// Both agents read their global instructions from the directory this manager
+// already owns, so one module serves both — each only declares which files it
+// reads and what each one does. Verified against Pi's own README and, for
+// Codex, by finding the text of $CODEX_HOME/AGENTS.md in `codex debug
+// prompt-input`. These carry their own revisions, separate again from provider
+// edits: rewriting a prompt must not invalidate a provider draft.
+const prompts = {
+  pi: createPromptLibrary({
+    dir: AGENT_DIR,
+    revisionKey: REVISION_KEY,
+    subject: "Pi 提示词",
+    slots: [
+      { id: "agents", file: "AGENTS.md", label: "AGENTS.md", note: "与父目录、当前目录的 AGENTS.md 拼接后一起送给模型。" },
+      { id: "system", file: "SYSTEM.md", label: "SYSTEM.md", note: "整体替换默认系统提示。写错会影响 Pi 的全部行为。" },
+      { id: "append-system", file: "APPEND_SYSTEM.md", label: "APPEND_SYSTEM.md", note: "追加在默认系统提示之后，不替换它。" },
+    ],
+  }),
+  codex: createPromptLibrary({
+    dir: CODEX_DIR,
+    revisionKey: REVISION_KEY,
+    subject: "Codex 提示词",
+    slots: [
+      { id: "agents", file: "AGENTS.md", label: "AGENTS.md", note: "与项目里的 AGENTS.md 拼接后一起送给模型。" },
+    ],
+  }),
+};
+
+function promptLibrary(payload) {
+  const library = prompts[String(payload.target || "")];
+  if (!library) throw new Error("未知的目标（应为 pi 或 codex）。");
+  return library;
+}
 
 // Keeps LiteLLM's config file in step with the store after any write that
 // could have changed a provider's bridge or model list. A failure here must
@@ -287,6 +321,7 @@ function publicState() {
     // from a stored value. Say which keys settings.json actually carries.
     settingsPresent: SETTINGS_KEYS.filter((key) => Object.hasOwn(settings, key)),
     codex: codexState(),
+    prompts: { pi: prompts.pi.publicState(), codex: prompts.codex.publicState() },
     compatibility: {
       appVersion: APP_VERSION,
       piVersion: PI_VERSION,
@@ -761,6 +796,24 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "POST" && request.url === "/api/codex/bridge/stop") {
       const result = bridge.stop();
       sendJson(response, 200, { ok: true, stopped: result.stopped, bridge: bridgeStatus() });
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/prompts") {
+      const body = await readBody(request);
+      promptLibrary(body).saveDocument(body);
+      sendJson(response, 200, { ok: true, state: publicState() });
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/prompts/activate") {
+      const body = await readBody(request);
+      promptLibrary(body).activate(body);
+      sendJson(response, 200, { ok: true, state: publicState() });
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/prompts/delete") {
+      const body = await readBody(request);
+      promptLibrary(body).deleteDocument(body);
+      sendJson(response, 200, { ok: true, state: publicState() });
       return;
     }
     if (request.method === "POST" && request.url === "/api/codex/bridge-check") {

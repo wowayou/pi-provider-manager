@@ -456,7 +456,7 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     await cdp.waitFor(`document.querySelectorAll('.model-row').length === 4`);
     assert.equal(await cdp.evaluate(`document.querySelector('.model-row:last-child .model-name-cell input').readOnly`), false);
 
-    await cdp.evaluate(`document.querySelector('.settings-button').click()`);
+    await cdp.evaluate(`document.querySelector('.nav-settings').click()`);
     await cdp.waitFor(`document.querySelector('.settings-page') && document.querySelector('.settings-footer')`);
     const settingsFrame = await cdp.evaluate(`(() => {
       const page = document.querySelector('.settings-page').getBoundingClientRect();
@@ -568,7 +568,7 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     const externallyEditedSettings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
     externallyEditedSettings.externalEditorField = "keep-external-change";
     fs.writeFileSync(path.join(agentDir, "settings.json"), `${JSON.stringify(externallyEditedSettings, null, 2)}\n`);
-    await cdp.evaluate(`document.querySelector('.settings-button').click()`);
+    await cdp.evaluate(`document.querySelector('.nav-settings').click()`);
     await cdp.waitFor(`document.querySelector('.settings-page') && !document.querySelector('.settings-footer .primary-button').disabled`);
     await cdp.evaluate(`document.querySelector('.settings-footer .primary-button').click()`);
     await cdp.waitFor(`document.querySelector('.toast.is-error .toast-action') && document.querySelector('.error-banner').textContent.includes('其他程序或标签页')`);
@@ -786,6 +786,156 @@ test("production UI drives the Codex workspace", { timeout: 90_000 }, async () =
     }
     await stopProcess(chrome, true);
     await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(codexDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("production UI drives the prompt library for both agents", { timeout: 90_000 }, async () => {
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-prompts-pi-"));
+  const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-prompts-codex-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-prompts-"));
+  writeFixture(agentDir);
+  // A hand-written file that predates the manager, which must be adopted rather
+  // than presented as absent and then overwritten.
+  const handWritten = "# 我手写的规则\n始终使用中文回复。\n";
+  fs.writeFileSync(path.join(agentDir, "AGENTS.md"), handWritten);
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server;
+  let chrome;
+  let cdp;
+  let serverOutput = "";
+
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CODEX_DIR: codexDir,
+        PI_PROVIDER_MANAGER_SERVE_UI: "1",
+        PI_PROVIDER_MANAGER_PORT: String(appPort),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; });
+    server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${appPort}/api/state`);
+
+    chrome = spawn(chromePath, [
+      "--headless",
+      "--no-sandbox",
+      "--disable-gpu",
+      `--remote-debugging-port=${debugPort}`,
+      `--user-data-dir=${profileDir}`,
+      "about:blank",
+    ], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
+
+    const target = await fetch(
+      `http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(`http://127.0.0.1:${appPort}`)}`,
+      { method: "PUT" },
+    ).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl);
+    await cdp.send("Page.enable");
+    await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
+    await cdp.waitFor(`document.querySelector('.target-switch')`);
+
+    const clickText = (selector, text) =>
+      cdp.evaluate(`[...document.querySelectorAll(${JSON.stringify(selector)})]
+        .find((node) => node.textContent.includes(${JSON.stringify(text)})).click()`);
+    // "some item has the badge" is already true before an activation lands, so
+    // waiting on that races the request. Wait for the badge to be on the item
+    // that is supposed to receive it.
+    const liveBadgeOn = (name) => cdp.waitFor(`[...document.querySelectorAll('.prompt-item')]
+      .find((node) => node.textContent.includes(${JSON.stringify(name)}))?.querySelector('.live-default-badge')`);
+
+    await cdp.evaluate(`document.querySelector('.nav-prompts').click()`);
+    // The textarea exists one paint before the effect fills it, so waiting on
+    // the element alone snapshots an empty draft on a slow runner.
+    await cdp.waitFor(`document.querySelector('.prompt-editor textarea')?.value.includes('我手写的规则')`);
+
+    // Pi declares three files; the hand-written one is adopted and shown live.
+    const opened = await cdp.evaluate(`({
+      slots: [...document.querySelectorAll('.prompt-slot code')].map((node) => node.textContent),
+      items: [...document.querySelectorAll('.prompt-item-name')].map((node) => node.textContent),
+      badges: [...document.querySelectorAll('.prompt-item .provider-badge')].map((node) => node.textContent),
+      live: document.querySelector('.prompt-item .live-default-badge')?.textContent || "",
+      text: document.querySelector('.prompt-editor textarea').value,
+    })`);
+    assert.deepEqual(opened.slots, ["AGENTS.md", "SYSTEM.md", "APPEND_SYSTEM.md"]);
+    assert.deepEqual(opened.items, ["现有内容"]);
+    assert.deepEqual(opened.badges, ["已接管"]);
+    assert.equal(opened.live, "生效中");
+    assert.equal(opened.text, handWritten);
+    // Rendering an adopted file must not have written anything.
+    assert.equal(fs.readFileSync(path.join(agentDir, "AGENTS.md"), "utf8"), handWritten);
+
+    // Add a second document and make it live.
+    await clickText(".prompt-list .add-provider", "新建提示词");
+    await cdp.evaluate(`(() => {
+      const set = (element, value, proto) => {
+        Object.getOwnPropertyDescriptor(proto, 'value').set.call(element, value);
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      set(document.querySelector('.prompt-editor input'), 'English 优先', window.HTMLInputElement.prototype);
+      set(document.querySelector('.prompt-editor textarea'), 'Answer in English.\\n', window.HTMLTextAreaElement.prototype);
+    })()`);
+    await clickText(".prompt-actions .primary-button", "保存并写入文件");
+    await cdp.waitFor(`[...document.querySelectorAll('.prompt-item-name')].length === 2`);
+    await liveBadgeOn("English 优先");
+    assert.equal(fs.readFileSync(path.join(agentDir, "AGENTS.md"), "utf8"), "Answer in English.\n");
+
+    // Switching back restores the adopted text, which proves it was kept.
+    await clickText(".prompt-item", "现有内容");
+    await cdp.waitFor(`document.querySelector('.prompt-editor textarea').value.includes('我手写的规则')`);
+    await clickText(".prompt-actions .secondary-button", "启用这一份");
+    await liveBadgeOn("现有内容");
+    assert.equal(fs.readFileSync(path.join(agentDir, "AGENTS.md"), "utf8"), handWritten);
+
+    // A different file in the same agent is independent.
+    await clickText(".prompt-slot", "SYSTEM.md");
+    await cdp.waitFor(`document.querySelector('.prompt-editor textarea').value === ''`);
+    await cdp.evaluate(`(() => {
+      const set = (element, value, proto) => {
+        Object.getOwnPropertyDescriptor(proto, 'value').set.call(element, value);
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      set(document.querySelector('.prompt-editor input'), '精简', window.HTMLInputElement.prototype);
+      set(document.querySelector('.prompt-editor textarea'), 'Be terse.\\n', window.HTMLTextAreaElement.prototype);
+    })()`);
+    await clickText(".prompt-actions .primary-button", "保存并写入文件");
+    await liveBadgeOn("精简");
+    assert.equal(fs.readFileSync(path.join(agentDir, "SYSTEM.md"), "utf8"), "Be terse.\n");
+    assert.equal(fs.readFileSync(path.join(agentDir, "AGENTS.md"), "utf8"), handWritten, "the other file is untouched");
+
+    // The same screen serves Codex, which declares only one file.
+    await clickText(".target-switch button", "Codex");
+    await cdp.evaluate(`document.querySelector('.nav-prompts').click()`);
+    await cdp.waitFor(`document.querySelector('.prompt-editor textarea')`);
+    assert.equal(await cdp.evaluate(`document.querySelectorAll('.prompt-slot').length`), 0, "one file needs no tabs");
+    await cdp.evaluate(`(() => {
+      const set = (element, value, proto) => {
+        Object.getOwnPropertyDescriptor(proto, 'value').set.call(element, value);
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      set(document.querySelector('.prompt-editor input'), 'Codex 的', window.HTMLInputElement.prototype);
+      set(document.querySelector('.prompt-editor textarea'), 'Codex only.\\n', window.HTMLTextAreaElement.prototype);
+    })()`);
+    await clickText(".prompt-actions .primary-button", "保存并写入文件");
+    await liveBadgeOn("Codex 的");
+    assert.equal(fs.readFileSync(path.join(codexDir, "AGENTS.md"), "utf8"), "Codex only.\n");
+    assert.equal(fs.readFileSync(path.join(agentDir, "AGENTS.md"), "utf8"), handWritten, "Pi's file is not Codex's");
+
+    assert.equal(serverOutput.includes("Error"), false, serverOutput);
+  } finally {
+    if (cdp) await cdp.close();
+    if (chrome) { try { process.kill(-chrome.pid); } catch { chrome.kill(); } }
+    if (server) server.kill();
     fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     fs.rmSync(codexDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
