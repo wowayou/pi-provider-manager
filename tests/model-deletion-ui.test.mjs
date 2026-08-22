@@ -875,6 +875,35 @@ test("production UI drives the prompt library for both agents", { timeout: 90_00
     // Rendering an adopted file must not have written anything.
     assert.equal(fs.readFileSync(path.join(agentDir, "AGENTS.md"), "utf8"), handWritten);
 
+    // The file path is the most important thing in that note, and it was once
+    // painted with --info-code — a background tint, not a text colour — which
+    // rendered it invisible. Assert it is not the colour of its own ground.
+    const notePath = await cdp.evaluate(`(() => {
+      const node = document.querySelector('.prompt-note code');
+      const style = getComputedStyle(node);
+      return { color: style.color, background: style.backgroundColor, text: node.textContent };
+    })()`);
+    assert.notEqual(notePath.color, notePath.background, `the path is invisible: ${JSON.stringify(notePath)}`);
+    assert.match(notePath.text, /AGENTS\.md/);
+
+    // Destructive actions stay quiet until armed everywhere in this app.
+    assert.equal(await cdp.evaluate(`Boolean(document.querySelector('.prompt-actions .prompt-delete'))`), true);
+    assert.equal(await cdp.evaluate(`document.querySelector('.prompt-actions .prompt-delete').classList.contains('is-armed')`), false);
+
+    // A list with more rows than fit fades at that edge, rather than clipping
+    // mid-row with nothing to say there is more.
+    assert.equal(await cdp.evaluate(`document.querySelector('.provider-list').classList.contains('has-more-below')`), false, "nothing to scroll yet");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 380, deviceScaleFactor: 1, mobile: false });
+    await cdp.waitFor(`document.querySelector('.provider-list').classList.contains('has-more-below')`);
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.waitFor(`!document.querySelector('.provider-list').classList.contains('has-more-below')`);
+
+    // The beginner tip costs list space forever unless it can be dismissed.
+    await cdp.waitFor(`document.querySelector('.beginner-tip')`);
+    await cdp.evaluate(`document.querySelector('.tip-dismiss').click()`);
+    await cdp.waitFor(`!document.querySelector('.beginner-tip')`);
+    assert.equal(await cdp.evaluate(`localStorage.getItem('ppm.tip-dismissed')`), "1");
+
     // Add a second document and make it live.
     await clickText(".prompt-list .add-provider", "新建提示词");
     await cdp.evaluate(`(() => {

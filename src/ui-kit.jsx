@@ -2,8 +2,37 @@
 // App.jsx so the Codex view can import them without the two files importing
 // each other.
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { CircleNotch, X } from "@phosphor-icons/react";
+
+// Marks which edges of a scroll container have content beyond them, so the
+// list can fade there. A list that clips mid-row with no cue reads as a
+// rendering fault rather than as "there is more" — which is what nine
+// providers in a 900px window actually looked like.
+export function useScrollEdges(ref, signal) {
+  const [edges, setEdges] = useState({ above: false, below: false });
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return undefined;
+    const update = () => {
+      // Round: fractional scroll positions leave a pixel of slack at the end.
+      const slack = node.scrollHeight - node.clientHeight - node.scrollTop;
+      setEdges({ above: node.scrollTop > 1, below: slack > 1 });
+    };
+    update();
+    node.addEventListener("scroll", update, { passive: true });
+    // scrollHeight changes do not resize the container, so the content is
+    // watched as well as the box.
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    for (const child of node.children) observer.observe(child);
+    return () => {
+      node.removeEventListener("scroll", update);
+      observer.disconnect();
+    };
+  }, [ref, signal]);
+  return edges;
+}
 
 export function Spinner({ size = 18 }) {
   return <CircleNotch className="spinner" size={size} weight="bold" aria-hidden="true" />;

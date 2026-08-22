@@ -36,7 +36,7 @@ import {
 } from "@phosphor-icons/react";
 import { changedPersistedModel, selectedNamedModel } from "./model-draft.mjs";
 import { PromptsScreen } from "./prompts-view.jsx";
-import { BulkModal, Spinner, createRadioKeyHandler, readApiResponse, titleFromId } from "./ui-kit.jsx";
+import { BulkModal, Spinner, createRadioKeyHandler, readApiResponse, titleFromId, useScrollEdges } from "./ui-kit.jsx";
 import {
   CodexDeleteDialog,
   CodexSettingsScreen,
@@ -435,8 +435,27 @@ function TargetSwitch({ target, onTarget }) {
 function Sidebar({ state, target, onTarget, selectedId, onSelect, onAdd, onSettings, onPrompts, activeView, theme, onTheme }) {
   const [query, setQuery] = useState("");
   const providers = sidebarProviders(state, target);
+  const listRef = useRef(null);
+  const [tipDismissed, setTipDismissed] = useState(() => {
+    try {
+      return localStorage.getItem("ppm.tip-dismissed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const dismissTip = () => {
+    setTipDismissed(true);
+    try {
+      localStorage.setItem("ppm.tip-dismissed", "1");
+    } catch {
+      // A dismissal that cannot be remembered still applies to this session.
+    }
+  };
   const keyword = query.trim().toLowerCase();
   const visible = keyword ? providers.filter((provider) => provider.keywords.toLowerCase().includes(keyword)) : providers;
+  // Re-measured whenever the rendered rows change, since a filtered list
+  // changes scrollHeight without resizing the container.
+  const listEdges = useScrollEdges(listRef, visible.length);
   const isCodex = target === "codex";
   return (
     <aside className="sidebar">
@@ -465,7 +484,11 @@ function Sidebar({ state, target, onTarget, selectedId, onSelect, onAdd, onSetti
           />
         </div>
       )}
-      <nav className="provider-list" aria-label="供应商列表">
+      <nav
+        ref={listRef}
+        className={`provider-list ${listEdges.above ? "has-more-above" : ""} ${listEdges.below ? "has-more-below" : ""}`}
+        aria-label="供应商列表"
+      >
         {visible.map((provider) => {
           const Icon = provider.icon;
           const isSelected = selectedId === provider.id && activeView === "wizard";
@@ -483,12 +506,14 @@ function Sidebar({ state, target, onTarget, selectedId, onSelect, onAdd, onSetti
                 <strong>{provider.name}</strong>
                 <small>{provider.subtitle}</small>
               </span>
-              <span className="provider-badge">{provider.badge}</span>
-              {provider.ready ? (
-                <CheckCircle className="status-ok" size={18} weight="fill" aria-label={provider.readyLabel} />
-              ) : (
-                <WarningCircle className="status-warn" size={18} weight="fill" aria-label={provider.notReadyLabel} />
-              )}
+              <span className="provider-trailing">
+                <span className="provider-badge">{provider.badge}</span>
+                {provider.ready ? (
+                  <CheckCircle className="status-ok" size={18} weight="fill" aria-label={provider.readyLabel} />
+                ) : (
+                  <WarningCircle className="status-warn" size={18} weight="fill" aria-label={provider.notReadyLabel} />
+                )}
+              </span>
             </button>
           );
         })}
@@ -503,13 +528,16 @@ function Sidebar({ state, target, onTarget, selectedId, onSelect, onAdd, onSetti
           <p className="list-empty">没有名称或 ID 包含“{query.trim()}”的供应商。</p>
         )}
       </nav>
+      {!tipDismissed && (
       <div className="beginner-tip">
         <Info size={22} weight="duotone" />
         <div>
           <strong>新手提示</strong>
           <span>{isCodex ? "Codex 只保留一个生效供应商，切换只影响新开的会话。" : "一个 API 网关可以添加多个不同厂商的模型。"}</span>
         </div>
+        <button type="button" className="tip-dismiss" onClick={dismissTip} aria-label="不再显示新手提示"><X size={15} weight="bold" /></button>
       </div>
+      )}
       <button type="button" className={`settings-button nav-prompts ${activeView === "prompts" ? "is-active" : ""}`} onClick={onPrompts}><FileText size={20} />提示词</button>
       <button type="button" className={`settings-button nav-settings ${activeView === "settings" ? "is-active" : ""}`} onClick={onSettings}><Gear size={20} />设置与兼容性</button>
       <ThemeSwitch theme={theme} onTheme={onTheme} />
