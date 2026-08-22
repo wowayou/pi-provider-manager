@@ -848,6 +848,11 @@ test("production UI drives the prompt library for both agents", { timeout: 90_00
     const clickText = (selector, text) =>
       cdp.evaluate(`[...document.querySelectorAll(${JSON.stringify(selector)})]
         .find((node) => node.textContent.includes(${JSON.stringify(text)})).click()`);
+    // "some item has the badge" is already true before an activation lands, so
+    // waiting on that races the request. Wait for the badge to be on the item
+    // that is supposed to receive it.
+    const liveBadgeOn = (name) => cdp.waitFor(`[...document.querySelectorAll('.prompt-item')]
+      .find((node) => node.textContent.includes(${JSON.stringify(name)}))?.querySelector('.live-default-badge')`);
 
     await cdp.evaluate(`document.querySelector('.nav-prompts').click()`);
     await cdp.waitFor(`document.querySelector('.prompt-editor textarea')`);
@@ -880,13 +885,14 @@ test("production UI drives the prompt library for both agents", { timeout: 90_00
     })()`);
     await clickText(".prompt-actions .primary-button", "保存并写入文件");
     await cdp.waitFor(`[...document.querySelectorAll('.prompt-item-name')].length === 2`);
+    await liveBadgeOn("English 优先");
     assert.equal(fs.readFileSync(path.join(agentDir, "AGENTS.md"), "utf8"), "Answer in English.\n");
 
     // Switching back restores the adopted text, which proves it was kept.
     await clickText(".prompt-item", "现有内容");
     await cdp.waitFor(`document.querySelector('.prompt-editor textarea').value.includes('我手写的规则')`);
     await clickText(".prompt-actions .secondary-button", "启用这一份");
-    await cdp.waitFor(`document.querySelector('.prompt-item .live-default-badge')`);
+    await liveBadgeOn("现有内容");
     assert.equal(fs.readFileSync(path.join(agentDir, "AGENTS.md"), "utf8"), handWritten);
 
     // A different file in the same agent is independent.
@@ -901,7 +907,7 @@ test("production UI drives the prompt library for both agents", { timeout: 90_00
       set(document.querySelector('.prompt-editor textarea'), 'Be terse.\\n', window.HTMLTextAreaElement.prototype);
     })()`);
     await clickText(".prompt-actions .primary-button", "保存并写入文件");
-    await cdp.waitFor(`document.querySelector('.prompt-item .live-default-badge')`);
+    await liveBadgeOn("精简");
     assert.equal(fs.readFileSync(path.join(agentDir, "SYSTEM.md"), "utf8"), "Be terse.\n");
     assert.equal(fs.readFileSync(path.join(agentDir, "AGENTS.md"), "utf8"), handWritten, "the other file is untouched");
 
@@ -919,7 +925,7 @@ test("production UI drives the prompt library for both agents", { timeout: 90_00
       set(document.querySelector('.prompt-editor textarea'), 'Codex only.\\n', window.HTMLTextAreaElement.prototype);
     })()`);
     await clickText(".prompt-actions .primary-button", "保存并写入文件");
-    await cdp.waitFor(`document.querySelector('.prompt-item .live-default-badge')`);
+    await liveBadgeOn("Codex 的");
     assert.equal(fs.readFileSync(path.join(codexDir, "AGENTS.md"), "utf8"), "Codex only.\n");
     assert.equal(fs.readFileSync(path.join(agentDir, "AGENTS.md"), "utf8"), handWritten, "Pi's file is not Codex's");
 
