@@ -1,12 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 - 2026-08-22
 
 - The provider list fades at an edge it can scroll past. Nine providers in a 900px window clipped a row in half with nothing to say there was more, which reads as a rendering fault rather than as a list.
 - Each provider row got about 30px of name back. The row reserved a fixed trailing column for the status icon behind a badge column that collapses on every Pi row, so names truncated at widths where they fit easily. Badge and status now share one cell.
 - The beginner tip can be dismissed, and stays dismissed. It is useful once and occupied list space permanently.
 - Fixed the file path in the prompt screen's note being invisible: it was painted with `--info-code`, which is a background tint rather than a text colour. Its delete button is also quiet until armed now, like every other destructive action here.
-
 - Fixed the restart command the launcher prints naming the wrong process. It used this launcher's own directory, which is wrong in exactly the situation anyone reads it: during an upgrade the running instance lives in the previous release's directory, so the command matched nothing and the new launcher kept reusing the old server. It now names the running instance's process id — reported by 0.3.0 and later in `compatibility.servicePid`, and looked up from the port for anything older.
 - Added tests for the bash launcher, which had none and shipped two bugs in consecutive releases. They cover the unconditional URL and directory lines, and that a reused instance is described by itself rather than by the calling shell.
 
