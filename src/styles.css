@@ -788,3 +788,47 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
   .spinner { animation: spin 1.6s linear infinite !important; }
   .skeleton { animation: none !important; background: var(--skeleton-a); }
 }
+
+/* ---------- prompts ---------- */
+/* Same vocabulary as the provider list and settings cards: a library on the
+   left, the document on the right, and one badge marking what is live. */
+.prompt-slots { display: flex; gap: 8px; margin-top: 22px; flex-wrap: wrap; }
+.prompt-slot { flex: 1 1 180px; min-width: 0; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink-2); text-align: left; transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease); }
+.prompt-slot:hover { border-color: var(--border-hover); }
+.prompt-slot.is-active { border-color: var(--orange-edge); background: var(--orange-tint); color: var(--orange-dark); }
+.prompt-slot code { font-size: 13px; font-weight: 700; }
+.prompt-slot small { color: var(--muted); font-size: 11px; }
+.prompt-slot.is-active small { color: var(--orange-dark); opacity: .8; }
+
+.prompt-note { display: flex; align-items: flex-start; gap: 9px; margin: 18px 0 0; padding: 11px 14px; border: 1px solid var(--info-border); border-radius: 10px; background: var(--info-bg); color: var(--ink-2); font-size: 13px; line-height: 1.6; }
+.prompt-note svg { flex: none; margin-top: 2px; color: var(--icon); }
+.prompt-note code { font-family: var(--mono); font-size: 12px; color: var(--info-code); }
+
+.prompt-layout { display: grid; grid-template-columns: minmax(200px, 260px) minmax(0, 1fr); gap: 18px; margin-top: 18px; align-items: start; }
+.prompt-list { display: flex; flex-direction: column; gap: 4px; }
+.prompt-list .add-provider { margin: 0 0 8px; }
+.prompt-item { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 9px 11px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--ink-2); text-align: left; transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease); }
+.prompt-item:hover { background: var(--surface-hover); }
+.prompt-item.is-selected { background: var(--surface-active); border-color: var(--line-strong); color: var(--ink); }
+.prompt-item svg { color: var(--icon-quiet); }
+.prompt-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+
+.prompt-editor { border: 1px solid var(--line); border-radius: 12px; padding: 20px; min-width: 0; }
+.prompt-editor label + label { margin-top: 15px; }
+.prompt-text > span { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.prompt-text small { color: var(--muted); font-size: 11px; font-family: var(--mono); }
+.prompt-text small.is-error { color: var(--danger-text); font-weight: 700; }
+.prompt-editor textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 220px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 9px; background: var(--field); color: var(--ink); font-family: var(--mono); font-size: 12.5px; line-height: 1.65; tab-size: 2; }
+.prompt-editor textarea:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; border-color: var(--orange-edge); }
+
+.prompt-danger { margin-top: 15px; padding: 12px 14px; border: 1px solid var(--danger-border); border-radius: 10px; background: var(--danger-bg); color: var(--danger-text); font-size: 13px; line-height: 1.6; }
+.prompt-danger label { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.prompt-danger select { flex: 1 1 160px; min-width: 0; }
+
+.prompt-actions { display: flex; align-items: center; gap: 10px; margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--divider); flex-wrap: wrap; }
+.prompt-status { display: flex; align-items: center; gap: 6px; margin-right: auto; color: var(--muted); font-size: 12.5px; }
+.prompt-status svg { color: var(--green); }
+
+@media (max-width: 900px) {
+  .prompt-layout { grid-template-columns: minmax(0, 1fr); }
+}
