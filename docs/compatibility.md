@@ -116,3 +116,15 @@ Forward preservation cannot solve semantic or structural changes. A manager rele
 - Pi custom models: <https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md>
 - Pi settings: <https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/settings.md>
 - Pi providers: <https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/providers.md>
+
+Two third-party proxies are tracked as prior art, not as dependencies. Both own the
+Responses translation this project deliberately does not, so they are where to look
+when a Codex wire change needs a worked example:
+
+- codex-relay: <https://github.com/MetaFARS/codex-relay>
+- CLIProxyAPI: <https://github.com/router-for-me/CLIProxyAPI> — Go, MIT. Fronts CLI
+  subscriptions and keyed upstreams with OpenAI (including Responses), Gemini, Claude,
+  and Codex compatible endpoints; a keyed Chat-Completions upstream goes under
+  `openai-compatibility`. Read it for how a maintained translator handles the parts
+  that move, and for the same listener trap this project avoids: `host` defaults to
+  `""` on port 8317, which is every interface.

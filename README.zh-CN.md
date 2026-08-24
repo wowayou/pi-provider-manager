@@ -147,7 +147,7 @@ LiteLLM 没把 FastAPI 钉死。FastAPI 在 `0.140.7` 移除了 `get_flat_depend
 
 在管理器无法证明「已启动的进程仍是自己那个」的平台上（没有 procfs 的系统，包括原生 Windows），它不会去代管进程。配置照样生成，凭据那一步会给出手动运行的命令。Codex 的其余部分（包括直连供应商）不受影响。
 
-**本项目仍然不自己翻译模型流量。** 写第三方配置文件、看管一个进程，和它已经在为 Pi 和 Codex 做的是同一类事；没有任何请求经过管理器。翻译这件事留给 LiteLLM 维护 —— 这很重要，因为一直在动的那一侧是 Codex：reasoning item、加密的 reasoning 内容、tool call 的结构，而 Codex 基本每周发版。[codex-relay](https://github.com/MetaFARS/codex-relay) 是另一个你可以自己跑的选择，那种情况下按普通供应商指向它即可。
+**本项目仍然不自己翻译模型流量。** 写第三方配置文件、看管一个进程，和它已经在为 Pi 和 Codex 做的是同一类事；没有任何请求经过管理器。翻译这件事留给 LiteLLM 维护 —— 这很重要，因为一直在动的那一侧是 Codex：reasoning item、加密的 reasoning 内容、tool call 的结构，而 Codex 基本每周发版。[codex-relay](https://github.com/MetaFARS/codex-relay) 和 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 是另外两个你可以自己跑的选择，那种情况下不用桥，按普通供应商指向它们即可。CLIProxyAPI 自己就提供 Responses 端点，并能在 `openai-compatibility` 下接一个带 key 的 chat/completions 上游，所以在本管理器看来它就是个普通供应商 —— 这里要填的 key 是它自己 `api-keys` 列表里的那个，不是你上游的。它的监听默认是 `host: ""` + 8317 端口，也就是所有网卡，记得自己绑定回本机 —— 理由和本项目把 LiteLLM 钉在 `127.0.0.1` 完全一样。
 
 ### 如果 Codex 提示「project-local config keys」
 

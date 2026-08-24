@@ -201,7 +201,8 @@ function UpstreamStep({ form, setForm, codexVersion, onNext }) {
             </ul>
             <p>
               第二种需要你自己跑一个翻译桥，例如 <code>litellm</code>（在 <code>config.yaml</code> 里给模型加
-              {" "}<code>use_chat_completions_api: true</code>）或 <code>codex-relay</code>。桥负责保管上游的 key，
+              {" "}<code>use_chat_completions_api: true</code>）、<code>codex-relay</code> 或
+              {" "}<code>CLIProxyAPI</code>。桥负责保管上游的 key，
               Codex 只连本机。README 的「Codex 桥接」一节有 WSL 下的最小可跑步骤。
             </p>
           </div>
