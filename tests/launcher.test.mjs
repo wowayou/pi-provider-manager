@@ -72,6 +72,12 @@ function pidsOn(port) {
       });
   }
   // No procfs (macOS): `ps -E` prints the environment after the command.
+  //
+  // UNVERIFIED. This branch was written on WSL2, where procfs always exists, so
+  // it has never actually run. `ps -E` is a BSD extension that Linux's ps does
+  // not accept, which is why it cannot be exercised here either. If cleanup on
+  // macOS leaves servers behind, check this first: the column layout of
+  // `ps -Awwo pid=,command= -E` is the assumption most likely to be wrong.
   try {
     return execFileSync("ps", ["-Awwo", "pid=,command=", "-E"], { encoding: "utf8" })
       .split("\n")

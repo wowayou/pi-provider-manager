@@ -1068,3 +1068,260 @@ test("production UI drives the prompt library for both agents", { timeout: 90_00
     fs.rmSync(codexDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
+
+// Text contrast, measured in the browser rather than reasoned about from the
+// stylesheet. design-qa.md recorded "Colors and visual tokens: passed" for two
+// releases while seventeen pieces of light-theme text sat below WCAG AA — the
+// two primary action buttons among them at 3.05:1. Nothing had ever measured
+// it. Composited colour is the only thing that settles this: a token looks fine
+// in isolation and fails on the surface it lands on, and a ring declared inside
+// :where() loses to any later rule.
+const CONTRAST_AUDIT = `(() => {
+  // Alpha matters: .toast-action paints rgba(255,255,255,.13) over a dark toast.
+  // Reading that as solid white made a legible button look like 1:1 contrast.
+  const parse = (value) => {
+    const parts = String(value).match(/[\\d.]+/g);
+    if (!parts || parts.length < 3) return null;
+    const [r, g, b, a] = parts.map(Number);
+    const alpha = a === undefined ? 1 : a;
+    return alpha === 0 ? null : [r, g, b, alpha];
+  };
+  const over = ([r, g, b, a], [br, bg, bb]) => [
+    r * a + br * (1 - a),
+    g * a + bg * (1 - a),
+    b * a + bb * (1 - a),
+  ];
+  const channel = (value) => {
+    const scaled = value / 255;
+    return scaled <= 0.03928 ? scaled / 12.92 : Math.pow((scaled + 0.055) / 1.055, 2.4);
+  };
+  const luminance = ([r, g, b]) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+  const ratio = (fg, bg) => {
+    const a = luminance(fg);
+    const b = luminance(bg);
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  };
+  // The nearest ancestor that actually paints. A transparent background means
+  // the text sits on whatever is behind it, which is what the eye judges.
+  // Semi-transparent layers stack, so they are collected and then composited
+  // over the first opaque surface underneath — what the eye actually sees.
+  const backdrop = (node) => {
+    const layers = [];
+    let source = null;
+    for (let current = node; current; current = current.parentElement) {
+      const painted = parse(getComputedStyle(current).backgroundColor);
+      if (!painted) continue;
+      if (!source) source = current;
+      if (painted[3] >= 1) {
+        let colour = [painted[0], painted[1], painted[2]];
+        for (const layer of layers.reverse()) colour = over(layer, colour);
+        return { colour, from: source };
+      }
+      layers.push(painted);
+    }
+    let colour = [255, 255, 255];
+    for (const layer of layers.reverse()) colour = over(layer, colour);
+    return { colour, from: source };
+  };
+  const failures = [];
+  let examined = 0;
+  for (const node of document.querySelectorAll("body *")) {
+    // Only elements holding their own text: a wrapper would be measured against
+    // its child's colour and report a failure that is not on screen.
+    const own = [...node.childNodes]
+      .filter((child) => child.nodeType === 3)
+      .map((child) => child.textContent.trim())
+      .join("");
+    if (!own) continue;
+    const style = getComputedStyle(node);
+    if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0) continue;
+    const box = node.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) continue;
+    const parsedColour = parse(style.color);
+    if (!parsedColour) continue;
+    examined += 1;
+    const size = parseFloat(style.fontSize);
+    const weight = Number(style.fontWeight) || 400;
+    // WCAG 1.4.3: 24px, or 18.66px when bold, drops the requirement to 3:1.
+    const required = size >= 24 || (size >= 18.66 && weight >= 700) ? 3 : 4.5;
+    const behind = backdrop(node);
+    // Text with its own alpha blends into whatever is behind it as well.
+    const foreground = parsedColour[3] >= 1
+      ? [parsedColour[0], parsedColour[1], parsedColour[2]]
+      : over(parsedColour, behind.colour);
+    const measured = ratio(foreground, behind.colour);
+    if (measured + 0.005 < required) {
+      failures.push({
+        text: own.slice(0, 30),
+        ratio: Math.round(measured * 100) / 100,
+        required,
+        size,
+        weight,
+        selector: node.className ? \`\${node.tagName.toLowerCase()}.\${String(node.className).split(" ")[0]}\` : node.tagName.toLowerCase(),
+        on: behind.from ? \`\${behind.from.tagName.toLowerCase()}.\${String(behind.from.className).split(" ")[0]}\` : "page",
+      });
+    }
+  }
+  return { failures, examined, theme: document.documentElement.dataset.theme || "light" };
+})()`;
+
+test("every piece of text meets WCAG AA contrast in both themes", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-contrast-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-contrast-"));
+  writeFixture(agentDir);
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server;
+  let chrome;
+  let cdp;
+  let serverOutput = "";
+  let chromeOutput = "";
+
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_SERVE_UI: "1",
+        PI_PROVIDER_MANAGER_PORT: String(appPort),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; });
+    server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${appPort}/api/state`);
+
+    chrome = spawn(chromePath, [
+      "--headless",
+      "--no-sandbox",
+      "--disable-gpu",
+      `--remote-debugging-port=${debugPort}`,
+      `--user-data-dir=${profileDir}`,
+      "about:blank",
+    ], {
+      detached: process.platform !== "win32",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    chrome.stdout.on("data", (chunk) => { chromeOutput += chunk; });
+    chrome.stderr.on("data", (chunk) => { chromeOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
+
+    const target = await fetch(
+      `http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(`http://127.0.0.1:${appPort}`)}`,
+      { method: "PUT" },
+    ).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl);
+    await cdp.send("Page.enable");
+    await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", {
+      width: 1280,
+      height: 720,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await cdp.send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
+    await cdp.waitFor(`document.querySelectorAll('.model-row').length === 3`);
+
+    // Colour transitions are declared on these surfaces, and a measurement taken
+    // mid-transition reads an interpolated background — which is how an earlier
+    // version of this audit reported white text on a dark panel.
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
+
+    const audit = async (label) => {
+      await settle();
+      const result = await cdp.evaluate(CONTRAST_AUDIT);
+      // Without this the whole test passes on a page that rendered nothing:
+      // zero elements examined is zero failures.
+      assert.ok(
+        result.examined >= 30,
+        `${label}: expected to examine real text, only found ${result.examined} elements`,
+      );
+      assert.deepEqual(
+        result.failures,
+        [],
+        `${label} theme (${result.theme}) has ${result.failures.length} of ${result.examined} text elements below WCAG AA:\n`
+        + result.failures
+          .map((entry) => `  ${entry.ratio}:1 (needs ${entry.required}) ${entry.size}px w${entry.weight} ${entry.selector} on ${entry.on} :: ${entry.text}`)
+          .join("\n"),
+      );
+      return result.examined;
+    };
+
+    // States a freshly loaded page never shows. Each paints from tokens the
+    // default view does not use at all — the toast surface, --danger-*, the
+    // dialog — so auditing only the loaded page leaves them unmeasured, which is
+    // exactly how the palette drifted out of contrast in the first place.
+    const auditTransients = async (label) => {
+      // A plain toast: arming a model delete explains what Pi will read.
+      await cdp.evaluate(`document.querySelectorAll('.provider-item')[0].click()`);
+      await cdp.waitFor(`document.querySelectorAll('.model-row').length === 3`);
+      await cdp.evaluate(`document.querySelector('.model-row .icon-button').click()`);
+      await cdp.waitFor(`document.querySelector('.toast')`);
+      await audit(`${label} with a toast`);
+
+      // The delete dialog, reached the way a single-model provider forces it.
+      await cdp.evaluate(`document.querySelectorAll('.provider-item')[1].click()`);
+      await cdp.waitFor(`document.querySelectorAll('.model-row').length === 1`);
+      await cdp.evaluate(`document.querySelector('.model-row .icon-button').click()`);
+      await cdp.waitFor(`document.querySelector('.toast-action')`);
+      await cdp.evaluate(`document.querySelector('.toast-action').click()`);
+      await cdp.waitFor(`document.querySelector('.provider-delete-dialog')`);
+      await audit(`${label} with the delete dialog`);
+      await cdp.evaluate(`document.querySelector('.provider-delete-dialog .secondary-button').click()`);
+      await cdp.waitFor(`!document.querySelector('.provider-delete-dialog')`);
+
+      // The error banner and the error toast, from a write genuinely refused
+      // because the file moved underneath the draft.
+      const settingsPath = path.join(agentDir, "settings.json");
+      const edited = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+      edited.externalEditorField = `${label}-external-change`;
+      fs.writeFileSync(settingsPath, `${JSON.stringify(edited, null, 2)}\n`);
+      await cdp.evaluate(`document.querySelector('.nav-settings').click()`);
+      await cdp.waitFor(`document.querySelector('.settings-page') && !document.querySelector('.settings-footer .primary-button').disabled`);
+      await cdp.evaluate(`document.querySelector('.settings-footer .primary-button').click()`);
+      await cdp.waitFor(`document.querySelector('.toast.is-error') && document.querySelector('.error-banner')`);
+      await audit(`${label} with the error banner`);
+      // "重新读取" re-reads the configuration and leaves the settings page by
+      // itself, so following it with the page's own back button finds nothing.
+      await cdp.evaluate(`document.querySelector('.toast-action').click()`);
+      await cdp.waitFor(`document.querySelector('.model-row') && !document.querySelector('.error-banner')`);
+    };
+
+    const lightCount = await audit("light");
+    assert.equal(await cdp.evaluate(`document.documentElement.dataset.theme || 'light'`), "light");
+    await auditTransients("light");
+
+    // Through the app's own control rather than localStorage, which throws a
+    // SecurityError on a page that has not finished navigating.
+    await cdp.evaluate(`[...document.querySelectorAll('.theme-switch button')]
+      .find((node) => node.getAttribute('aria-label') === '深色').click()`);
+    await cdp.waitFor(`document.documentElement.dataset.theme === 'dark'`);
+    const darkCount = await audit("dark");
+    await auditTransients("dark");
+
+    // Both themes must have been measured against comparable pages; a collapsed
+    // dark render would otherwise pass on a much smaller sample.
+    assert.ok(
+      Math.abs(lightCount - darkCount) <= 5,
+      `both themes should render the same page, examined ${lightCount} light and ${darkCount} dark`,
+    );
+    assert.equal(cdp.errors.length, 0, JSON.stringify(cdp.errors));
+  } catch (error) {
+    error.message += `\nServer output:\n${serverOutput}\nChrome output:\n${chromeOutput}`;
+    throw error;
+  } finally {
+    if (cdp) {
+      await Promise.race([
+        cdp.send("Browser.close").catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+      cdp.close();
+    }
+    await stopProcess(chrome, true);
+    await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});

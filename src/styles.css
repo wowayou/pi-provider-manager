@@ -13,14 +13,21 @@
 
   /* brand */
   --orange: #f36a21;
-  --orange-dark: #d95213;
+  --orange-dark: #c24911;
   --orange-soft: #fff3ec;
   --orange-tint: #fffaf6;
+  /* The brand orange above carries white text at 3.05:1, short of the 4.5:1
+     WCAG AA wants for body text — and it sits under the two primary actions.
+     Darkening --orange itself would drag every border, ring and badge tint with
+     it, so the fills that actually hold white text use these instead: same hue
+     and saturation, lower lightness. Decoration keeps the brand value. */
+  --orange-strong: #c74a08;
+  --orange-strong-hover: #a83c02;
 
   /* ink ramp */
   --ink: #211e1c;
   --ink-2: #57524d;
-  --ink-3: #8a847e;
+  --ink-3: #6f6964;
 
   /* surfaces */
   --panel: #ffffff;
@@ -29,10 +36,10 @@
   --line-strong: #d9d5d0;
 
   /* status */
-  --green: #1f9455;
+  --green: #1a7e49;
   --blue: #2f6fe4;
   --red: #c0402b;
-  --muted: #77736f;
+  --muted: #726f6d;
 
   /* the machine face: anything you type into or read out of a config file */
   --mono: ui-monospace, "JetBrains Mono", SFMono-Regular, "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
@@ -71,9 +78,9 @@
   --command-text: #33302d;
   --muted-cool: #6a756d;
   --compat-note: #51665a;
-  --step-text: #8c8782;
-  --step-sub: #9b9691;
-  --step-num: #807a75;
+  --step-text: #7a7571;
+  --step-sub: #736f6b;
+  --step-num: #7b7571;
   --step-border: #cfcac5;
   --step-line: #dedbd7;
 
@@ -130,7 +137,7 @@
 
   --ink: #f1eeeb;
   --ink-2: #b0a9a2;
-  --ink-3: #857e77;
+  --ink-3: #8d867e;
   --muted: #9b948d;
 
   --panel: #1c1a19;
@@ -141,6 +148,12 @@
   --orange-dark: #ff8542;
   --orange-soft: #3a2114;
   --orange-tint: #2a1a11;
+  /* Dark mode needs the same treatment for the same reason: these fills keep
+     the brand value in both themes, so white on them fails in both. Kept a
+     little lighter than the light-theme pair so a solid button does not read as
+     a hole in a dark panel, which is still well clear of 4.5:1. */
+  --orange-strong: #c04705;
+  --orange-strong-hover: #a63b02;
 
   --green: #45c883;
   --blue: #82abff;
@@ -172,8 +185,8 @@
   --command-text: #ded8d2;
   --muted-cool: #9aa79f;
   --compat-note: #8fae9c;
-  --step-text: #837c76;
-  --step-sub: #736c66;
+  --step-text: #88817b;
+  --step-sub: #89817a;
   --step-num: #a49c95;
   --step-border: #464039;
   --step-line: #3c3835;
@@ -251,10 +264,10 @@ code { color: var(--ink); background: transparent; }
 /* ---------- sidebar ---------- */
 .sidebar { height: 100%; min-height: 0; overflow: hidden; background: var(--panel); border-right: 1px solid var(--line); padding: 28px 20px 24px; display: flex; flex-direction: column; }
 .brand { display: flex; align-items: center; gap: 12px; font-size: 21px; font-weight: 750; letter-spacing: -.02em; margin: 2px 4px 28px; }
-.brand-icon { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; color: var(--on-brand); background: var(--orange); }
+.brand-icon { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; color: var(--on-brand); background: var(--orange-strong); }
 .brand-icon img { width: 42px; height: 42px; display: block; border-radius: 50%; }
-.add-provider { height: 48px; border: 0; border-radius: 10px; background: var(--orange); color: var(--on-brand); display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; font-size: 16px; box-shadow: 0 8px 22px rgba(243, 106, 33, .19); transition: background var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease); }
-.add-provider:hover { background: var(--orange-dark); box-shadow: 0 10px 26px rgba(243, 106, 33, .26); }
+.add-provider { height: 48px; border: 0; border-radius: 10px; background: var(--orange-strong); color: var(--on-brand); display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; font-size: 16px; box-shadow: 0 8px 22px rgba(243, 106, 33, .19); transition: background var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease); }
+.add-provider:hover { background: var(--orange-strong-hover); box-shadow: 0 10px 26px rgba(243, 106, 33, .26); }
 .add-provider:active { transform: translateY(1px); box-shadow: 0 4px 12px rgba(243, 106, 33, .22); }
 
 .sidebar-label { margin: 28px 5px 12px; color: var(--ink-2); font-size: 13px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
@@ -284,7 +297,10 @@ code { color: var(--ink); background: transparent; }
 .status-warn { color: var(--status-warn); }
 
 .beginner-tip { position: relative; margin-top: auto; border: 1px solid var(--line); border-radius: 12px; padding: 14px 30px 14px 14px; display: flex; gap: 10px; color: var(--tip-text); background: var(--surface-warm); }
-.tip-dismiss { position: absolute; top: 8px; right: 8px; width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-3); display: grid; place-items: center; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
+/* 24px is WCAG 2.2's minimum target size, and the offset is 6px rather than 8px
+   so the wider button still ends where the container's 30px right padding does
+   instead of reaching 2px into the text. */
+.tip-dismiss { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-3); display: grid; place-items: center; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
 .tip-dismiss:hover { background: var(--surface-hover); color: var(--ink-2); }
 .beginner-tip svg { color: var(--orange); flex: none; }
 .beginner-tip div { display: flex; flex-direction: column; gap: 4px; }
@@ -311,8 +327,8 @@ code { color: var(--ink); background: transparent; }
 .step-number { width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid var(--step-border); display: grid; place-items: center; color: var(--step-num); font-weight: 700; font-family: var(--mono); transition: background var(--base) var(--ease), border-color var(--base) var(--ease), color var(--base) var(--ease); }
 .step strong { display: block; font-size: 15px; }
 .step small { display: block; font-size: 11px; color: var(--step-sub); margin-top: 3px; }
-.step.is-active strong, .step.is-active .step-number { color: var(--orange); }
-.step.is-active .step-number { background: var(--orange); color: var(--on-brand); border-color: var(--orange); box-shadow: 0 0 0 4px var(--orange-soft); }
+.step.is-active strong, .step.is-active .step-number { color: var(--orange-dark); }
+.step.is-active .step-number { background: var(--orange-strong); color: var(--on-brand); border-color: var(--orange-strong); box-shadow: 0 0 0 4px var(--orange-soft); }
 .step.is-complete .step-number { color: var(--orange); border-color: var(--orange); }
 .step-line { height: 1px; background: var(--step-line); flex: 1; margin: 0 18px; transition: background var(--base) var(--ease); }
 .step-line.is-complete { background: var(--orange); }
@@ -352,8 +368,8 @@ code { color: var(--ink); background: transparent; }
 .wizard-footer { flex: none; z-index: 4; padding: 16px 36px 24px; border-top: 1px solid var(--line); background: var(--panel); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .footer-actions { display: flex; gap: 10px; }
 .primary-button, .secondary-button, .outline-button, .danger-button { white-space: nowrap; min-height: 44px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 22px; font-weight: 700; transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease); }
-.primary-button { background: var(--orange); color: var(--on-brand); border: 1px solid var(--orange); box-shadow: 0 6px 16px rgba(243, 106, 33, .18); }
-.primary-button:hover:not(:disabled) { background: var(--orange-dark); border-color: var(--orange-dark); box-shadow: 0 8px 20px rgba(243, 106, 33, .26); }
+.primary-button { background: var(--orange-strong); color: var(--on-brand); border: 1px solid var(--orange-strong); box-shadow: 0 6px 16px rgba(243, 106, 33, .18); }
+.primary-button:hover:not(:disabled) { background: var(--orange-strong-hover); border-color: var(--orange-strong-hover); box-shadow: 0 8px 20px rgba(243, 106, 33, .26); }
 .primary-button:active:not(:disabled) { transform: translateY(1px); box-shadow: 0 3px 10px rgba(243, 106, 33, .2); }
 .primary-button:disabled { box-shadow: none; }
 .secondary-button { background: var(--field); color: var(--ink-2); border: 1px solid var(--line-strong); }

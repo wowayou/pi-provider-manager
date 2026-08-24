@@ -41,7 +41,7 @@
 
 - Fonts and typography: passed. Chinese and Latin hierarchy, wrapping, labels, commands, and status copy are legible without target-viewport truncation.
 - Spacing and layout rhythm: passed. Main editor stays within the viewport; long catalogs scroll internally; Settings and Success pages use coherent desktop spacing.
-- Colors and visual tokens: passed. Orange actions, green success states, blue help links, warnings, borders, and neutral surfaces are consistent.
+- Colors and visual tokens: passed. Orange actions, green success states, blue help links, warnings, borders, and neutral surfaces are consistent. Contrast is measured rather than assumed: `tests/model-deletion-ui.test.mjs` walks every rendered text node in both themes against WCAG AA, resolving each element's real backdrop and applying the large-text exemption. This line once said "passed" on inspection alone, and 17 of 64 elements were in fact below AA — including both primary buttons at 3.05:1, which is why white text sits on `--orange-strong` rather than on the brand `--orange`.
 - Image quality and asset fidelity: passed. The Pi mark comes from the selected source; standard UI icons use Phosphor rather than handcrafted assets.
 - Copy and content: passed. Provider/model/thinking semantics, secret boundary, save handoff, upstream error distinction, and compatibility wording match actual Pi behavior.
 
