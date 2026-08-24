@@ -16,8 +16,21 @@ import process from "node:process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { builtUiProblem } from "./helpers/built-ui.mjs";
+
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const launcher = path.join(projectRoot, "bin", "pi-provider-manager-ui");
+
+// The launcher only needs *a* bundle to serve, so a missing one is a skip. A
+// stale one is a mistake in this checkout, and staying silent about it is how
+// the UI suite once failed on selectors that had nothing to do with the bug.
+function builtUiGate(t) {
+  const problem = builtUiProblem();
+  if (!problem) return false;
+  if (problem.kind === "stale") throw new Error(problem.message);
+  t.skip(problem.message);
+  return true;
+}
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -40,19 +53,39 @@ function run(env) {
   });
 }
 
+// The launcher passes the port through the environment, not the command line,
+// so `pgrep -f PI_PROVIDER_MANAGER_PORT=...` never matched the detached server
+// it was meant to find: it searches argv only. Cleanup silently did nothing and
+// every run of this file leaked two background servers. Read the environment.
 function pidsOn(port) {
+  const needle = `PI_PROVIDER_MANAGER_PORT=${port}\0`;
+  if (fs.existsSync("/proc")) {
+    return fs.readdirSync("/proc")
+      .filter((entry) => /^\d+$/.test(entry))
+      .filter((pid) => {
+        try {
+          return fs.readFileSync(`/proc/${pid}/environ`, "utf8").includes(needle);
+        } catch {
+          // Exited between listing and reading, or owned by someone else.
+          return false;
+        }
+      });
+  }
+  // No procfs (macOS): `ps -E` prints the environment after the command.
   try {
-    return execFileSync("pgrep", ["-f", `PI_PROVIDER_MANAGER_PORT=${port}`], { encoding: "utf8" })
-      .trim().split("\n").filter(Boolean);
+    return execFileSync("ps", ["-Awwo", "pid=,command=", "-E"], { encoding: "utf8" })
+      .split("\n")
+      // Anchored at the end so port 5740 does not match 57404.
+      .filter((line) => new RegExp(`PI_PROVIDER_MANAGER_PORT=${port}(\\s|$)`).test(line))
+      .map((line) => line.trim().split(/\s+/)[0])
+      .filter(Boolean);
   } catch {
     return [];
   }
 }
 
 test("starts, then says so rather than pretending to restart", { skip: process.platform === "win32" ? "bash launcher" : false }, async (t) => {
-  if (!fs.existsSync(path.join(projectRoot, "dist", "client", "index.html"))) {
-    return t.skip("built UI required; run npm run build");
-  }
+  if (builtUiGate(t)) return;
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-launch-pi-"));
   const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-launch-codex-"));
   const port = await freePort();
@@ -94,9 +127,7 @@ test("starts, then says so rather than pretending to restart", { skip: process.p
 });
 
 test("a reused instance is described by itself, not by this shell", { skip: process.platform === "win32" ? "bash launcher" : false }, async (t) => {
-  if (!fs.existsSync(path.join(projectRoot, "dist", "client", "index.html"))) {
-    return t.skip("built UI required; run npm run build");
-  }
+  if (builtUiGate(t)) return;
   const runningPi = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-launch-live-pi-"));
   const runningCodex = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-launch-live-codex-"));
   const otherPi = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-launch-other-pi-"));

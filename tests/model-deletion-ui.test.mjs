@@ -8,6 +8,8 @@ import process from "node:process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { requireFreshBuiltUi } from "./helpers/built-ui.mjs";
+
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function findChrome() {
@@ -126,7 +128,13 @@ class CdpClient {
       awaitPromise: true,
       returnByValue: true,
     });
-    if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+    // exceptionDetails.text is just "Uncaught" for a thrown Error. The message and
+    // stack live on the exception object, so a bare text throw hides the failure.
+    if (result.exceptionDetails) {
+      const { text, exception, lineNumber, columnNumber } = result.exceptionDetails;
+      const detail = exception?.description || exception?.value || text;
+      throw new Error(`${detail} (evaluating at ${lineNumber}:${columnNumber})\n${expression}`);
+    }
     return result.result.value;
   }
 
@@ -200,6 +208,7 @@ const rowMeasurements = `(() => [...document.querySelectorAll('.model-row')].map
 }))()`;
 
 test("production UI protects persisted model deletion paths", { timeout: 60_000 }, async () => {
+  requireFreshBuiltUi();
   const chromePath = findChrome();
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-delete-"));
   const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-"));
@@ -615,6 +624,7 @@ notifications = true
 `;
 
 test("production UI drives the Codex workspace", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
   const chromePath = findChrome();
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-codex-pi-"));
   const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-codex-"));
@@ -793,6 +803,7 @@ test("production UI drives the Codex workspace", { timeout: 90_000 }, async () =
 });
 
 test("production UI drives the prompt library for both agents", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
   const chromePath = findChrome();
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-prompts-pi-"));
   const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-prompts-codex-"));
