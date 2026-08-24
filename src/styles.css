@@ -416,7 +416,17 @@ input[type="checkbox"]:checked { background: var(--orange); }
 input[type="radio"]:checked::before, input[type="checkbox"]:checked::before { transform: scale(1); }
 input[type="radio"]:hover:not(:disabled):not(:checked), input[type="checkbox"]:hover:not(:disabled):not(:checked) { border-color: var(--border-hover); }
 input[type="radio"]:disabled, input[type="checkbox"]:disabled { background: var(--surface-hover); border-color: var(--line); cursor: not-allowed; }
+/* The wide ring the other fields use looks wrong on a 20px box, so it is
+   dropped here. Keyboard focus still has to be visible though: the app-wide
+   ring at the top of this file is declared inside :where(), which has no
+   specificity, so `input:focus-visible { outline: none }` above beats it and
+   these two controls were left with no focus cue at all — the radio that picks
+   the default model among them. Put an outline back for keyboard focus only. */
 input[type="radio"]:focus, input[type="checkbox"]:focus { box-shadow: none; }
+input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
 
 
 .credential-box { margin: 26px 0 0; border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
