@@ -552,6 +552,73 @@ test("refuses a bridge with no upstream key", async () => {
   });
 });
 
+test("refuses an upstream address submitted as the upstream key", async () => {
+  // The two bridge fields sit next to each other in the form. Every layer below
+  // this one accepts a URL in the key slot: LiteLLM starts, Codex connects, and
+  // the only symptom is a 401 from the upstream — nowhere near the cause.
+  await withServer(null, async (api) => {
+    const response = await api.post("/api/codex/providers", newProvider({
+      providerId: "chatonly",
+      credential: { mode: "keep" },
+      bridge: {
+        upstreamBaseUrl: "https://chatonly.example/v1",
+        apiKey: "https://chatonly.example/v1",
+      },
+    }));
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /看起来是一个网址/);
+  });
+});
+
+test("a legacy store that saved a URL as the upstream key asks for a real one", async () => {
+  // Versions before 0.3.0 could persist this, and it stays invisible: the proxy
+  // authenticates with an address forever. Reporting the key as absent is what
+  // makes the UI ask for one, which is the only thing that fixes it.
+  await withServer(null, async (api) => {
+    const upstream = "https://chatonly.example/v1";
+    fs.writeFileSync(api.storePath, JSON.stringify({
+      version: 1,
+      ownedProviderId: "custom",
+      activeProviderId: "chatonly",
+      providers: {
+        chatonly: {
+          name: "Chat-only gateway",
+          baseUrl: "http://127.0.0.1:43210/v1",
+          requiresAuth: false,
+          models: [{ id: "deepseek-chat", reasoningEffort: "medium" }],
+          defaultModelId: "deepseek-chat",
+          credential: null,
+          bridge: {
+            upstreamBaseUrl: upstream,
+            port: 43210,
+            credential: { type: "api_key", key: upstream },
+            models: {},
+          },
+        },
+      },
+    }));
+
+    const { codex } = await api.state();
+    const provider = codex.providers.find((item) => item.id === "chatonly");
+    // The provider survives — only the unusable credential is disowned.
+    assert.equal(provider.bridge.upstreamBaseUrl, upstream);
+    assert.equal(provider.bridge.credentialConfigured, false);
+
+    // And a save must not be able to launder the bad value back in by leaving
+    // the key blank, which normally means "keep the stored one".
+    const response = await api.post("/api/codex/providers", newProvider({
+      providerId: "chatonly",
+      name: "Chat-only gateway",
+      credential: { mode: "keep" },
+      bridge: { upstreamBaseUrl: upstream, apiKey: "" },
+      models: [{ id: "deepseek-chat", reasoningEffort: "medium" }],
+      defaultModelId: "deepseek-chat",
+    }));
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /上游的 API Key/);
+  });
+});
+
 test("names the hand-written provider tables that would stop Codex loading", async () => {
   // Verified against codex-cli 0.149.0: a [model_providers.*] table without
   // `name` makes Codex reject the entire config, not just that provider. This
