@@ -297,7 +297,10 @@ code { color: var(--ink); background: transparent; }
 .status-warn { color: var(--status-warn); }
 
 .beginner-tip { position: relative; margin-top: auto; border: 1px solid var(--line); border-radius: 12px; padding: 14px 30px 14px 14px; display: flex; gap: 10px; color: var(--tip-text); background: var(--surface-warm); }
-.tip-dismiss { position: absolute; top: 8px; right: 8px; width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-3); display: grid; place-items: center; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
+/* 24px is WCAG 2.2's minimum target size, and the offset is 6px rather than 8px
+   so the wider button still ends where the container's 30px right padding does
+   instead of reaching 2px into the text. */
+.tip-dismiss { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-3); display: grid; place-items: center; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
 .tip-dismiss:hover { background: var(--surface-hover); color: var(--ink-2); }
 .beginner-tip svg { color: var(--orange); flex: none; }
 .beginner-tip div { display: flex; flex-direction: column; gap: 4px; }
