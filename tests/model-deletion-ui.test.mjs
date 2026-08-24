@@ -1077,12 +1077,20 @@ test("production UI drives the prompt library for both agents", { timeout: 90_00
 // in isolation and fails on the surface it lands on, and a ring declared inside
 // :where() loses to any later rule.
 const CONTRAST_AUDIT = `(() => {
+  // Alpha matters: .toast-action paints rgba(255,255,255,.13) over a dark toast.
+  // Reading that as solid white made a legible button look like 1:1 contrast.
   const parse = (value) => {
     const parts = String(value).match(/[\\d.]+/g);
     if (!parts || parts.length < 3) return null;
     const [r, g, b, a] = parts.map(Number);
-    return a === 0 ? null : [r, g, b];
+    const alpha = a === undefined ? 1 : a;
+    return alpha === 0 ? null : [r, g, b, alpha];
   };
+  const over = ([r, g, b, a], [br, bg, bb]) => [
+    r * a + br * (1 - a),
+    g * a + bg * (1 - a),
+    b * a + bb * (1 - a),
+  ];
   const channel = (value) => {
     const scaled = value / 255;
     return scaled <= 0.03928 ? scaled / 12.92 : Math.pow((scaled + 0.055) / 1.055, 2.4);
@@ -1095,12 +1103,25 @@ const CONTRAST_AUDIT = `(() => {
   };
   // The nearest ancestor that actually paints. A transparent background means
   // the text sits on whatever is behind it, which is what the eye judges.
+  // Semi-transparent layers stack, so they are collected and then composited
+  // over the first opaque surface underneath — what the eye actually sees.
   const backdrop = (node) => {
+    const layers = [];
+    let source = null;
     for (let current = node; current; current = current.parentElement) {
       const painted = parse(getComputedStyle(current).backgroundColor);
-      if (painted) return { colour: painted, from: current };
+      if (!painted) continue;
+      if (!source) source = current;
+      if (painted[3] >= 1) {
+        let colour = [painted[0], painted[1], painted[2]];
+        for (const layer of layers.reverse()) colour = over(layer, colour);
+        return { colour, from: source };
+      }
+      layers.push(painted);
     }
-    return { colour: [255, 255, 255], from: null };
+    let colour = [255, 255, 255];
+    for (const layer of layers.reverse()) colour = over(layer, colour);
+    return { colour, from: source };
   };
   const failures = [];
   let examined = 0;
@@ -1116,14 +1137,18 @@ const CONTRAST_AUDIT = `(() => {
     if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0) continue;
     const box = node.getBoundingClientRect();
     if (box.width === 0 || box.height === 0) continue;
-    const foreground = parse(style.color);
-    if (!foreground) continue;
+    const parsedColour = parse(style.color);
+    if (!parsedColour) continue;
     examined += 1;
     const size = parseFloat(style.fontSize);
     const weight = Number(style.fontWeight) || 400;
     // WCAG 1.4.3: 24px, or 18.66px when bold, drops the requirement to 3:1.
     const required = size >= 24 || (size >= 18.66 && weight >= 700) ? 3 : 4.5;
     const behind = backdrop(node);
+    // Text with its own alpha blends into whatever is behind it as well.
+    const foreground = parsedColour[3] >= 1
+      ? [parsedColour[0], parsedColour[1], parsedColour[2]]
+      : over(parsedColour, behind.colour);
     const measured = ratio(foreground, behind.colour);
     if (measured + 0.005 < required) {
       failures.push({
@@ -1224,8 +1249,49 @@ test("every piece of text meets WCAG AA contrast in both themes", { timeout: 90_
       return result.examined;
     };
 
+    // States a freshly loaded page never shows. Each paints from tokens the
+    // default view does not use at all — the toast surface, --danger-*, the
+    // dialog — so auditing only the loaded page leaves them unmeasured, which is
+    // exactly how the palette drifted out of contrast in the first place.
+    const auditTransients = async (label) => {
+      // A plain toast: arming a model delete explains what Pi will read.
+      await cdp.evaluate(`document.querySelectorAll('.provider-item')[0].click()`);
+      await cdp.waitFor(`document.querySelectorAll('.model-row').length === 3`);
+      await cdp.evaluate(`document.querySelector('.model-row .icon-button').click()`);
+      await cdp.waitFor(`document.querySelector('.toast')`);
+      await audit(`${label} with a toast`);
+
+      // The delete dialog, reached the way a single-model provider forces it.
+      await cdp.evaluate(`document.querySelectorAll('.provider-item')[1].click()`);
+      await cdp.waitFor(`document.querySelectorAll('.model-row').length === 1`);
+      await cdp.evaluate(`document.querySelector('.model-row .icon-button').click()`);
+      await cdp.waitFor(`document.querySelector('.toast-action')`);
+      await cdp.evaluate(`document.querySelector('.toast-action').click()`);
+      await cdp.waitFor(`document.querySelector('.provider-delete-dialog')`);
+      await audit(`${label} with the delete dialog`);
+      await cdp.evaluate(`document.querySelector('.provider-delete-dialog .secondary-button').click()`);
+      await cdp.waitFor(`!document.querySelector('.provider-delete-dialog')`);
+
+      // The error banner and the error toast, from a write genuinely refused
+      // because the file moved underneath the draft.
+      const settingsPath = path.join(agentDir, "settings.json");
+      const edited = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+      edited.externalEditorField = `${label}-external-change`;
+      fs.writeFileSync(settingsPath, `${JSON.stringify(edited, null, 2)}\n`);
+      await cdp.evaluate(`document.querySelector('.nav-settings').click()`);
+      await cdp.waitFor(`document.querySelector('.settings-page') && !document.querySelector('.settings-footer .primary-button').disabled`);
+      await cdp.evaluate(`document.querySelector('.settings-footer .primary-button').click()`);
+      await cdp.waitFor(`document.querySelector('.toast.is-error') && document.querySelector('.error-banner')`);
+      await audit(`${label} with the error banner`);
+      // "重新读取" re-reads the configuration and leaves the settings page by
+      // itself, so following it with the page's own back button finds nothing.
+      await cdp.evaluate(`document.querySelector('.toast-action').click()`);
+      await cdp.waitFor(`document.querySelector('.model-row') && !document.querySelector('.error-banner')`);
+    };
+
     const lightCount = await audit("light");
     assert.equal(await cdp.evaluate(`document.documentElement.dataset.theme || 'light'`), "light");
+    await auditTransients("light");
 
     // Through the app's own control rather than localStorage, which throws a
     // SecurityError on a page that has not finished navigating.
@@ -1233,6 +1299,7 @@ test("every piece of text meets WCAG AA contrast in both themes", { timeout: 90_
       .find((node) => node.getAttribute('aria-label') === '深色').click()`);
     await cdp.waitFor(`document.documentElement.dataset.theme === 'dark'`);
     const darkCount = await audit("dark");
+    await auditTransients("dark");
 
     // Both themes must have been measured against comparable pages; a collapsed
     // dark render would otherwise pass on a much smaller sample.
