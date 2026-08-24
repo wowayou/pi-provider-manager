@@ -8,6 +8,8 @@ import process from "node:process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { requireFreshBuiltUi } from "./helpers/built-ui.mjs";
+
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function findChrome() {
@@ -126,7 +128,13 @@ class CdpClient {
       awaitPromise: true,
       returnByValue: true,
     });
-    if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+    // exceptionDetails.text is just "Uncaught" for a thrown Error. The message and
+    // stack live on the exception object, so a bare text throw hides the failure.
+    if (result.exceptionDetails) {
+      const { text, exception, lineNumber, columnNumber } = result.exceptionDetails;
+      const detail = exception?.description || exception?.value || text;
+      throw new Error(`${detail} (evaluating at ${lineNumber}:${columnNumber})\n${expression}`);
+    }
     return result.result.value;
   }
 
@@ -200,6 +208,7 @@ const rowMeasurements = `(() => [...document.querySelectorAll('.model-row')].map
 }))()`;
 
 test("production UI protects persisted model deletion paths", { timeout: 60_000 }, async () => {
+  requireFreshBuiltUi();
   const chromePath = findChrome();
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-delete-"));
   const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-"));
@@ -456,6 +465,84 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     await cdp.waitFor(`document.querySelectorAll('.model-row').length === 4`);
     assert.equal(await cdp.evaluate(`document.querySelector('.model-row:last-child .model-name-cell input').readOnly`), false);
 
+    // The radio that picks the default model had no focus indicator at all:
+    // the app's one focus ring is declared with :where() (zero specificity) and
+    // was overridden by `input:focus-visible { outline: none }`, which text
+    // fields survive because they draw a box-shadow ring instead — a ring that
+    // `input[type=radio]:focus { box-shadow: none }` then removed. Keyboard-only
+    // users had no way to see which row they were on. Measured, not asserted
+    // from CSS: only the rendered outline proves it.
+    await cdp.evaluate(`document.querySelector('.model-row .model-name-cell input').focus()`);
+    const radioFocus = await (async () => {
+      for (let press = 0; press < 40; press += 1) {
+        for (const type of ["rawKeyDown", "keyUp"]) {
+          await cdp.send("Input.dispatchKeyEvent", {
+            type,
+            key: "Tab",
+            code: "Tab",
+            windowsVirtualKeyCode: 9,
+            nativeVirtualKeyCode: 9,
+          });
+        }
+        const found = await cdp.evaluate(`(() => {
+          const active = document.activeElement;
+          if (!active || active.type !== "radio") return null;
+          const style = getComputedStyle(active);
+          return {
+            focusVisible: active.matches(":focus-visible"),
+            outlineStyle: style.outlineStyle,
+            outlineWidth: parseFloat(style.outlineWidth) || 0,
+            boxShadow: style.boxShadow,
+          };
+        })()`);
+        if (found) return found;
+      }
+      return null;
+    })();
+    assert.ok(radioFocus, "tabbing reaches the default-model radio");
+    assert.equal(radioFocus.focusVisible, true);
+    // Either cue is acceptable; having neither is not.
+    assert.equal(
+      radioFocus.outlineStyle !== "none" && radioFocus.outlineWidth > 0
+        || (radioFocus.boxShadow && radioFocus.boxShadow !== "none"),
+      true,
+      `keyboard focus on the radio must be visible, got outline ${radioFocus.outlineStyle} ${radioFocus.outlineWidth}px and box-shadow ${radioFocus.boxShadow}`,
+    );
+    // A mouse click must not paint that ring, which is why the rule this
+    // replaced existed at all. It takes real CDP mouse events: element.focus()
+    // and a scripted .click() both still match :focus-visible, so a JS-only
+    // check here would pass no matter what the stylesheet said. The radio
+    // clicked is the one already selected, so the default model does not move.
+    // Blur first: clicking an element that is *already* keyboard-focused fires
+    // no new focus event, so the ring from the Tab above would simply persist
+    // and the click would prove nothing.
+    const radioBox = await cdp.evaluate(`(() => {
+      document.activeElement?.blur();
+      const radio = document.querySelector('.model-row input[type=radio]:checked');
+      const box = radio.getBoundingClientRect();
+      return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+    })()`);
+    for (const type of ["mousePressed", "mouseReleased"]) {
+      await cdp.send("Input.dispatchMouseEvent", {
+        type,
+        x: radioBox.x,
+        y: radioBox.y,
+        button: "left",
+        clickCount: 1,
+      });
+    }
+    const radioAfterClick = await cdp.evaluate(`(() => {
+      const radio = document.querySelector('.model-row input[type=radio]:checked');
+      return {
+        focused: document.activeElement === radio,
+        focusVisible: radio.matches(":focus-visible"),
+        outlineStyle: getComputedStyle(radio).outlineStyle,
+      };
+    })()`);
+    assert.equal(radioAfterClick.focused, true, "the click landed on the radio");
+    assert.equal(radioAfterClick.focusVisible, false);
+    assert.equal(radioAfterClick.outlineStyle, "none");
+
     await cdp.evaluate(`document.querySelector('.nav-settings').click()`);
     await cdp.waitFor(`document.querySelector('.settings-page') && document.querySelector('.settings-footer')`);
     const settingsFrame = await cdp.evaluate(`(() => {
@@ -615,6 +702,7 @@ notifications = true
 `;
 
 test("production UI drives the Codex workspace", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
   const chromePath = findChrome();
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-codex-pi-"));
   const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-codex-"));
@@ -793,6 +881,7 @@ test("production UI drives the Codex workspace", { timeout: 90_000 }, async () =
 });
 
 test("production UI drives the prompt library for both agents", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
   const chromePath = findChrome();
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-prompts-pi-"));
   const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-prompts-codex-"));

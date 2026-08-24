@@ -130,10 +130,10 @@ python3 -m venv ~/.local/litellm && ~/.local/litellm/bin/pip install 'litellm[pr
 如果之后 `litellm --version` 吐的是 traceback 而不是版本号，再**单独**降 FastAPI：
 
 ```bash
-pip install 'fastapi==0.115.14'
+pip install 'fastapi==0.140.6'
 ```
 
-LiteLLM 没把 FastAPI 钉死，而 `fastapi 0.141.1` 会在 import 时报 `cannot import name 'get_flat_dependant'`。
+LiteLLM 没把 FastAPI 钉死。FastAPI 在 `0.140.7` 移除了 `get_flat_dependant`，而 LiteLLM `1.97.0` 仍然 import 它，所以 `0.140.7` 及以上（含当前的 `0.141.1`）都会在 import 时报 `cannot import name 'get_flat_dependant'` —— 偏偏这些版本又都满足 LiteLLM 自己声明的 `fastapi>=0.136.3,<1.0`。`0.140.6` 是仍然可用的最新版本；更旧的比如 `0.115.14` 也可以。
 
 然后在第一步选「上游只有 chat/completions」，填**你上游自己的**地址和 key。剩下的管理器来做：
 

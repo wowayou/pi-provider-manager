@@ -19,6 +19,7 @@
     "dev:ui": "vite",
     "server": "node server.mjs",
     "check:pi-update": "node scripts/check-pi-update.mjs",
+    "test": "npm run build && npm run test:server && npm run test:codex && npm run test:prompts && npm run test:sites && npm run test:pi-update && npm run test:release && npm run test:launcher && npm run test:ui && npm run test:codex-real",
     "test:server": "node --test tests/server.test.mjs tests/model-draft.test.mjs",
     "test:codex": "node --test tests/toml-document.test.mjs tests/litellm-bridge.test.mjs tests/codex-server.test.mjs",
     "test:prompts": "node --test tests/prompt-library.test.mjs",
