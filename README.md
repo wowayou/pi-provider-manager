@@ -130,10 +130,10 @@ Both land somewhere the manager already looks, so no further configuration is ne
 If `litellm --version` then prints a traceback instead of a version, downgrade FastAPI as a **separate** step:
 
 ```bash
-pip install 'fastapi==0.115.14'
+pip install 'fastapi==0.140.6'
 ```
 
-LiteLLM does not pin FastAPI tightly enough, and `fastapi 0.141.1` fails at import with `cannot import name 'get_flat_dependant'`.
+LiteLLM does not pin FastAPI tightly enough. FastAPI removed `get_flat_dependant` in `0.140.7`, and LiteLLM `1.97.0` still imports it, so anything from `0.140.7` up — including the current `0.141.1` — fails at import with `cannot import name 'get_flat_dependant'` while satisfying LiteLLM's own `fastapi>=0.136.3,<1.0`. `0.140.6` is the newest release that works; older ones such as `0.115.14` work too.
 
 Then pick **上游只有 chat/completions** in step one and fill in your *upstream's* address and key. The manager does the rest:
 

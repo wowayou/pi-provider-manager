@@ -142,6 +142,34 @@ test("a missing binary is recorded, not thrown at the process", async () => {
   }
 });
 
+test("keeps LiteLLM's own output as private as every other file it writes", async (t) => {
+  if (process.platform === "win32") return t.skip("POSIX modes");
+  // This is the one file in that directory whose contents this project does not
+  // choose: it is LiteLLM's stdout and stderr. A traceback or a debug line there
+  // can carry the upstream key, and it was created with the default 0644 while
+  // the config, the runtime state and the credential store all got 0600.
+  const dir = sandbox();
+  const logPath = path.join(dir, "pi-provider-manager-bridge.log");
+  process.env.PI_PROVIDER_MANAGER_LITELLM = path.join(dir, "does-not-exist");
+  try {
+    const runner = createBridgeRunner({ dir });
+    runner.writeConfig({ models: [{ id: "m" }], upstreamBaseUrl: "https://upstream.example/v1" });
+    runner.start({ providerId: "p", port: 44012, upstreamKey: "k" });
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    assert.equal(fs.statSync(logPath).mode & 0o777, 0o600);
+
+    // A mode passed at creation does nothing to a file that already exists, so a
+    // log left behind by an earlier version has to be tightened in place.
+    fs.chmodSync(logPath, 0o644);
+    runner.start({ providerId: "p", port: 44013, upstreamKey: "k" });
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    assert.equal(fs.statSync(logPath).mode & 0o777, 0o600);
+  } finally {
+    delete process.env.PI_PROVIDER_MANAGER_LITELLM;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("refuses to supervise where process ownership cannot be proven", async (t) => {
   if (process.platform !== "linux") return t.skip("needs a procfs machine to fake its absence");
   const dir = sandbox();
