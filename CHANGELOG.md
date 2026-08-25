@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.2 - 2026-08-25
 
 - Fixed the bridge log being world-readable. It was opened with the default `0644` while every other file this manager writes is `0600`, and it is the one file here whose contents this project does not choose: it captures LiteLLM's own stdout and stderr, where a traceback or a debug line can carry the upstream key. Existing logs are chmodded on the next append, because a mode passed at creation does nothing to a file that already exists.
 - Fixed a URL saved into the bridge's key slot being accepted in silence. Versions before 0.3.0 could write the upstream address there, and nothing downstream could tell: the proxy started, authenticated with an address, and the upstream answered 401 far from the cause. A submitted URL is now refused where the mistake is still attributable, and a stored one reads as no credential so the form asks for a real key. The stored value is not erased on sight — only an explicit save replaces it.
