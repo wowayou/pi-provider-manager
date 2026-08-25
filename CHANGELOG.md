@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Added `npm run install:launcher`, which takes no arguments and no destination path. The README's install step was a two-operand `install -m 700 <source> <destination>` command that only works from inside the checkout; run from anywhere else it fails with GNU install's own "missing destination file operand", a message that names neither this project nor the mistake.
+- What it installs is a shim rather than a copy of the launcher, so the checkout is the only copy that exists. A copy stops matching the checkout at the next `git pull`, and a stale launcher does not fail: a pre-0.3.0 one starts, and silently stops handing the Codex directory and the LiteLLM path to the detached server, so the managed bridge breaks with nothing on screen connecting it to the launcher that caused it. It refuses to overwrite a file at that path that is not one of ours unless `--force` is passed, because that is a directory of the user's own scripts.
+- The launcher now compares its own content with the checkout's copy and warns before starting when they differ. Content rather than a version string, so there is no second copy of the version to keep in step and a copy from any generation is caught.
+- The launcher refuses a Node older than the floor declared in `package.json`, which now carries an `engines` field. The floor is read from the manifest rather than repeated in the launcher, under the same one-copy rule as the compatibility baseline; below it the failure being replaced is a syntax error from inside the server, which names neither Node nor its version.
+- When the launcher cannot find a checkout it names all four places it looks and what each currently resolves to, plus both ways out. It used to print only the path it had settled on, which left the reader unable to tell which mechanism had chosen it and therefore which one to correct.
+- Added `npm run setup`, which is install, build, and launcher in one command, so a fresh clone reaches a running manager without reading the README first. Verified from an actual fresh clone rather than from this checkout.
+- The PowerShell launcher gained all three: the same four-place discovery message, the same manifest-declared Node floor, and the same stale-copy warning. Someone who moves between WSL and PowerShell reads the two as one command, and a Windows user could reach every one of those failures with no guidance at all.
+- The Node floor is the lowest major any alternative in the range allows, so a manifest written `"^20 || ^18"` is not read as requiring 20.
+- The PowerShell launcher reports the current directory without PowerShell's `Microsoft.PowerShell.Core\FileSystem::` provider prefix, which is what `(Get-Location).Path` returns on a UNC location — `\\wsl.localhost\<distro>\...`, exactly how a WSL checkout is reached from PowerShell. Verified on 7.6.3 that `Test-Path` and `Join-Path` accept the prefixed form, so this was presentation rather than behaviour.
+- CI runs the Windows launcher instead of only parsing it. Both of its first-run refusals — a missing checkout and a Node below the floor — had never been executed by anything, because the bash launcher's equivalents live in `tests/launcher.test.mjs`, which cannot run PowerShell.
+
 ## 0.3.2 - 2026-08-25
 
 - Fixed the bridge log being world-readable. It was opened with the default `0644` while every other file this manager writes is `0600`, and it is the one file here whose contents this project does not choose: it captures LiteLLM's own stdout and stderr, where a traceback or a debug line can carry the upstream key. Existing logs are chmodded on the next append, because a mode passed at creation does nothing to a file that already exists.

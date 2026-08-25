@@ -2,6 +2,7 @@
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+self="$script_dir/$(basename -- "${BASH_SOURCE[0]}")"
 bundled_project_dir="$(cd -- "$script_dir/.." && pwd)"
 
 if [[ -n "${PI_PROVIDER_MANAGER_PROJECT_DIR:-}" ]]; then
@@ -49,8 +50,65 @@ if [[ -z "$node_bin" || ! -x "$node_bin" ]]; then
 fi
 
 if [[ ! -f "$project_dir/package.json" ]]; then
+  # Printing the path it settled on and nothing else left the reader guessing
+  # which of the four mechanisms above had picked it, and therefore which one to
+  # correct. Name all of them, with what each currently resolves to.
   echo "Pi Provider Manager project not found: $project_dir" >&2
+  echo "The launcher looks for the checkout in this order:" >&2
+  echo "  1. PI_PROVIDER_MANAGER_PROJECT_DIR  (${PI_PROVIDER_MANAGER_PROJECT_DIR:-unset})" >&2
+  echo "  2. the current directory            ($PWD)" >&2
+  echo "  3. the directory above this script  ($bundled_project_dir)" >&2
+  echo "  4. \$HOME/pi-provider-manager-ui     ($HOME/pi-provider-manager-ui)" >&2
+  echo "Run it once against your checkout:" >&2
+  echo "  PI_PROVIDER_MANAGER_PROJECT_DIR=/path/to/checkout '$0'" >&2
+  echo "Or install a launcher that remembers the path, from inside the checkout:" >&2
+  echo "  npm run install:launcher" >&2
   exit 1
+fi
+
+# The floor is declared once, in package.json's engines field, and read from
+# there. Repeating the number here would create a second copy to keep in step,
+# and a launcher that disagreed with the manifest is worse than no check: the
+# failure it replaces is an obscure syntax error from inside the server.
+# The floor is the lowest major any alternative in the range allows, so a
+# manifest written as "^20 || ^18" is not read as requiring 20. ES5 only: this
+# has to run on the old Node it exists to reject.
+node_floor="$("$node_bin" -e '
+  var fs = require("fs");
+  try {
+    var engines = JSON.parse(fs.readFileSync(process.argv[1], "utf8")).engines || {};
+    var majors = [];
+    (engines.node || "").split("||").forEach(function (alternative) {
+      var found = /([0-9]+)/.exec(alternative);
+      if (found) { majors.push(Number(found[1])); }
+    });
+    process.stdout.write(majors.length ? String(Math.min.apply(null, majors)) : "");
+  } catch (error) {}
+' "$project_dir/package.json" 2>/dev/null || true)"
+node_major="$("$node_bin" -e 'process.stdout.write(String(process.versions.node.split(".")[0]))' 2>/dev/null || true)"
+if [[ -n "$node_floor" && "$node_major" =~ ^[0-9]+$ ]] && (( node_major < node_floor )); then
+  echo "Node.js $node_major is too old: this project needs $node_floor or newer." >&2
+  echo "  using: $node_bin" >&2
+  echo "Upgrade Node, or point PI_PROVIDER_MANAGER_NODE at a newer one." >&2
+  exit 1
+fi
+
+# A copy of this launcher installed elsewhere goes stale the moment the checkout
+# moves ahead of it, and a stale copy does not fail — it starts, and silently
+# stops handing the Codex directory and the LiteLLM path to the detached server,
+# so the managed bridge breaks with nothing on screen connecting it to the cause.
+# Content is compared rather than a version string, so there is no second copy of
+# the version to maintain, and it catches a copy from any generation.
+project_launcher="$project_dir/bin/pi-provider-manager-ui"
+if [[ -f "$self" && -f "$project_launcher" ]] && ! [[ "$self" -ef "$project_launcher" ]] &&
+  [[ "$(cat -- "$self" 2>/dev/null)" != "$(cat -- "$project_launcher" 2>/dev/null)" ]]; then
+  echo "Warning: the launcher you ran is not the one in the checkout it is about to start." >&2
+  echo "  running:  $self" >&2
+  echo "  checkout: $project_launcher" >&2
+  echo "  An older copy still starts, but stops handing over the Codex directory and the" >&2
+  echo "  LiteLLM path, which breaks the managed bridge. Replace it with a shim that" >&2
+  echo "  cannot go stale:" >&2
+  echo "    (cd '$project_dir' && npm run install:launcher)" >&2
 fi
 
 if [[ ! -f "$project_dir/dist/client/index.html" ]]; then

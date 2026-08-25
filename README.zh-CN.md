@@ -4,6 +4,8 @@
 
 一个面向 **Pi 与 Codex CLI** 的本地模型目录与 API 网关管理器。它不替代这两个 agent，而是安全、可视化地维护它们各自的原生配置文件。
 
+**详细使用说明书：[docs/usage.zh-CN.md](docs/usage.zh-CN.md)** —— 面向使用者写的，覆盖安装、两个向导、托管桥、全部环境变量，以及一张按屏幕原话索引的故障排查表。
+
 ## 我们解决的核心问题
 
 Pi 在运行时以模型为中心，但配置不是“只有模型”：
@@ -198,15 +200,30 @@ pwsh -File .\bin\pi-provider-manager.ps1
 ```bash
 git clone https://github.com/wowayou/pi-provider-manager.git ~/pi-provider-manager-ui
 cd ~/pi-provider-manager-ui
-npm ci
-npm run build
-install -m 700 bin/pi-provider-manager-ui ~/.pi/agent/bin/pi-provider-manager-ui
+npm run setup
 ~/.pi/agent/bin/pi-provider-manager-ui
 ```
 
+`npm run setup` 依次执行 `npm ci`、`npm run build`、`npm run install:launcher`。想
+分别看每一步就分开跑，结果一样。
+
+`npm run install:launcher` 不接参数、不需要填路径,这正是它存在的理由:它替换掉的那条双操作数
+`install` 命令,在仓库以外的任何目录执行都只会得到 GNU install 自己的
+"missing destination file operand",那句话既没提到本项目,也没说清错在哪。
+
+它装的是一个转发脚本,不是副本。副本在你下次 `git pull` 之后就和仓库不一致了,而过期的启动器
+**不会报错** —— 0.3.0 之前那一代照样能启动,只是不再把 Codex 目录和 LiteLLM 路径交给服务端,
+于是托管桥在离原因很远的地方坏掉。转发脚本每次都执行仓库里当前那一份,所以 `git pull` 就是全部
+升级动作。如果你之前手工复制过启动器,现在启动器自己会把内容和仓库里的那份对比,并在启动前明确
+说出来;重跑一次 `npm run install:launcher` 就能换掉它。那个路径上如果放着不属于本项目的文件,
+不加 `--force` 不会被覆盖。
+
+Release 归档不需要这一步:归档升级时是整个替换的,指向归档的转发脚本会在下个版本失效。解包后
+直接运行 `./bin/pi-provider-manager-ui` 即可。
+
 启动器会复用已运行的管理器，或在 `43127-43146` 中自动选择空闲端口。在 WSL 下会打开 Windows 默认浏览器；其他环境会使用可用的 WSL/PowerShell 浏览器桥接，若都不存在则输出本地 URL。复用前会检查 `/api/state` 身份，不会把同端口的其他应用误认成本项目。
 
-如果仓库不在 `~/pi-provider-manager-ui`，请先把 `PI_PROVIDER_MANAGER_PROJECT_DIR` 设置为仓库绝对路径。
+如果仓库不在 `~/pi-provider-manager-ui`，`npm run install:launcher` 会把实际路径记在转发脚本里，不需要再做别的。没装转发脚本时，把 `PI_PROVIDER_MANAGER_PROJECT_DIR` 设为仓库绝对路径，或直接在仓库里运行 `./bin/pi-provider-manager-ui`。启动器找不到仓库时，现在会把它查过的四个位置以及各自解析到的路径全部打印出来。
 
 ### 自动识别与环境变量覆盖
 

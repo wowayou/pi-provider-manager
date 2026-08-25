@@ -17,6 +17,8 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:ui": "vite",
+    "setup": "npm ci && npm run build && node scripts/install-launcher.mjs",
+    "install:launcher": "node scripts/install-launcher.mjs",
     "server": "node server.mjs",
     "check:pi-update": "node scripts/check-pi-update.mjs",
     "test": "npm run build && npm run test:server && npm run test:codex && npm run test:prompts && npm run test:sites && npm run test:pi-update && npm run test:release && npm run test:launcher && npm run test:ui && npm run test:codex-real",
@@ -34,6 +36,9 @@
     "package:release": "npm run build && npm run package:linux",
     "preview": "vite preview",
     "test:sites": "node --test tests/sites-worker.test.mjs"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
     "@phosphor-icons/react": "2.1.10",

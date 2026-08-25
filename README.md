@@ -4,6 +4,8 @@
 
 A local model catalog and API gateway manager for **Pi and the Codex CLI**. It gives each agent's own config files a safe visual workflow without hiding or replacing their native configuration model.
 
+A step-by-step usage manual, written for people using the tool rather than maintaining it, is in [docs/usage.zh-CN.md](docs/usage.zh-CN.md) (Simplified Chinese). It covers installation, both wizards, the managed bridge, every environment variable, and a troubleshooting table indexed by the exact text on screen.
+
 ## Why this exists
 
 Pi is model-centric at runtime but provider-scoped in configuration:
@@ -198,15 +200,35 @@ See `INSTALL.md` inside the archive for environment overrides and execution-poli
 ```bash
 git clone https://github.com/wowayou/pi-provider-manager.git ~/pi-provider-manager-ui
 cd ~/pi-provider-manager-ui
-npm ci
-npm run build
-install -m 700 bin/pi-provider-manager-ui ~/.pi/agent/bin/pi-provider-manager-ui
+npm run setup
 ~/.pi/agent/bin/pi-provider-manager-ui
 ```
 
+`npm run setup` is `npm ci`, `npm run build`, and `npm run install:launcher` in that
+order. Run the three separately if you want to see them individually; the result is
+the same.
+
+`npm run install:launcher` takes no arguments and no path, which is the point: the
+two-operand `install` command this replaced failed with GNU install's own
+"missing destination file operand" when run from anywhere but the checkout, and
+that message names neither this project nor the mistake.
+
+What it installs is a shim, not a copy. A copy stops matching the checkout the
+moment you pull, and a stale launcher does not fail — a pre-0.3.0 one starts, and
+silently stops handing the Codex directory and the LiteLLM path to the server, so
+the managed bridge breaks far from the cause. The shim execs whatever is in the
+checkout, so `git pull` is the whole upgrade. If you copied a launcher by hand
+before, the launcher itself now compares its content with the checkout's and says
+so before starting; re-run `npm run install:launcher` to replace it. Anything at
+that path that is not one of ours is left alone unless you pass `--force`.
+
+Release archives do not need this: they are replaced wholesale on upgrade, so a
+shim pointing into one would break at the next release. Run `./bin/pi-provider-manager-ui`
+from the extracted directory instead.
+
 The launcher reuses an existing manager instance or selects a free port from `43127-43146`. Under WSL it opens the Windows default browser; otherwise it uses an available WSL/PowerShell browser bridge or prints the local URL. It verifies `/api/state` before reuse, so another app on the same port is never mistaken for Pi Provider Manager.
 
-If the repository is cloned elsewhere, set `PI_PROVIDER_MANAGER_PROJECT_DIR` to that absolute path before running the launcher.
+If the repository is cloned elsewhere, `npm run install:launcher` records that path in the shim, so nothing else is needed. Without it, set `PI_PROVIDER_MANAGER_PROJECT_DIR` to the absolute path, or run `./bin/pi-provider-manager-ui` from inside the checkout. When the launcher cannot find a checkout it now prints all four places it looked and what each resolved to.
 
 ### Runtime discovery and overrides
 
