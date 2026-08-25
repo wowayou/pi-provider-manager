@@ -201,7 +201,8 @@ function UpstreamStep({ form, setForm, codexVersion, onNext }) {
             </ul>
             <p>
               第二种需要你自己跑一个翻译桥，例如 <code>litellm</code>（在 <code>config.yaml</code> 里给模型加
-              {" "}<code>use_chat_completions_api: true</code>）或 <code>codex-relay</code>。桥负责保管上游的 key，
+              {" "}<code>use_chat_completions_api: true</code>）、<code>codex-relay</code> 或
+              {" "}<code>CLIProxyAPI</code>。桥负责保管上游的 key，
               Codex 只连本机。README 的「Codex 桥接」一节有 WSL 下的最小可跑步骤。
             </p>
           </div>
@@ -424,10 +425,22 @@ function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onN
                     autoComplete="new-password"
                     value={form.bridgeApiKey}
                     onChange={(event) => setForm((current) => ({ ...current, bridgeApiKey: event.target.value }))}
-                    placeholder={existing?.bridge ? "留空表示沿用已保存的 key" : "输入后不会回显"}
+                    placeholder={existing?.bridge?.credentialConfigured ? "留空表示沿用已保存的 key" : "输入后不会回显"}
                   />
                 </div>
               </label>
+              {existing?.bridge && !existing.bridge.credentialConfigured && (
+                <div className="credential-status">
+                  <Info size={24} weight="duotone" />
+                  <div>
+                    <strong>这个桥还没有可用的上游 key</strong>
+                    <span>
+                      早于 0.3.0 的版本会把上游地址错存进 key 那一栏，那样的值读作「未配置」。
+                      请在上面填一次真正的 key；保存后旧值就被替换掉。
+                    </span>
+                  </div>
+                </div>
+              )}
               <div className="credential-status">
                 <Info size={24} weight="duotone" />
                 <div>

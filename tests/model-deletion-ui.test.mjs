@@ -880,6 +880,147 @@ test("production UI drives the Codex workspace", { timeout: 90_000 }, async () =
   }
 });
 
+// A bridge whose stored upstream key is really a URL reads as "no credential", so
+// the server asks for a real one — proven in tests/codex-server.test.mjs. The form
+// then told the opposite story: its placeholder keyed off the bridge merely
+// existing, so it promised "留空表示沿用已保存的 key" over an empty box with nothing
+// to reuse, and following it lands on the save error instead of a fixed provider.
+// The field the browser is already given is the one that answers this.
+test("the form does not offer to reuse a bridge key that cannot be used", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-legacy-pi-"));
+  const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-legacy-codex-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-legacy-"));
+  writeFixture(agentDir);
+  // No `[model_providers.*]` table, so nothing is adopted and the two providers
+  // under test are exactly the two in the store.
+  fs.writeFileSync(path.join(codexDir, "config.toml"), "[tui]\nnotifications = true\n");
+  const upstream = "https://chatonly.example/v1";
+  const bridgeProvider = (port, key) => ({
+    baseUrl: `http://127.0.0.1:${port}/v1`,
+    requiresAuth: false,
+    models: [{ id: "deepseek-chat", reasoningEffort: "medium" }],
+    defaultModelId: "deepseek-chat",
+    credential: null,
+    bridge: { upstreamBaseUrl: upstream, port, credential: { type: "api_key", key }, models: {} },
+  });
+  fs.writeFileSync(path.join(codexDir, "pi-provider-manager-store.json"), JSON.stringify({
+    version: 1,
+    ownedProviderId: "custom",
+    activeProviderId: "legacy-bridge",
+    providers: {
+      // The bad data 0.2.x could write: the upstream address in the key slot.
+      "legacy-bridge": { name: "旧数据的桥", ...bridgeProvider(43210, upstream) },
+      // The same shape with a usable key, so the opposite copy is checked too and
+      // the assertion cannot pass by never showing the reuse offer at all.
+      "healthy-bridge": { name: "正常的桥", ...bridgeProvider(43211, "sk-upstream-not-real") },
+    },
+  }));
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server;
+  let chrome;
+  let cdp;
+  let serverOutput = "";
+  let chromeOutput = "";
+
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CODEX_DIR: codexDir,
+        PI_PROVIDER_MANAGER_SERVE_UI: "1",
+        PI_PROVIDER_MANAGER_PORT: String(appPort),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; });
+    server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${appPort}/api/state`);
+
+    chrome = spawn(chromePath, [
+      "--headless",
+      "--no-sandbox",
+      "--disable-gpu",
+      `--remote-debugging-port=${debugPort}`,
+      `--user-data-dir=${profileDir}`,
+      "about:blank",
+    ], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    chrome.stdout.on("data", (chunk) => { chromeOutput += chunk; });
+    chrome.stderr.on("data", (chunk) => { chromeOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
+
+    const target = await fetch(
+      `http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(`http://127.0.0.1:${appPort}`)}`,
+      { method: "PUT" },
+    ).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl);
+    await cdp.send("Page.enable");
+    await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", {
+      width: 1280, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    await cdp.send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
+    await cdp.waitFor(`document.querySelector('.target-switch')`);
+
+    const clickText = (selector, text) =>
+      cdp.evaluate(`[...document.querySelectorAll(${JSON.stringify(selector)})]
+        .find((node) => node.textContent.includes(${JSON.stringify(text)})).click()`);
+
+    await clickText(".target-switch button", "Codex");
+    await cdp.waitFor(`document.querySelectorAll('.provider-item').length === 2`);
+
+    // Opening a provider that has models lands on the model step; the credentials
+    // step is reached back through the stepper, the way a person would.
+    const openCredentials = async (name) => {
+      await clickText(".provider-item", name);
+      await cdp.waitFor(`document.querySelector('.models-step')`);
+      await clickText(".step", "填写凭据");
+      await cdp.waitFor(`document.querySelector('.credential-box .key-field input')`);
+      return cdp.evaluate(`({
+        placeholder: document.querySelector('.credential-box .key-field input').placeholder,
+        notes: [...document.querySelectorAll('.credential-box .credential-status strong')]
+          .map((node) => node.textContent.trim()),
+      })`);
+    };
+
+    const legacy = await openCredentials("旧数据的桥");
+    assert.equal(legacy.placeholder, "输入后不会回显");
+    assert.ok(
+      legacy.notes.some((note) => note.includes("还没有可用的上游 key")),
+      `expected the unusable-key note, saw ${JSON.stringify(legacy.notes)}`,
+    );
+
+    const healthy = await openCredentials("正常的桥");
+    assert.equal(healthy.placeholder, "留空表示沿用已保存的 key");
+    assert.equal(
+      healthy.notes.some((note) => note.includes("还没有可用的上游 key")),
+      false,
+      `a usable key must not be reported as missing, saw ${JSON.stringify(healthy.notes)}`,
+    );
+
+    assert.equal(cdp.errors.length, 0, JSON.stringify(cdp.errors));
+  } catch (error) {
+    error.message += `\nServer output:\n${serverOutput}\nChrome output:\n${chromeOutput}`;
+    throw error;
+  } finally {
+    if (cdp) {
+      await Promise.race([
+        cdp.send("Browser.close").catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+      cdp.close();
+    }
+    await stopProcess(chrome, true);
+    await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(codexDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
 test("production UI drives the prompt library for both agents", { timeout: 90_000 }, async () => {
   requireFreshBuiltUi();
   const chromePath = findChrome();
@@ -1123,7 +1264,30 @@ const CONTRAST_AUDIT = `(() => {
     for (const layer of layers.reverse()) colour = over(layer, colour);
     return { colour, from: source };
   };
+  // Opacity multiplies down the tree, so a faded ancestor fades its text too.
+  // Skipping only opacity:0 measured a 50%-faded disabled control as if it were
+  // painted at full strength.
+  const fade = (node) => {
+    let value = 1;
+    for (let current = node; current && current !== document.documentElement; current = current.parentElement) {
+      value *= Number(getComputedStyle(current).opacity);
+    }
+    return value;
+  };
+  // WCAG 1.4.3 exempts text in an inactive component, and "inactive" has to mean
+  // genuinely inert. This app also sets aria-disabled="true" on a button that
+  // still answers clicks — it exists to say why the last model cannot be removed
+  // — so keying off aria-disabled would excuse text people are meant to read.
+  // Only the real disabled property counts, and exempt findings are reported
+  // rather than asserted.
+  const inert = (node) => {
+    for (let current = node; current; current = current.parentElement) {
+      if (current.disabled === true) return true;
+    }
+    return false;
+  };
   const failures = [];
+  const exempt = [];
   let examined = 0;
   for (const node of document.querySelectorAll("body *")) {
     // Only elements holding their own text: a wrapper would be measured against
@@ -1134,35 +1298,40 @@ const CONTRAST_AUDIT = `(() => {
       .join("");
     if (!own) continue;
     const style = getComputedStyle(node);
-    if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0) continue;
+    if (style.visibility === "hidden" || style.display === "none") continue;
     const box = node.getBoundingClientRect();
     if (box.width === 0 || box.height === 0) continue;
     const parsedColour = parse(style.color);
     if (!parsedColour) continue;
+    const opacity = fade(node);
+    if (opacity === 0) continue;
     examined += 1;
     const size = parseFloat(style.fontSize);
     const weight = Number(style.fontWeight) || 400;
     // WCAG 1.4.3: 24px, or 18.66px when bold, drops the requirement to 3:1.
     const required = size >= 24 || (size >= 18.66 && weight >= 700) ? 3 : 4.5;
     const behind = backdrop(node);
-    // Text with its own alpha blends into whatever is behind it as well.
-    const foreground = parsedColour[3] >= 1
+    // Text with its own alpha blends into whatever is behind it as well, and an
+    // inherited opacity is one more alpha over the same backdrop.
+    const effective = parsedColour[3] * opacity;
+    const foreground = effective >= 1
       ? [parsedColour[0], parsedColour[1], parsedColour[2]]
-      : over(parsedColour, behind.colour);
+      : over([parsedColour[0], parsedColour[1], parsedColour[2], effective], behind.colour);
     const measured = ratio(foreground, behind.colour);
     if (measured + 0.005 < required) {
-      failures.push({
+      (inert(node) ? exempt : failures).push({
         text: own.slice(0, 30),
         ratio: Math.round(measured * 100) / 100,
         required,
         size,
         weight,
+        opacity: Math.round(opacity * 100) / 100,
         selector: node.className ? \`\${node.tagName.toLowerCase()}.\${String(node.className).split(" ")[0]}\` : node.tagName.toLowerCase(),
         on: behind.from ? \`\${behind.from.tagName.toLowerCase()}.\${String(behind.from.className).split(" ")[0]}\` : "page",
       });
     }
   }
-  return { failures, examined, theme: document.documentElement.dataset.theme || "light" };
+  return { failures, exempt, examined, theme: document.documentElement.dataset.theme || "light" };
 })()`;
 
 test("every piece of text meets WCAG AA contrast in both themes", { timeout: 90_000 }, async () => {
@@ -1227,11 +1396,49 @@ test("every piece of text meets WCAG AA contrast in both themes", { timeout: 90_
     // Colour transitions are declared on these surfaces, and a measurement taken
     // mid-transition reads an interpolated background — which is how an earlier
     // version of this audit reported white text on a dark panel.
-    const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
+    const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    // A fixed wait measures whatever frame it lands on. The first run of the hover
+    // sweep reported five failures that were all one panel at 0.31 opacity, 56ms
+    // into a 180ms fade — an animation frame, not a state anyone sits in. WCAG
+    // judges the resting appearance, so wait for the animations to finish instead
+    // of guessing a duration. The spinner and the skeleton shimmer never finish;
+    // they are excluded by their infinite iteration count rather than by name, so
+    // a new looping animation does not hang this.
+    const settleAnimations = async (timeout = 3_000) => {
+      // Transitions do not exist until the next style recalculation, so a poll
+      // that starts immediately can find nothing running and return too early.
+      await pause(80);
+      const started = Date.now();
+      while (Date.now() - started < timeout) {
+        const running = await cdp.evaluate(`document.getAnimations()
+          .filter((animation) => animation.playState === "running")
+          .filter((animation) => (animation.effect?.getComputedTiming().iterations ?? 1) !== Infinity)
+          .length`);
+        if (running === 0) return;
+        await pause(50);
+      }
+      throw new Error("animations still running after 3s");
+    };
+
+    const settle = async () => {
+      await pause(400);
+      await settleAnimations();
+    };
+
+    const describe = (entry) =>
+      `  ${entry.ratio}:1 (needs ${entry.required}) ${entry.size}px w${entry.weight}`
+      + `${entry.opacity < 1 ? ` @${entry.opacity} opacity` : ""} ${entry.selector} on ${entry.on} :: ${entry.text}`;
+
+    // Text WCAG exempts because its control is genuinely disabled. Not asserted —
+    // the exemption is real — but printed, because "disabled" is a design choice
+    // and the numbers should be visible when someone revisits it.
+    const exemptFound = [];
 
     const audit = async (label) => {
       await settle();
       const result = await cdp.evaluate(CONTRAST_AUDIT);
+      for (const entry of result.exempt) exemptFound.push({ ...entry, where: label });
       // Without this the whole test passes on a page that rendered nothing:
       // zero elements examined is zero failures.
       assert.ok(
@@ -1242,11 +1449,86 @@ test("every piece of text meets WCAG AA contrast in both themes", { timeout: 90_
         result.failures,
         [],
         `${label} theme (${result.theme}) has ${result.failures.length} of ${result.examined} text elements below WCAG AA:\n`
-        + result.failures
-          .map((entry) => `  ${entry.ratio}:1 (needs ${entry.required}) ${entry.size}px w${entry.weight} ${entry.selector} on ${entry.on} :: ${entry.text}`)
-          .join("\n"),
+        + result.failures.map(describe).join("\n"),
       );
       return result.examined;
+    };
+
+    // Hover repaints text and its surface together, and either side can move: a
+    // link darkens, or the row underneath it lightens. `.safe-default` is only
+    // ever on screen while its row is hovered, so every measurement above skipped
+    // it — it sat at 4.49:1 against the default row's tint until this found it.
+    //
+    // The pointer is moved for real. Forcing :hover on one node would not apply
+    // `.model-row:hover .safe-default`, where the hovered element and the
+    // repainted text are different elements.
+    const auditHovered = async (label) => {
+      const targets = await cdp.evaluate(`(() => {
+        // Every selector in the stylesheet whose :hover changes colour, resolved
+        // to what is currently on screen, so this list follows the CSS instead of
+        // being a copy of it that silently rots.
+        const hoverRules = [...document.styleSheets]
+          .flatMap((sheet) => {
+            try { return [...sheet.cssRules]; } catch { return []; }
+          })
+          .filter((rule) => rule.selectorText && rule.selectorText.includes(":hover"))
+          .filter((rule) => /(^|[^-])color:|background/.test(rule.style.cssText));
+        const seen = new Set();
+        const found = [];
+        for (const rule of hoverRules) {
+          for (const part of rule.selectorText.split(",")) {
+            // Drop everything after :hover so the element that receives the
+            // pointer is found, not the descendant that changes colour.
+            const target = part.split(":hover")[0].trim();
+            if (!target) continue;
+            let nodes;
+            try { nodes = document.querySelectorAll(target); } catch { continue; }
+            for (const node of nodes) {
+              const box = node.getBoundingClientRect();
+              if (box.width === 0 || box.height === 0) continue;
+              if (box.top < 0 || box.left < 0 || box.bottom > innerHeight || box.right > innerWidth) continue;
+              const x = Math.round(box.left + box.width / 2);
+              const y = Math.round(box.top + box.height / 2);
+              // The topmost element at that point is what will actually be
+              // hovered; anything covered would report a state nobody can reach.
+              if (!node.contains(document.elementFromPoint(x, y))) continue;
+              const key = \`\${x},\${y}\`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              found.push({ x, y, selector: target });
+            }
+          }
+        }
+        return found;
+      })()`);
+      assert.ok(
+        targets.length >= 10,
+        `${label}: expected hoverable targets, found ${targets.length}`,
+      );
+
+      const failures = [];
+      for (const target of targets) {
+        await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y });
+        await settleAnimations();
+        const result = await cdp.evaluate(CONTRAST_AUDIT);
+        for (const entry of result.failures) failures.push({ ...entry, hovering: target.selector });
+        for (const entry of result.exempt) {
+          exemptFound.push({ ...entry, where: `${label} hovering ${target.selector}` });
+        }
+      }
+      // Park the pointer outside the viewport so the next measurement is not
+      // taken with something still hovered.
+      await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 0, y: 0 });
+      await settle();
+
+      assert.deepEqual(
+        failures,
+        [],
+        `${label}: ${failures.length} text elements below WCAG AA while hovering `
+        + `(${targets.length} targets swept):\n`
+        + failures.map((entry) => `${describe(entry)} [hovering ${entry.hovering}]`).join("\n"),
+      );
+      return targets.length;
     };
 
     // States a freshly loaded page never shows. Each paints from tokens the
@@ -1291,6 +1573,7 @@ test("every piece of text meets WCAG AA contrast in both themes", { timeout: 90_
 
     const lightCount = await audit("light");
     assert.equal(await cdp.evaluate(`document.documentElement.dataset.theme || 'light'`), "light");
+    const lightHovers = await auditHovered("light");
     await auditTransients("light");
 
     // Through the app's own control rather than localStorage, which throws a
@@ -1299,6 +1582,7 @@ test("every piece of text meets WCAG AA contrast in both themes", { timeout: 90_
       .find((node) => node.getAttribute('aria-label') === '深色').click()`);
     await cdp.waitFor(`document.documentElement.dataset.theme === 'dark'`);
     const darkCount = await audit("dark");
+    const darkHovers = await auditHovered("dark");
     await auditTransients("dark");
 
     // Both themes must have been measured against comparable pages; a collapsed
@@ -1307,6 +1591,273 @@ test("every piece of text meets WCAG AA contrast in both themes", { timeout: 90_
       Math.abs(lightCount - darkCount) <= 5,
       `both themes should render the same page, examined ${lightCount} light and ${darkCount} dark`,
     );
+    assert.ok(
+      Math.abs(lightHovers - darkHovers) <= 5,
+      `both themes should offer the same hover targets, swept ${lightHovers} light and ${darkHovers} dark`,
+    );
+    // Not a failure — WCAG exempts an inactive control — but a disabled style is
+    // a decision, and the only way anyone revisits it is by seeing what it costs.
+    if (exemptFound.length > 0) {
+      console.log(`${exemptFound.length} exempt (disabled) text elements below AA:`);
+      for (const entry of exemptFound) console.log(`${describe(entry)} [${entry.where}]`);
+    }
+    assert.equal(cdp.errors.length, 0, JSON.stringify(cdp.errors));
+  } catch (error) {
+    error.message += `\nServer output:\n${serverOutput}\nChrome output:\n${chromeOutput}`;
+    throw error;
+  } finally {
+    if (cdp) {
+      await Promise.race([
+        cdp.send("Browser.close").catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+      cdp.close();
+    }
+    await stopProcess(chrome, true);
+    await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+// WCAG 2.2 SC 2.5.8: 24x24 CSS px, or enough clear space around a smaller one.
+// Two controls here were resized to meet it — `.tip-dismiss` from 22px and
+// `.safe-default` from a 16px-tall line of text — and nothing measured either, so
+// a later padding change could quietly undo the fix. The rest of this audit is
+// shaped by the naive version of it being wrong twice: the default-model radio is
+// a 22x20 input that looks like a failure until the <label> around it turns out to
+// be an 86x42 click target, and the spacing exception cannot be waved at a control
+// whose neighbour sits 4.5px away.
+const TARGET_SIZE_AUDIT = `(() => {
+  const MINIMUM = 24;
+  // What a pointer actually has to hit. A radio inside a <label> is activated by
+  // the whole label, so the input's own 22x20 box is not the target: a click in
+  // the label's corner, well outside the input, selects it.
+  const targetBox = (node) => {
+    const label = node.closest("label");
+    if (label && label.control === node) {
+      const box = label.getBoundingClientRect();
+      if (box.width > 0 && box.height > 0) return { box, from: "label" };
+    }
+    return { box: node.getBoundingClientRect(), from: "self" };
+  };
+  const targets = [];
+  for (const node of document.querySelectorAll(
+    'button, a[href], input:not([type="hidden"]), select, textarea, summary, [tabindex]:not([tabindex="-1"])',
+  )) {
+    const style = getComputedStyle(node);
+    if (style.visibility === "hidden" || style.display === "none") continue;
+    // Faded to nothing is not on screen; partly faded still is.
+    let invisible = false;
+    for (let current = node; current; current = current.parentElement) {
+      if (Number(getComputedStyle(current).opacity) === 0) { invisible = true; break; }
+    }
+    if (invisible) continue;
+    // SC 2.5.8 exempts a control that is genuinely inert.
+    if (node.disabled === true) continue;
+    const { box, from } = targetBox(node);
+    if (box.width === 0 || box.height === 0) continue;
+    targets.push({
+      box,
+      from,
+      selector: node.className
+        ? \`\${node.tagName.toLowerCase()}.\${String(node.className).split(" ")[0]}\`
+        : node.tagName.toLowerCase(),
+      label: (node.getAttribute("aria-label") || node.textContent || "").trim().slice(0, 24),
+    });
+  }
+  const failures = [];
+  const undersized = [];
+  for (const target of targets) {
+    if (Math.min(target.box.width, target.box.height) >= MINIMUM) continue;
+    const centre = {
+      x: target.box.left + target.box.width / 2,
+      y: target.box.top + target.box.height / 2,
+    };
+    // The spacing exception, as the spec words it: a 24px-diameter circle centred
+    // on this target may not overlap the circle of any other one.
+    const crowding = targets
+      .filter((other) => other !== target)
+      .map((other) => ({
+        with: other.selector,
+        gap: Math.round(Math.hypot(
+          centre.x - (other.box.left + other.box.width / 2),
+          centre.y - (other.box.top + other.box.height / 2),
+        ) * 10) / 10,
+      }))
+      .filter((entry) => entry.gap < MINIMUM);
+    const record = {
+      selector: target.selector,
+      label: target.label,
+      size: \`\${Math.round(target.box.width)}x\${Math.round(target.box.height)}\`,
+      measured: target.from,
+      crowding,
+    };
+    undersized.push(record);
+    if (crowding.length > 0) failures.push(record);
+  }
+  return { total: targets.length, undersized, failures };
+})()`;
+
+test("every control is big enough to hit", { timeout: 60_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-target-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-target-"));
+  writeFixture(agentDir);
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server;
+  let chrome;
+  let cdp;
+  let serverOutput = "";
+  let chromeOutput = "";
+
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_SERVE_UI: "1",
+        PI_PROVIDER_MANAGER_PORT: String(appPort),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; });
+    server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${appPort}/api/state`);
+
+    chrome = spawn(chromePath, [
+      "--headless",
+      "--no-sandbox",
+      "--disable-gpu",
+      `--remote-debugging-port=${debugPort}`,
+      `--user-data-dir=${profileDir}`,
+      "about:blank",
+    ], {
+      detached: process.platform !== "win32",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    chrome.stdout.on("data", (chunk) => { chromeOutput += chunk; });
+    chrome.stderr.on("data", (chunk) => { chromeOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
+
+    const target = await fetch(
+      `http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(`http://127.0.0.1:${appPort}`)}`,
+      { method: "PUT" },
+    ).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl);
+    await cdp.send("Page.enable");
+    await cdp.send("Runtime.enable");
+    // Taller than the 720px the other tests use, and deliberately so: the sidebar
+    // hides `.beginner-tip` at `(min-width: 861px) and (max-height: 760px)`, so at
+    // 720 its dismiss button — one of the two controls this test exists for — is
+    // not rendered at all. The first version of this test measured it as 0x0 and
+    // the audit below never saw it.
+    await cdp.send("Emulation.setDeviceMetricsOverride", {
+      width: 1280,
+      height: 900,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await cdp.send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
+    await cdp.waitFor(`document.querySelectorAll('.model-row').length === 3`);
+    await cdp.waitFor(`document.querySelector('.tip-dismiss')`);
+
+    const check = async (label) => {
+      const result = await cdp.evaluate(TARGET_SIZE_AUDIT);
+      // Zero controls examined is zero failures, which would pass forever.
+      assert.ok(result.total >= 20, `${label}: expected real controls, found ${result.total}`);
+      assert.deepEqual(
+        result.failures,
+        [],
+        `${label}: ${result.failures.length} of ${result.total} controls are under 24x24 `
+        + `without the clear space SC 2.5.8 accepts instead:\n`
+        + result.failures
+          .map((entry) => `  ${entry.size} ${entry.selector} (measured on ${entry.measured}) :: ${entry.label}`
+            + `\n    ${entry.crowding.map((near) => `${near.gap}px from ${near.with}`).join(", ")}`)
+          .join("\n"),
+      );
+      return result;
+    };
+
+    const initial = await check("default view");
+    // Asserted by name as well as in the aggregate, so a change to the button this
+    // test was written for cannot pass by qualifying for the spacing exception.
+    assert.deepEqual(
+      await cdp.evaluate(`(() => {
+        const box = document.querySelector('.tip-dismiss').getBoundingClientRect();
+        return { width: Math.round(box.width), height: Math.round(box.height) };
+      })()`),
+      { width: 24, height: 24 },
+    );
+
+    // `.safe-default` is invisible until its row is hovered, so the default view
+    // never sees it — the state it is actually used in is the only one worth
+    // measuring. The pointer moves for real: forcing :hover on one node does not
+    // satisfy `.model-row:hover .safe-default`, where the hovered element and the
+    // revealed one are different elements.
+    const rowPoint = await cdp.evaluate(`(() => {
+      const box = document.querySelector('.model-row').getBoundingClientRect();
+      return { x: Math.round(box.left + 60), y: Math.round(box.top + box.height / 2) };
+    })()`);
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: rowPoint.x, y: rowPoint.y });
+    // Visibility flips at once but opacity fades over 110ms, and a control faded
+    // to nothing is not on screen — waiting only for visibility measured the
+    // button at opacity 0, where the audit correctly ignored it and the count
+    // never moved. Wait for the state a person would actually be looking at.
+    await cdp.waitFor(`(() => {
+      const style = getComputedStyle(document.querySelector('.safe-default'));
+      return style.visibility === 'visible' && Number(style.opacity) === 1;
+    })()`);
+    const hovered = await check("hovering a model row");
+    assert.ok(
+      hovered.total > initial.total,
+      `hovering should reveal at least one more control, saw ${initial.total} then ${hovered.total}`,
+    );
+    assert.deepEqual(
+      await cdp.evaluate(`(() => {
+        const button = document.querySelector('.safe-default');
+        const box = button.getBoundingClientRect();
+        const row = document.querySelector('.model-row').getBoundingClientRect();
+        const field = button.closest('label').querySelector('input');
+        const hits = (y) => document.elementFromPoint(
+          Math.round(box.left + box.width / 2),
+          Math.round(y),
+        ) === button;
+        return {
+          height: Math.round(box.height),
+          // Padding can only add to a line box, so an unpinned line height makes
+          // the target's size depend on whichever font the machine happens to
+          // have. This assertion passed locally at 24px and failed on CI at 20px
+          // for exactly that reason — the label is Chinese, so it is a CJK
+          // fallback, not the declared stack, that decides. A measurement can
+          // only ever see the fonts of the machine taking it, so the size being
+          // font-independent has to be asserted rather than measured.
+          lineBoxIsFixed: /px$/.test(getComputedStyle(button).lineHeight),
+          // The 8px of padding has to be part of the hit area, not just the box.
+          topHits: hits(box.top + 2),
+          bottomHits: hits(box.bottom - 2),
+          // It grew downward, so it must not have pushed the row taller...
+          insideRow: box.bottom <= row.bottom,
+          // ...and must not have stolen the bottom edge of the field above it.
+          fieldKeepsItsEdge: document.elementFromPoint(
+            Math.round(box.left + box.width / 2),
+            Math.round(field.getBoundingClientRect().bottom - 2),
+          ) === field,
+        };
+      })()`),
+      {
+        height: 24,
+        lineBoxIsFixed: true,
+        topHits: true,
+        bottomHits: true,
+        insideRow: true,
+        fieldKeepsItsEdge: true,
+      },
+    );
+    assert.deepEqual(await cdp.evaluate(rowMeasurements).then((rows) => rows.map((row) => row.height)), [85, 85, 85]);
+
     assert.equal(cdp.errors.length, 0, JSON.stringify(cdp.errors));
   } catch (error) {
     error.message += `\nServer output:\n${serverOutput}\nChrome output:\n${chromeOutput}`;

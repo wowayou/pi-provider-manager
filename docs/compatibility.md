@@ -116,3 +116,58 @@ Forward preservation cannot solve semantic or structural changes. A manager rele
 - Pi custom models: <https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md>
 - Pi settings: <https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/settings.md>
 - Pi providers: <https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/providers.md>
+
+### Third-party projects, and what each is good for
+
+These are prior art, not dependencies, and they are listed with the question they
+answer rather than as a reading list. The test is narrow on purpose: a project earns
+a place here only if it settles something this project actually has to decide —
+what Codex puts on the wire, or where the credential/config boundary sits. Being
+popular, adjacent, or in the same category is not a reason to add one, and three
+projects that answer the same question are worse than one that answers it well.
+
+**Read these for the Responses translation.** Both own the conversion this project
+deliberately does not (see the rule in `AGENTS.md`), so they are the worked examples
+when a Codex wire change needs one:
+
+- CLIProxyAPI: <https://github.com/router-for-me/CLIProxyAPI> — Go, MIT. Registers
+  `openai-responses → openai-chat-completions` outright
+  (`internal/translator/openai/openai/responses/`), which is exactly the direction
+  the bridge needs, and its `openai-compatibility` block takes a keyed
+  Chat-Completions upstream. Also a worked example of the listener trap this project
+  avoids: `host` defaults to `""` — every interface — on port 8317.
+- sub2api: <https://github.com/Wei-Shaw/sub2api> — Go, LGPL-3.0. Its `apicompat`
+  package carries 14 source files against 27 test files, and those tests are named
+  after precisely the things `AGENTS.md` says keep moving: reasoning cache, stream
+  lifecycle, encrypted reasoning content, tool-output shapes. Read it for how a
+  translator is *tested*, which is the part that decides whether owning one is
+  affordable. Nothing else about the project is a model for this one — see below.
+
+**Read this for the boundary question.** Not a proxy, and the only one here that
+edits the same files:
+
+- CC Switch: <https://github.com/farion1231/cc-switch> — Rust, MIT. Manages Pi's
+  native `models.json` while deliberately not touching `auth.json`,
+  `defaultProvider`, or `defaultModel`. That omission is what defines this
+  project's scope, so it is worth re-reading whenever the boundary is questioned.
+
+**Deliberately not adopted as references.** Recorded so the same evaluation is not
+repeated:
+
+- new-api (<https://github.com/QuantumNous/new-api>, AGPL-3.0) — its own README
+  marks OpenAI-compatible ⇄ Responses as in development, and the code agrees: the
+  `oai_responses` converter has 2 test files where sub2api has 27. For the one
+  question worth asking a proxy, the better-tested answer is already listed above.
+  Its actual centre of gravity — accounting, top-ups, user management, a
+  PostgreSQL/MySQL schema — is the database-free product this manager is not.
+- sub2api as a product, as opposed to its translation tests. It exists to
+  redistribute subscription quota to other people, and its own README opens by
+  warning that this may breach upstream terms of service. This project configures
+  an agent for the person running it; there is nothing to borrow from the
+  multi-tenant, billing, and payment machinery, and its LGPL-3.0 licence is not
+  compatible with copying code into an MIT tree regardless.
+- codex-relay: <https://github.com/MetaFARS/codex-relay> — Rust, MIT. Still named in
+  both READMEs as a self-hosted alternative a user can point a provider at, which is
+  what it is good for. It is not a reference implementation here: at roughly 178
+  stars against CLIProxyAPI's 48k it does not carry comparable evidence about what
+  Codex accepts.
