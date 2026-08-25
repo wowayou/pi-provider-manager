@@ -22,6 +22,10 @@ export function prepareReleaseArtifacts() {
     ["docs/release-install.md", "INSTALL.md"],
     ["docs/architecture.md", "docs/architecture.md"],
     ["docs/compatibility.md", "docs/compatibility.md"],
+    // The usage manual travels with the archive: an archive user has no
+    // checkout to read it from, and it is the document that answers the
+    // questions a first run raises.
+    ["docs/usage.zh-CN.md", "docs/usage.zh-CN.md"],
     ["bin/pi-provider-manager-ui", "bin/pi-provider-manager-ui"],
     ["bin/pi-provider-manager.ps1", "bin/pi-provider-manager.ps1"],
     ["dist/client", "dist/client"],

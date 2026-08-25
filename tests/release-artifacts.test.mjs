@@ -21,6 +21,7 @@ test("release staging contains runnable launchers and no local Pi data", () => {
     "bin/pi-provider-manager-ui",
     "bin/pi-provider-manager.ps1",
     "INSTALL.md",
+    "docs/usage.zh-CN.md",
   ]) {
     assert.equal(fs.existsSync(path.join(stageDir, entry)), true, `${entry} must be packaged`);
   }

@@ -35,8 +35,14 @@ function Test-PortInUse([int]$Port) {
 $bundledProject = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 if ($env:PI_PROVIDER_MANAGER_PROJECT_DIR) {
     $projectDir = [System.IO.Path]::GetFullPath($env:PI_PROVIDER_MANAGER_PROJECT_DIR)
-} elseif (Test-ProjectDirectory (Get-Location).Path) {
-    $projectDir = (Get-Location).Path
+# ProviderPath, not Path: on a UNC location — `\\wsl.localhost\<distro>\...`, which
+# is exactly how someone with a WSL checkout reaches it from PowerShell —
+# `.Path` returns a `Microsoft.PowerShell.Core\FileSystem::`-prefixed string.
+# Verified on PowerShell 7.6.3 that Test-Path and Join-Path both accept that
+# form, so this is presentation, not behaviour: the prefix otherwise ends up in
+# $projectDir and so in every path this script prints back.
+} elseif (Test-ProjectDirectory (Get-Location).ProviderPath) {
+    $projectDir = (Get-Location).ProviderPath
 } elseif (Test-ProjectDirectory $bundledProject) {
     $projectDir = $bundledProject
 } else {
@@ -79,8 +85,73 @@ if (-not $nodePath -or -not (Test-Path -LiteralPath $nodePath -PathType Leaf)) {
 $serverPath = Join-Path $projectDir "server.mjs"
 $clientPath = Join-Path $projectDir "dist\client\index.html"
 if (-not (Test-Path -LiteralPath $serverPath -PathType Leaf)) {
-    throw "Pi Provider Manager project not found: $projectDir"
+    # Naming only the path it settled on left the reader unable to tell which of
+    # the four mechanisms above had chosen it, and so which one to correct. Kept
+    # in step with the bash launcher deliberately: the two are read as one
+    # command by anyone who moves between WSL and PowerShell.
+    $tried = if ($env:PI_PROVIDER_MANAGER_PROJECT_DIR) { $env:PI_PROVIDER_MANAGER_PROJECT_DIR } else { "unset" }
+    throw @"
+Pi Provider Manager project not found: $projectDir
+The launcher looks for the checkout in this order:
+  1. PI_PROVIDER_MANAGER_PROJECT_DIR  ($tried)
+  2. the current directory            ($((Get-Location).ProviderPath))
+  3. the directory above this script  ($bundledProject)
+  4. `$HOME\pi-provider-manager-ui      ($(Join-Path $HOME "pi-provider-manager-ui"))
+Run it once against your checkout:
+  `$env:PI_PROVIDER_MANAGER_PROJECT_DIR = "C:\path\to\checkout"; pwsh -File $PSCommandPath
+"@
 }
+
+# The floor is declared once, in package.json's engines field, and read from
+# there rather than repeated here — the same one-copy rule the bash launcher
+# follows. Below it the failure being replaced is a syntax error from inside the
+# server, which names neither Node nor its version.
+$nodeFloor = $null
+try {
+    $declared = (Get-Content -LiteralPath (Join-Path $projectDir "package.json") -Raw | ConvertFrom-Json).engines.node
+    if ($declared) {
+        $majors = @()
+        foreach ($alternative in ($declared -split "\|\|")) {
+            $matched = [regex]::Match($alternative, "[0-9]+")
+            if ($matched.Success) { $majors += [int]$matched.Value }
+        }
+        # The lowest major any alternative allows, so "^20 || ^18" is not read as
+        # requiring 20.
+        if ($majors.Count -gt 0) { $nodeFloor = ($majors | Measure-Object -Minimum).Minimum }
+    }
+} catch {
+    # No engines field, or a manifest this script cannot parse. Inventing a floor
+    # would turn every future Node into a refusal.
+}
+if ($nodeFloor) {
+    $reportedVersion = & $nodePath --version
+    $reportedMajor = [regex]::Match([string]$reportedVersion, "^v?([0-9]+)")
+    if ($reportedMajor.Success -and [int]$reportedMajor.Groups[1].Value -lt $nodeFloor) {
+        throw @"
+Node.js $($reportedMajor.Groups[1].Value) is too old: this project needs $nodeFloor or newer.
+  using: $nodePath
+Upgrade Node, or point PI_PROVIDER_MANAGER_NODE at a newer one.
+"@
+    }
+}
+# The same trap the bash launcher warns about, and reachable the same way: a
+# copy taken by hand keeps working after the checkout moves ahead of it, and a
+# pre-0.3.0 copy still starts — it just stops handing the Codex directory and the
+# LiteLLM path to the detached process. Content is compared rather than a version
+# string, so there is no second copy of the version to maintain.
+$checkoutLauncher = Join-Path $projectDir "bin\pi-provider-manager.ps1"
+if ($PSCommandPath -and (Test-Path -LiteralPath $checkoutLauncher -PathType Leaf) -and
+    [System.IO.Path]::GetFullPath($PSCommandPath) -ne [System.IO.Path]::GetFullPath($checkoutLauncher) -and
+    (Get-Content -LiteralPath $PSCommandPath -Raw) -ne (Get-Content -LiteralPath $checkoutLauncher -Raw)) {
+    Write-Warning @"
+The launcher you ran is not the one in the checkout it is about to start.
+  running:  $PSCommandPath
+  checkout: $checkoutLauncher
+An older copy still starts, but stops handing over the Codex directory and the
+LiteLLM path, which breaks the managed bridge. Run the checkout's copy instead.
+"@
+}
+
 if (-not (Test-Path -LiteralPath $clientPath -PathType Leaf)) {
     throw "Built UI not found. Download a release archive or run 'npm ci' and 'npm run build' in: $projectDir"
 }

@@ -47,11 +47,47 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
       - name: Parse the Windows launcher
         shell: pwsh
         run: |
           $source = Get-Content -LiteralPath bin/pi-provider-manager.ps1 -Raw
           [void][scriptblock]::Create($source)
+      # Parsing is not running. Both refusals below are the launcher's only
+      # output on the two ways a first run goes wrong, and neither had ever been
+      # executed by anything — the bash launcher's equivalents are covered by
+      # tests/launcher.test.mjs, which cannot run PowerShell.
+      - name: Explain, rather than only report, a missing checkout
+        shell: pwsh
+        run: |
+          $env:PI_PROVIDER_MANAGER_PROJECT_DIR = Join-Path $env:TEMP "ppm-no-such-checkout"
+          $message = try { & ./bin/pi-provider-manager.ps1; "it did not refuse" } catch { $_.Exception.Message }
+          foreach ($expected in @(
+            "The launcher looks for the checkout in this order",
+            "PI_PROVIDER_MANAGER_PROJECT_DIR",
+            "the current directory",
+            "the directory above this script"
+          )) {
+            if ($message -notmatch [regex]::Escape($expected)) { throw "missing '$expected' from:`n$message" }
+          }
+      - name: Refuse a Node older than the manifest declares
+        shell: pwsh
+        run: |
+          $fixture = Join-Path $env:TEMP "ppm-node-floor"
+          New-Item -ItemType Directory -Force -Path $fixture | Out-Null
+          '{"name":"pi-provider-manager-ui","engines":{"node":">=999"}}' |
+            Set-Content -LiteralPath (Join-Path $fixture "package.json")
+          New-Item -ItemType File -Force -Path (Join-Path $fixture "server.mjs") | Out-Null
+          $env:PI_PROVIDER_MANAGER_PROJECT_DIR = $fixture
+          $message = try { & ./bin/pi-provider-manager.ps1; "it did not refuse" } catch { $_.Exception.Message }
+          if ($message -notmatch "needs 999 or newer") { throw "the floor was not enforced:`n$message" }
+          # And a manifest with no floor must not invent one.
+          '{"name":"pi-provider-manager-ui"}' |
+            Set-Content -LiteralPath (Join-Path $fixture "package.json")
+          $unbounded = try { & ./bin/pi-provider-manager.ps1; "" } catch { $_.Exception.Message }
+          if ($unbounded -match "is too old") { throw "a floor was invented:`n$unbounded" }
 
   # Single stable gate for branch protection. Requiring matrix or UI jobs directly
   # would couple protection to implementation details and changing either later
