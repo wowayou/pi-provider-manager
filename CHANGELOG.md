@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.3 - 2026-08-25
 
 - Added `npm run install:launcher`, which takes no arguments and no destination path. The README's install step was a two-operand `install -m 700 <source> <destination>` command that only works from inside the checkout; run from anywhere else it fails with GNU install's own "missing destination file operand", a message that names neither this project nor the mistake.
 - What it installs is a shim rather than a copy of the launcher, so the checkout is the only copy that exists. A copy stops matching the checkout at the next `git pull`, and a stale launcher does not fail: a pre-0.3.0 one starts, and silently stops handing the Codex directory and the LiteLLM path to the detached server, so the managed bridge breaks with nothing on screen connecting it to the launcher that caused it. It refuses to overwrite a file at that path that is not one of ours unless `--force` is passed, because that is a directory of the user's own scripts.
