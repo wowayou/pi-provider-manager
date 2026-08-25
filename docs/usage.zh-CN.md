@@ -94,9 +94,9 @@ Worker 和站点缓存。**再次运行同一条命令不会起第二个进程**
 个确实是本管理器，然后复用，并明确告诉你复用了谁：
 
 ```
-  (reused the instance already running on this port, version 0.3.2)
+  (reused the instance already running on this port, version <运行中那个实例的版本>)
   Restart it to pick up an upgrade or a newly installed LiteLLM:
-    kill 661968 && '/home/you/pi-provider-manager-ui/bin/pi-provider-manager-ui'
+    kill <pid> && '<launcher>'
 ```
 
 WSL 下会自动打开 Windows 默认浏览器。不想开浏览器就 `PI_PROVIDER_MANAGER_OPEN_BROWSER=0`。
