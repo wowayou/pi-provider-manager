@@ -501,13 +501,19 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .model-row:hover { --model-row-surface: var(--surface-raised); }
 .model-row.is-default { --model-row-surface: var(--orange-tint); box-shadow: inset 3px 0 0 var(--orange); }
 .model-row label { min-width: 0; gap: 3px; }
-/* 24px is WCAG 2.2's minimum target and the text only needs 16 of it, so the
-   remaining 8 grow downward — padding to enlarge the box, a negative margin to
-   give the space back to the layout. Growing it upward would overlap the field
-   above by a pixel and steal clicks from its bottom edge; growing the label
-   would push the 85px row height that the layout tests pin. The text does not
-   move, and nothing sits below it. */
-.safe-default { border: 0; background: transparent; padding: 0 0 8px; margin-bottom: -8px; text-align: left; color: var(--blue); font-size: 11px; font-weight: 500; border-radius: 4px; visibility: hidden; opacity: 0; transition: opacity var(--fast) var(--ease), color var(--fast) var(--ease); }
+/* 24px is WCAG 2.2's minimum target. The text needs 16 of it and the remaining 8
+   grow downward — padding to enlarge the box, a negative margin to give the space
+   back to the layout. Growing it upward would overlap the field above by a pixel
+   and steal clicks from its bottom edge; growing the label would push the 85px
+   row height that the layout tests pin. The text does not move, and nothing sits
+   below it.
+   The line height is pinned because `normal` resolves from the font that ends up
+   rendering, and nothing here ships a font: this label is Chinese, so it is drawn
+   by whichever CJK family the machine happens to have. That gave a 16px line box
+   here and 12px on a machine with none, making the target 20px — below the
+   minimum, for the people with the fewest fonts rather than for CI. Padding only
+   ever adds to the line box, so the box itself has to be a number. */
+.safe-default { border: 0; background: transparent; padding: 0 0 8px; margin-bottom: -8px; text-align: left; color: var(--blue); font-size: 11px; line-height: 16px; font-weight: 500; border-radius: 4px; visibility: hidden; opacity: 0; transition: opacity var(--fast) var(--ease), color var(--fast) var(--ease); }
 .safe-default:hover { color: var(--blue-hover); text-decoration: underline; text-underline-offset: 2px; }
 .model-row:hover .safe-default, .model-row:focus-within .safe-default, .safe-default:focus-visible { visibility: visible; opacity: 1; }
 .model-row .model-name-cell { min-height: 60px; }

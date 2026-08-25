@@ -1686,6 +1686,14 @@ test("every control is big enough to hit", { timeout: 60_000 }, async () => {
         ) === button;
         return {
           height: Math.round(box.height),
+          // Padding can only add to a line box, so an unpinned line height makes
+          // the target's size depend on whichever font the machine happens to
+          // have. This assertion passed locally at 24px and failed on CI at 20px
+          // for exactly that reason — the label is Chinese, so it is a CJK
+          // fallback, not the declared stack, that decides. A measurement can
+          // only ever see the fonts of the machine taking it, so the size being
+          // font-independent has to be asserted rather than measured.
+          lineBoxIsFixed: /px$/.test(getComputedStyle(button).lineHeight),
           // The 8px of padding has to be part of the hit area, not just the box.
           topHits: hits(box.top + 2),
           bottomHits: hits(box.bottom - 2),
@@ -1698,7 +1706,14 @@ test("every control is big enough to hit", { timeout: 60_000 }, async () => {
           ) === field,
         };
       })()`),
-      { height: 24, topHits: true, bottomHits: true, insideRow: true, fieldKeepsItsEdge: true },
+      {
+        height: 24,
+        lineBoxIsFixed: true,
+        topHits: true,
+        bottomHits: true,
+        insideRow: true,
+        fieldKeepsItsEdge: true,
+      },
     );
     assert.deepEqual(await cdp.evaluate(rowMeasurements).then((rows) => rows.map((row) => row.height)), [85, 85, 85]);
 
