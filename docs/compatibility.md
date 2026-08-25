@@ -134,14 +134,25 @@ when a Codex wire change needs one:
   `openai-responses → openai-chat-completions` outright
   (`internal/translator/openai/openai/responses/`), which is exactly the direction
   the bridge needs, and its `openai-compatibility` block takes a keyed
-  Chat-Completions upstream. Also a worked example of the listener trap this project
+  Chat-Completions upstream. The whole path is traceable in source, which is how the
+  claim in both READMEs — that from here it is an ordinary provider — was checked
+  without running it: `POST /v1/responses` (`internal/api/server_routes.go`) reaches
+  a handler whose `HandlerType()` is `"openai-response"`
+  (`internal/constant/constant.go`), that string becomes `SourceFormat`
+  (`sdk/api/handlers/handlers_execution.go`), and the openai-compat executor
+  translates it to `openai` and POSTs `/chat/completions`
+  (`internal/runtime/executor/openai_compat_executor.go`), translating the reply back
+  to the source format. Also a worked example of the listener trap this project
   avoids: `host` defaults to `""` — every interface — on port 8317.
-- sub2api: <https://github.com/Wei-Shaw/sub2api> — Go, LGPL-3.0. Its `apicompat`
-  package carries 14 source files against 27 test files, and those tests are named
-  after precisely the things `AGENTS.md` says keep moving: reasoning cache, stream
-  lifecycle, encrypted reasoning content, tool-output shapes. Read it for how a
+- sub2api: <https://github.com/Wei-Shaw/sub2api> — Go, LGPL-3.0. Read it for how a
   translator is *tested*, which is the part that decides whether owning one is
-  affordable. Nothing else about the project is a model for this one — see below.
+  affordable: its `apicompat` package is 9,133 lines of source against 10,032 lines
+  of test — 359 test functions — and they are named after precisely the things
+  `AGENTS.md` says keep moving. `RestoresEncryptedOnlyItem` asserts that a cached
+  plaintext replaces an encrypted-only reasoning item and the tool call still lands
+  on the assistant message; others cover stream lifecycle ordering, tool arguments
+  arriving in the first chunk, and dangling tool calls being dropped. Nothing else
+  about the project is a model for this one — see below.
 
 **Read this for the boundary question.** Not a proxy, and the only one here that
 edits the same files:
