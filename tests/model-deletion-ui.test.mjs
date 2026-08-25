@@ -880,6 +880,147 @@ test("production UI drives the Codex workspace", { timeout: 90_000 }, async () =
   }
 });
 
+// A bridge whose stored upstream key is really a URL reads as "no credential", so
+// the server asks for a real one — proven in tests/codex-server.test.mjs. The form
+// then told the opposite story: its placeholder keyed off the bridge merely
+// existing, so it promised "留空表示沿用已保存的 key" over an empty box with nothing
+// to reuse, and following it lands on the save error instead of a fixed provider.
+// The field the browser is already given is the one that answers this.
+test("the form does not offer to reuse a bridge key that cannot be used", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-legacy-pi-"));
+  const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-legacy-codex-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-legacy-"));
+  writeFixture(agentDir);
+  // No `[model_providers.*]` table, so nothing is adopted and the two providers
+  // under test are exactly the two in the store.
+  fs.writeFileSync(path.join(codexDir, "config.toml"), "[tui]\nnotifications = true\n");
+  const upstream = "https://chatonly.example/v1";
+  const bridgeProvider = (port, key) => ({
+    baseUrl: `http://127.0.0.1:${port}/v1`,
+    requiresAuth: false,
+    models: [{ id: "deepseek-chat", reasoningEffort: "medium" }],
+    defaultModelId: "deepseek-chat",
+    credential: null,
+    bridge: { upstreamBaseUrl: upstream, port, credential: { type: "api_key", key }, models: {} },
+  });
+  fs.writeFileSync(path.join(codexDir, "pi-provider-manager-store.json"), JSON.stringify({
+    version: 1,
+    ownedProviderId: "custom",
+    activeProviderId: "legacy-bridge",
+    providers: {
+      // The bad data 0.2.x could write: the upstream address in the key slot.
+      "legacy-bridge": { name: "旧数据的桥", ...bridgeProvider(43210, upstream) },
+      // The same shape with a usable key, so the opposite copy is checked too and
+      // the assertion cannot pass by never showing the reuse offer at all.
+      "healthy-bridge": { name: "正常的桥", ...bridgeProvider(43211, "sk-upstream-not-real") },
+    },
+  }));
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server;
+  let chrome;
+  let cdp;
+  let serverOutput = "";
+  let chromeOutput = "";
+
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CODEX_DIR: codexDir,
+        PI_PROVIDER_MANAGER_SERVE_UI: "1",
+        PI_PROVIDER_MANAGER_PORT: String(appPort),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; });
+    server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${appPort}/api/state`);
+
+    chrome = spawn(chromePath, [
+      "--headless",
+      "--no-sandbox",
+      "--disable-gpu",
+      `--remote-debugging-port=${debugPort}`,
+      `--user-data-dir=${profileDir}`,
+      "about:blank",
+    ], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    chrome.stdout.on("data", (chunk) => { chromeOutput += chunk; });
+    chrome.stderr.on("data", (chunk) => { chromeOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
+
+    const target = await fetch(
+      `http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(`http://127.0.0.1:${appPort}`)}`,
+      { method: "PUT" },
+    ).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl);
+    await cdp.send("Page.enable");
+    await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", {
+      width: 1280, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    await cdp.send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
+    await cdp.waitFor(`document.querySelector('.target-switch')`);
+
+    const clickText = (selector, text) =>
+      cdp.evaluate(`[...document.querySelectorAll(${JSON.stringify(selector)})]
+        .find((node) => node.textContent.includes(${JSON.stringify(text)})).click()`);
+
+    await clickText(".target-switch button", "Codex");
+    await cdp.waitFor(`document.querySelectorAll('.provider-item').length === 2`);
+
+    // Opening a provider that has models lands on the model step; the credentials
+    // step is reached back through the stepper, the way a person would.
+    const openCredentials = async (name) => {
+      await clickText(".provider-item", name);
+      await cdp.waitFor(`document.querySelector('.models-step')`);
+      await clickText(".step", "填写凭据");
+      await cdp.waitFor(`document.querySelector('.credential-box .key-field input')`);
+      return cdp.evaluate(`({
+        placeholder: document.querySelector('.credential-box .key-field input').placeholder,
+        notes: [...document.querySelectorAll('.credential-box .credential-status strong')]
+          .map((node) => node.textContent.trim()),
+      })`);
+    };
+
+    const legacy = await openCredentials("旧数据的桥");
+    assert.equal(legacy.placeholder, "输入后不会回显");
+    assert.ok(
+      legacy.notes.some((note) => note.includes("还没有可用的上游 key")),
+      `expected the unusable-key note, saw ${JSON.stringify(legacy.notes)}`,
+    );
+
+    const healthy = await openCredentials("正常的桥");
+    assert.equal(healthy.placeholder, "留空表示沿用已保存的 key");
+    assert.equal(
+      healthy.notes.some((note) => note.includes("还没有可用的上游 key")),
+      false,
+      `a usable key must not be reported as missing, saw ${JSON.stringify(healthy.notes)}`,
+    );
+
+    assert.equal(cdp.errors.length, 0, JSON.stringify(cdp.errors));
+  } catch (error) {
+    error.message += `\nServer output:\n${serverOutput}\nChrome output:\n${chromeOutput}`;
+    throw error;
+  } finally {
+    if (cdp) {
+      await Promise.race([
+        cdp.send("Browser.close").catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+      cdp.close();
+    }
+    await stopProcess(chrome, true);
+    await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(codexDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
 test("production UI drives the prompt library for both agents", { timeout: 90_000 }, async () => {
   requireFreshBuiltUi();
   const chromePath = findChrome();

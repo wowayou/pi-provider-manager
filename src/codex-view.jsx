@@ -425,10 +425,22 @@ function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onN
                     autoComplete="new-password"
                     value={form.bridgeApiKey}
                     onChange={(event) => setForm((current) => ({ ...current, bridgeApiKey: event.target.value }))}
-                    placeholder={existing?.bridge ? "留空表示沿用已保存的 key" : "输入后不会回显"}
+                    placeholder={existing?.bridge?.credentialConfigured ? "留空表示沿用已保存的 key" : "输入后不会回显"}
                   />
                 </div>
               </label>
+              {existing?.bridge && !existing.bridge.credentialConfigured && (
+                <div className="credential-status">
+                  <Info size={24} weight="duotone" />
+                  <div>
+                    <strong>这个桥还没有可用的上游 key</strong>
+                    <span>
+                      早于 0.3.0 的版本会把上游地址错存进 key 那一栏，那样的值读作「未配置」。
+                      请在上面填一次真正的 key；保存后旧值就被替换掉。
+                    </span>
+                  </div>
+                </div>
+              )}
               <div className="credential-status">
                 <Info size={24} weight="duotone" />
                 <div>
