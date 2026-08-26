@@ -10,6 +10,8 @@ import process from "node:process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { readJson, readText, writeJsonAtomic } from "../lib/atomic-files.mjs";
+
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 // Deriving the port from the pid collides whenever two runs land on pids that are
@@ -717,5 +719,32 @@ test("reports which settings keys exist and allows the theme bootstrap through C
   } finally {
     child.kill();
     fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+// Pi 0.84.3 made its own auth.json reader tolerate a UTF-8 BOM (auth-storage.js
+// gained stripBom). Found by diffing 0.84.2 against 0.84.3 and then running both
+// against a config this manager generated: 0.84.3 read a BOM'd auth.json that
+// 0.84.2 and this manager both refused. A file Pi accepts must not be a file this
+// manager rejects — and the byte is invisible in an editor, so the error names
+// something the reader cannot see. Notepad writes one, and Windows is supported.
+test("a UTF-8 BOM does not stop this manager reading what Pi reads", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-bom-"));
+  try {
+    const models = path.join(dir, "models.json");
+    fs.writeFileSync(models, "﻿" + JSON.stringify({ providers: { gw: { name: "GW" } } }));
+    assert.deepEqual(readJson(models), { providers: { gw: { name: "GW" } } });
+
+    // Prompt bodies do not fail to parse, so the BOM would instead travel into
+    // the prompt text and back out to the next save.
+    const prompt = path.join(dir, "AGENTS.md");
+    fs.writeFileSync(prompt, "﻿# Rules\n");
+    assert.equal(readText(prompt), "# Rules\n");
+
+    // Stripped on read only: nothing here writes one back.
+    writeJsonAtomic(models, { providers: {} });
+    assert.equal(fs.readFileSync(models, "utf8").charCodeAt(0), "{".charCodeAt(0));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -253,3 +253,16 @@ final result: passed
 - The same networking behaviour made "connection refused" unreachable for loopback probes on this machine, so the bridge check no longer reports refused and timed out as different outcomes.
 
 final result: passed
+
+## Pi 0.84.3 Compatibility Run
+
+- Evidence date: `2026-08-26`. Manager version `0.3.3`; baseline advanced from Pi `0.84.2` to `0.84.3`.
+- Evidence shape: Pi `0.84.3` installed into a throwaway `npm --prefix` tree so the machine's global `0.84.2` stayed in place and both versions could be run against the same directory. Configuration written by this manager's own API into an isolated `PI_CODING_AGENT_DIR`, with a non-routable gateway URL and a dummy key.
+- **Both versions read a manager-generated config identically.** `pi --list-models compat-gw` under `PI_OFFLINE=1` printed byte-identical rows on `0.84.2` and `0.84.3` — provider, model, `200K` context, `8.2K` max output, thinking yes, images no. That is the checklist step that decides whether Pi accepts what this manager writes.
+- **No config schema change.** `dist/config.d.ts` differs between the two releases only by a corrected comment and a new exported `findNodePackageDir`. The release's one breaking change is a TypeScript type rename (`GoogleThinkingLevel` → `GoogleApiThinkingLevel`), which is an SDK surface and not a file this manager reads or writes. `docs/providers.md` is unchanged.
+- **One real divergence found, and fixed here.** Pi `0.84.3` made its own reader tolerate a UTF-8 BOM (`dist/core/auth-storage.js` gained `stripBom`). Verified by adding a BOM to the manager-written `auth.json`: `0.84.3` read it, while Pi `0.84.2` **and this manager** both failed with `Unexpected token`. A file Pi accepts must not be a file this manager rejects — Notepad writes a BOM and Windows is supported — so `parseJsonBytes` and `readText` now strip one on read. Nothing writes one back, so the next save normalises the file. Regression in `tests/server.test.mjs`, mutation-checked.
+- **Pi stopped re-chmodding `auth.json`.** `auth-storage.js` dropped its `chmodSync(path, 0o600)` calls, deliberately: "the mode applies only on creation so administrator-managed modes and ACLs remain intact." This creates no gap here, because `lib/atomic-files.mjs` chmods `0600` after every write of its own rather than relying on Pi to do it — the same reasoning that fixed the bridge log in 0.3.2. This manager is now stricter about the mode than Pi is.
+- Unknown-field preservation, atomic multi-file writes with rollback, and the revision conflict path were exercised by `npm test` (107 pass, 0 skipped) rather than by hand.
+- **Not run in this pass, and so not claimed:** the browser scenarios in the sections above were not repeated against `0.84.3` — the automated production-browser suite passed, but no manual pass was made — and no interactive `pi` session was started, so `/model` was not used to confirm the model appears in the picker. The `--list-models` result above is the schema evidence; the picker is a UI surface this release did not change.
+
+final result: passed
