@@ -962,6 +962,7 @@ test("updating refuses in order: unchecked, then unapplicable", async () => {
 
     // Still nothing running after a refusal.
     assert.equal((await (await fetch(`${baseUrl}/api/state`)).json()).update.running, false);
+
   } finally {
     child.kill();
     fs.rmSync(agentDir, { recursive: true, force: true });

@@ -22,6 +22,7 @@ import { createBridgeRunner } from "./lib/litellm-bridge.mjs";
 import { createPromptLibrary } from "./lib/prompt-library.mjs";
 import {
   applyCheckout,
+  applyRefusal,
   assetFor,
   compareVersions,
   describeInstall,
@@ -952,8 +953,14 @@ const server = http.createServer(async (request, response) => {
         sendJson(response, 400, { error: "先检查更新。" });
         return;
       }
-      if (updateState.install?.kind === "checkout" && !updateState.install.canApply) {
-        sendJson(response, 409, { error: updateState.install.reason || "当前 checkout 不能自动升级。" });
+      const refusal = applyRefusal({
+        install: updateState.install,
+        newer: updateState.newer,
+        latestVersion: updateState.latestVersion,
+        appVersion: APP_VERSION,
+      });
+      if (refusal) {
+        sendJson(response, 409, { error: refusal });
         return;
       }
       updateState.running = true;
