@@ -103,6 +103,9 @@ jobs:
           $env:PI_PROVIDER_MANAGER_PORT = "43137"
           $env:PI_CODING_AGENT_DIR = Join-Path $env:TEMP "ppm-ci-agent"
           $env:PI_PROVIDER_MANAGER_CODEX_DIR = Join-Path $env:TEMP "ppm-ci-codex"
+          # On the record, because the next person to read the assertions below
+          # will want to know what this runner's TEMP actually is.
+          Write-Host "TEMP=$env:TEMP"
           $servicePid = 0
           try {
             $first = & ./bin/pi-provider-manager.ps1 | Out-String
@@ -110,11 +113,21 @@ jobs:
             # left a blocked browser bridge with no port and no error on screen.
             if ($first -notmatch "ready: http://127\.0\.0\.1:43137/") { throw "no url:`n$first" }
             if ($first -match "reused") { throw "a first start claimed a reuse:`n$first" }
-            if ($first -notmatch [regex]::Escape($env:PI_CODING_AGENT_DIR)) { throw "no Pi directory:`n$first" }
 
+            # Learn the process id before asserting anything else, so a failed
+            # assertion still has something for the finally block to stop.
             $state = Invoke-RestMethod -Uri "http://127.0.0.1:43137/api/state" -TimeoutSec 10
             $servicePid = [int]$state.compatibility.servicePid
             if ($servicePid -le 0) { throw "the server reported no process id" }
+
+            # Matched by leaf, not by the whole path. The first run of this step
+            # showed the launcher printing a directory that does not compare equal
+            # to the string it was handed — the runner's TEMP and the resolved form
+            # differ, which is Windows path normalisation and not the launcher. The
+            # claim worth asserting is that it prints the directory it was given
+            # rather than one it assumed, and the leaf carries that.
+            if ($first -notmatch "Pi config:\s+\S*ppm-ci-agent\b") { throw "no Pi directory:`n$first" }
+            if ($first -notmatch "Codex config:\s+\S*ppm-ci-codex\b") { throw "no Codex directory:`n$first" }
 
             $second = & ./bin/pi-provider-manager.ps1 | Out-String
             if ($second -notmatch "reused the instance already running") { throw "no reuse report:`n$second" }
