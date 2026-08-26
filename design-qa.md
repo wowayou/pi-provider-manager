@@ -309,3 +309,16 @@ final result: passed
 - **Not run in this pass, and so not claimed:** no upgrade has been applied end to end against a release newer than the running one, because there is not one yet. The checkout path was exercised as far as its refusals and its injected-command sequence; the archive path only against a stand-in for `tar`.
 
 final result: passed
+
+## Upgrade End To End — Evidence
+
+- Evidence date: `2026-08-26`. Release `0.3.6`.
+- **The whole chain was run against the real release, in a real checkout.** A fresh clone was rewound to `3c52cea` — the commit before the release bump, so the code carries the update feature while `package.json` still says `0.3.5`, which is exactly what a checkout that has not pulled since the release looks like. `npm ci`, `npm run build`, then serve on a spare port with a throwaway config directory.
+- **Check.** `POST /api/update/check` against the real API returned `latest 0.3.6`, `newer true`, and described the install: a checkout on `main` tracking `origin/main`, clean, `canApply true`.
+- **Apply.** `POST /api/update/apply` ran all four steps and reported each: 拉取远端提交 (`1116ms`), 快进到远端版本 (`7ms`), 安装依赖 (`3675ms` — the release commit moved `package-lock.json`, which is what earns an `npm ci`), 构建界面 (`2799ms`). Afterwards the state read `appVersion 0.3.5`, `pendingAppVersion 0.3.6`, `bundleProblem ""` — the upgrade on disk, the process still serving the old one, and nothing stale because the build had run.
+- **Apply.** `POST /api/restart` handed the port from pid `1310787` to pid `1312006`, which reported `0.3.6` with nothing left pending. The served page then referenced `assets/index-QCIA26Mf.js`, the bundle the build had just produced — so the new server is behind the new page, which is the thing the stale-bundle guard exists to protect.
+- **The Windows archive branch ran, on Windows, against the real release.** Windows Node fetched the `v0.3.5` release, downloaded `pi-provider-manager-v0.3.5-windows.zip`, and unpacked it with `Expand-Archive` into a sibling of a stand-in older install: `server.mjs`, `dist/client/index.html` and `bin/pi-provider-manager.ps1` all present in the new directory, the stand-in install byte-identical afterwards, and the downloaded zip removed. This is the path the previous section recorded as never having run at all.
+- **What this supersedes.** The `Update From The Panel` section said no upgrade had been applied end to end against a newer release, because there was not one; and that the Windows extraction branch had not been run. Both are now run, and above.
+- **Not run in this pass, and so not claimed:** the archive upgrade was exercised through the library against a real release rather than through a manager actually installed from an archive, so the branch that decides `kind: "archive"` on a real archive install has still only been reached in tests. No failure of the apply sequence was staged against the real remote — a broken build and a broken replacement are covered by `tests/server.test.mjs` and `tests/self-update.test.mjs`, not by a staged bad release.
+
+final result: passed
