@@ -295,3 +295,16 @@ final result: passed
 - **Not run in this pass, and so not claimed:** the archive has not been downloaded through a browser, so the download mark above was written by hand rather than by a real download; and Pi is not installed on the Windows side of this machine, so Windows `pi` detection is exercised only as far as its `unknown` answer.
 
 final result: passed
+
+## Update From The Panel — Evidence
+
+- Evidence date: `2026-08-26`. Manager version `0.3.5`.
+- **The check was run against the real API once, by hand.** `POST /api/update/check` returned `latest 0.3.5`, `newer false` against the running `0.3.5`, named `pi-provider-manager-v0.3.5-linux-wsl.tar.gz` as this platform's asset, and described the install it was running in: a checkout on branch `update-from-the-panel` with no upstream yet and a dirty tree. `POST /api/update/apply` then refused with `409` and that same reason. One request, because a person made it.
+- **Everything else is covered without the network.** `tests/self-update.test.mjs` drives the lookup, the version ordering, all three refusal reasons, and both apply shapes against injected commands and responses: that `npm ci` runs only when the lockfile moved, that a failed step stops the sequence before the build, that an unchanged HEAD is reported rather than rebuilt, and that an archive is unpacked beside the install with the running copy byte-identical afterwards. `tests/server.test.mjs` checks that a page load has looked up nothing at all — an empty `update` in the state is the observable form of "startup makes no upstream request".
+- **Two refusals are asserted rather than described.** An existing destination directory is refused before anything is downloaded, and an archive missing `server.mjs` or `dist/client/index.html` is reported with the current install untouched and the half-unpacked directory cleared away, so the next attempt is not blocked by the path this one created.
+- **The browser sees the control and its promise.** `tests/model-deletion-ui.test.mjs` asserts the settings card carries the check button and that its hint names `api.github.com` and says the press is what makes the request — before any check has been made.
+- `npm test`: 137 pass, 0 fail, 0 skipped on this machine.
+- **The Windows extraction command form was run on Windows, if not the branch around it.** The exact `Expand-Archive -LiteralPath '…' -DestinationPath '…' -Force` string this code builds was executed on PowerShell against a path containing both a space and a single quote — the quote doubled the way the code doubles it — and unpacked both required entries. What that does not cover is the branch reaching it, which needs a manager running on Windows: from WSL the paths handed to it are `/mnt/...` and `/tmp/...`, which PowerShell does not read.
+- **Not run in this pass, and so not claimed:** no upgrade has been applied end to end against a release newer than the running one, because there is not one yet. The checkout path was exercised as far as its refusals and its injected-command sequence; the archive path only against a stand-in for `tar`.
+
+final result: passed

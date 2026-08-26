@@ -57,7 +57,7 @@ Only `server.mjs` writes Pi or Codex configuration, in the first two paths. The 
 | Path | Responsibility | Explicitly does not own |
 | --- | --- | --- |
 | `src/` | React workflow, validation feedback, demo fixture, theme, and save handoff | filesystem access, stored credentials, provider traffic |
-| `lib/` | dependency-free server modules shipped as source: atomic writes, the shared managed-file guard, TOML document model, Codex config, LiteLLM bridge, prompt library, Pi and Codex version detection | HTTP, routing, UI state |
+| `lib/` | dependency-free server modules shipped as source: atomic writes, the shared managed-file guard, TOML document model, Codex config, LiteLLM bridge, prompt library, Pi and Codex version detection, this project's own update lookup and upgrade | HTTP, routing, UI state |
 | `server.mjs` | loopback API, config validation, revision checks, atomic writes, rollback, static production serving, replacing itself on restart | remote provider requests, model execution, update monitoring |
 | `bin/pi-provider-manager-ui` | WSL/local process discovery, port selection, detached launch, browser opening | configuration schema or UI state |
 | `scripts/dev.mjs` | paired Vite and API development processes | production verification |
@@ -191,6 +191,7 @@ Do not create another live copy of the app version, validated Pi version, or ope
 | Docs or repository metadata only | relevant parser/schema checks and `git diff --check` |
 | Update monitor | `npm run test:pi-update`; optionally `npm run check:pi-update` for a live read-only comparison |
 | Server or API | `npm run test:server` plus a production-shape request against `server.mjs` |
+| The update check or upgrade | `npm run test:server` (`tests/self-update.test.mjs` against injected commands and responses — no test reaches the network, for the same reason the product does not on startup) plus one manual `POST /api/update/check` against the real API |
 | The restart handover | `npm run test:server` covers both outcomes — a replacement that takes the port, and one that cannot start and has to hand it back — and `npm run test:ui` drives the button in a browser |
 | UI behavior or styling | production build, browser flow, console/page errors, responsive checks, and production-shape serving |
 | Sites packaging | `npm run build` and `npm run test:sites` |

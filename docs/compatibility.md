@@ -58,7 +58,7 @@ The `Pi update monitor` workflow runs daily and can also be dispatched manually.
 The monitor is intentionally outside the product runtime:
 
 - no Pi package is added to this project's dependencies
-- application startup and builds make no upstream network request
+- application startup and builds make no upstream network request. The one request the product itself can make is the manager's own update check, and only when somebody presses the button for it: `POST /api/update/check` reads this project's latest GitHub Release. Nothing checks on a timer, on a page load, or at startup, and the panel names the host before the request is made.
 - prereleases, tags without a GitHub Release, and upstream `main` commits do not create reminders
 - the monitor never changes `piValidatedVersion` or declares compatibility
 - a failed upstream request fails the workflow instead of guessing
