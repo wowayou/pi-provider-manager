@@ -5,6 +5,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -31,7 +32,8 @@ const PORT = Number(
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
   throw new Error("PI_PROVIDER_MANAGER_PORT must be an integer between 1 and 65535.");
 }
-const PROJECT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SERVER_PATH = fileURLToPath(import.meta.url);
+const PROJECT_DIR = path.dirname(SERVER_PATH);
 const CLIENT_DIR = path.join(PROJECT_DIR, "dist", "client");
 const AGENT_DIR = path.resolve(
   process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), ".pi", "agent"),
@@ -148,6 +150,111 @@ function readPendingAppVersion() {
     if (typeof manifest.version === "string" && manifest.version !== APP_VERSION) return manifest.version;
   } catch {}
   return "";
+}
+
+// Applying an upgrade means running different code, which no process can do to
+// itself: this manager has to be replaced by one started from the files now on
+// disk. Doing that from inside the process being replaced is only honest if a
+// failure leaves the old one still serving — an upgrade that ends with nothing on
+// the port, and no page left to explain it, is worse than one that never started.
+// So the order is: stop listening, start the replacement, and wait for it to
+// answer. Only then exit. If nothing answers, take the port back and keep the
+// reason for the next reader.
+let restarting = false;
+let restartError = "";
+
+// Answered by a different process id, which is the only proof that matters: this
+// one has stopped listening, so anything replying on the port is the replacement.
+function waitForReplacement(deadline, exited) {
+  return new Promise((resolve) => {
+    function retry() {
+      // A replacement that has already exited will never answer. Waiting out the
+      // deadline for it would only delay the recovery, and the exit code is a
+      // better account of what went wrong than a timeout is.
+      if (exited() || Date.now() >= deadline) {
+        resolve(0);
+        return;
+      }
+      setTimeout(attempt, 200).unref?.();
+    }
+    function attempt() {
+      const request = http.get(
+        { host: HOST, port: PORT, path: "/api/state", headers: { host: `${HOST}:${PORT}` } },
+        (reply) => {
+          const chunks = [];
+          reply.on("data", (chunk) => chunks.push(chunk));
+          reply.on("end", () => {
+            try {
+              const pid = JSON.parse(Buffer.concat(chunks).toString("utf8")).compatibility?.servicePid;
+              if (Number.isInteger(pid) && pid !== process.pid) {
+                resolve(pid);
+                return;
+              }
+            } catch {}
+            retry();
+          });
+        },
+      );
+      request.on("error", retry);
+    }
+    attempt();
+  });
+}
+
+// A regular file or a character device (a terminal, /dev/null) is still there for
+// the replacement to write to once this process is gone. A pipe or a socket is not.
+function outlivesUs(fd) {
+  try {
+    const stats = fs.fstatSync(fd);
+    return stats.isFile() || stats.isCharacterDevice() ? fd : "ignore";
+  } catch {
+    return "ignore";
+  }
+}
+
+async function applyRestart() {
+  restarting = true;
+  restartError = "";
+  // Releases the listening socket at once; the keep-alive connections the browser
+  // holds would otherwise keep this process alive after its replacement is up.
+  server.close();
+  server.closeIdleConnections?.();
+  const replacement = spawn(process.execPath, [SERVER_PATH], {
+    cwd: PROJECT_DIR,
+    // The replacement has to be handed the same machine. The port, both config
+    // directories and the LiteLLM path all arrive through the environment, and
+    // the launcher is not here to supply them a second time. The port is restated
+    // rather than left to a default, so a defaulting rule that changes later
+    // cannot move the replacement to another port.
+    env: { ...process.env, PI_PROVIDER_MANAGER_PORT: String(PORT) },
+    detached: true,
+    // Inherited only where the destination outlives this process: the launcher
+    // points its output at a log file and a developer's at a terminal, and that is
+    // where a replacement's startup failure has to land. A pipe is the exception —
+    // it belongs to whoever spawned this process, and holding its write end open
+    // from a detached child leaves that reader waiting for an end that never comes.
+    stdio: ["ignore", outlivesUs(1), outlivesUs(2)],
+  });
+  replacement.unref();
+  let exit = null;
+  replacement.once("exit", (code, signal) => { exit = { code, signal }; });
+  replacement.once("error", (error) => { exit = { code: null, signal: null, message: error.message }; });
+
+  const replacementPid = await waitForReplacement(Date.now() + 20_000, () => exit);
+  if (replacementPid) {
+    process.stdout.write(`Replaced by pid ${replacementPid}. Exiting ${process.pid}.\n`);
+    process.exit(0);
+  }
+
+  try {
+    replacement.kill();
+  } catch {}
+  restartError = exit
+    ? `重启没有成功：新进程启动后立刻退出（${exit.message || `code ${exit.code}${exit.signal ? ` / ${exit.signal}` : ""}`}），仍在运行原来的版本。请查看日志。`
+    : "重启没有成功：新进程没有在 20 秒内接管端口，仍在运行原来的版本。请查看日志后手动重启。";
+  restarting = false;
+  server.listen(PORT, HOST);
+  process.stdout.write(`${restartError}\n`);
 }
 
 // A broken or unreadable Codex directory must not take the whole state
@@ -279,6 +386,9 @@ function publicState() {
     // from a stored value. Say which keys settings.json actually carries.
     settingsPresent: SETTINGS_KEYS.filter((key) => Object.hasOwn(settings, key)),
     codex: codexState(),
+    // Empty unless a restart was asked for and did not take. The page that asked
+    // is the one that needs to hear about it.
+    restartError,
     prompts: { pi: prompts.pi.publicState(), codex: prompts.codex.publicState() },
     compatibility: {
       appVersion: APP_VERSION,
@@ -715,6 +825,32 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "POST" && request.url === "/api/providers/delete") {
       deleteProvider(await readBody(request));
       sendJson(response, 200, { ok: true, state: publicState() });
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/restart") {
+      if (restarting) {
+        sendJson(response, 409, { error: "已经在重启中。" });
+        return;
+      }
+      // Answered before the handover begins: the port this reply travels over is
+      // the one about to be handed to another process. The caller is told which
+      // process it is replacing, so it can wait for a different one to answer.
+      sendJson(response, 202, {
+        ok: true,
+        pid: process.pid,
+        appVersion: APP_VERSION,
+        pendingAppVersion: readPendingAppVersion(),
+      });
+      response.on("finish", () => {
+        applyRestart().catch((error) => {
+          restarting = false;
+          restartError = `重启失败：${error.message}`;
+          process.stdout.write(`${restartError}\n`);
+          try {
+            server.listen(PORT, HOST);
+          } catch {}
+        });
+      });
       return;
     }
     if (request.method === "POST" && request.url === "/api/settings") {

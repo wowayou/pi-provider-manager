@@ -58,7 +58,7 @@ Only `server.mjs` writes Pi or Codex configuration, in the first two paths. The 
 | --- | --- | --- |
 | `src/` | React workflow, validation feedback, demo fixture, theme, and save handoff | filesystem access, stored credentials, provider traffic |
 | `lib/` | dependency-free server modules shipped as source: atomic writes, the shared managed-file guard, TOML document model, Codex config, LiteLLM bridge, prompt library, Pi and Codex version detection | HTTP, routing, UI state |
-| `server.mjs` | loopback API, config validation, revision checks, atomic writes, rollback, static production serving | remote provider requests, model execution, update monitoring |
+| `server.mjs` | loopback API, config validation, revision checks, atomic writes, rollback, static production serving, replacing itself on restart | remote provider requests, model execution, update monitoring |
 | `bin/pi-provider-manager-ui` | WSL/local process discovery, port selection, detached launch, browser opening | configuration schema or UI state |
 | `scripts/dev.mjs` | paired Vite and API development processes | production verification |
 | `worker/index.js` | static asset and app-route fallback for Sites packaging | `/api` implementation or Pi config access |
@@ -191,6 +191,7 @@ Do not create another live copy of the app version, validated Pi version, or ope
 | Docs or repository metadata only | relevant parser/schema checks and `git diff --check` |
 | Update monitor | `npm run test:pi-update`; optionally `npm run check:pi-update` for a live read-only comparison |
 | Server or API | `npm run test:server` plus a production-shape request against `server.mjs` |
+| The restart handover | `npm run test:server` covers both outcomes — a replacement that takes the port, and one that cannot start and has to hand it back — and `npm run test:ui` drives the button in a browser |
 | UI behavior or styling | production build, browser flow, console/page errors, responsive checks, and production-shape serving |
 | Sites packaging | `npm run build` and `npm run test:sites` |
 | Release packaging or launchers | `npm run build`, `npm run test:release`, `npm run test:launcher`, a Linux/WSL archive listing, and the CI job that runs the Windows launcher — parsing it is not running it |

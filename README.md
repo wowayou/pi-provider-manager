@@ -31,7 +31,7 @@ Codex has the opposite problem. Its configuration is small but unforgiving: one 
 - **Forward-compatible edits** — unknown provider, model, and settings fields are preserved when known fields are updated.
 - **Beginner save handoff** — after saving, the app gives the exact `pi --model provider/model:thinking` command and `/model` verification steps.
 - **Large catalog UX** — sticky model header, internal scrolling, bulk model-ID import, and warnings when `-max`/`-xhigh` may be thinking levels rather than real model IDs.
-- **Real Pi settings** — default provider/model/thinking, transport, thinking-block visibility, installed Pi version, and compatibility status.
+- **Real Pi settings** — default provider/model/thinking, transport, thinking-block visibility, installed Pi version, and compatibility status, including a restart that applies an upgrade already on disk without leaving you without a manager if it fails.
 - **Codex CLI support** — the same sidebar and three-step wizard manage `~/.codex/config.toml` and `auth.json`, switch the active gateway in one click, and preserve every comment and hand-written table in the file.
 - **Chat-Completions-only upstreams** — Codex speaks only the Responses API, so the manager configures and supervises a local LiteLLM bridge for gateways that never implemented it. You install LiteLLM; it writes the config, wires Codex to the proxy, and starts or stops it.
 - **No database lock-in** — Pi remains the source of truth; the app edits Pi's own documented files and never reads or writes `models-store.json`.

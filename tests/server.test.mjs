@@ -797,3 +797,128 @@ test("reports a checkout that has moved ahead of the running process", async () 
     fs.rmSync(agentDir, { recursive: true, force: true });
   }
 });
+
+// Applying an upgrade means running the code now on disk, which no process can do
+// to itself. The panel offers the restart, so this endpoint has to do the handover
+// — and the whole point of doing it here rather than telling someone to `kill` a
+// pid is that the manager can guarantee the outcome either way.
+test("a restart hands the port to a manager started from the files on disk", async () => {
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-restart-"));
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-restart-agent-"));
+  const manifestPath = path.join(projectDir, "package.json");
+  const manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"));
+  fs.copyFileSync(path.join(projectRoot, "server.mjs"), path.join(projectDir, "server.mjs"));
+  fs.cpSync(path.join(projectRoot, "lib"), path.join(projectDir, "lib"), { recursive: true });
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.join(projectDir, "server.mjs")], {
+    cwd: projectDir,
+    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let replacementPid = 0;
+
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+    const before = (await (await fetch(`${baseUrl}/api/state`)).json()).compatibility;
+
+    // The upgrade: the same manager, a later version, waiting on disk.
+    fs.writeFileSync(manifestPath, JSON.stringify({ ...manifest, version: "9.9.9" }));
+
+    const accepted = await postJson(baseUrl, "/api/restart", {}, null);
+    // Answered before the handover, and it names the process being replaced:
+    // waiting for "a different pid" is the only reliable readiness signal.
+    assert.equal(accepted.status, 202);
+    const acknowledged = await accepted.json();
+    assert.equal(acknowledged.pid, before.servicePid);
+    assert.equal(acknowledged.pendingAppVersion, "9.9.9");
+
+    const deadline = Date.now() + 30_000;
+    let after;
+    while (Date.now() < deadline) {
+      try {
+        const state = await (await fetch(`${baseUrl}/api/state`)).json();
+        if (state.compatibility.servicePid !== before.servicePid) {
+          after = state;
+          break;
+        }
+      } catch {
+        // The port is unowned for a moment between the two processes.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    assert.ok(after, "no replacement took the port");
+    replacementPid = after.compatibility.servicePid;
+    // The manager on the port is the upgraded one, and it has nothing left to
+    // announce: the version it runs is the version on disk.
+    assert.equal(after.compatibility.appVersion, "9.9.9");
+    assert.equal(after.compatibility.pendingAppVersion, "");
+    assert.equal(after.restartError, "");
+    assert.equal(after.agentDir, agentDir, "the replacement kept the directories it was given");
+  } finally {
+    child.kill();
+    if (replacementPid > 0) {
+      try { process.kill(replacementPid, "SIGTERM"); } catch {}
+    }
+    fs.rmSync(projectDir, { recursive: true, force: true });
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+// The failure that matters is a replacement that cannot start — a bad upgrade, a
+// half-written file. Left unhandled it would take the working manager down with
+// it: nothing on the port, and no page left to say why.
+test("a replacement that cannot start leaves the old manager serving, and says why", async () => {
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-restart-fail-"));
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-restart-fail-agent-"));
+  const serverPath = path.join(projectDir, "server.mjs");
+  fs.copyFileSync(path.join(projectRoot, "server.mjs"), serverPath);
+  fs.cpSync(path.join(projectRoot, "lib"), path.join(projectDir, "lib"), { recursive: true });
+  fs.copyFileSync(path.join(projectRoot, "package.json"), path.join(projectDir, "package.json"));
+
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [serverPath], {
+    cwd: projectDir,
+    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+    const before = (await (await fetch(`${baseUrl}/api/state`)).json()).compatibility;
+
+    // This process is already running its own copy of the code, so replacing the
+    // file underneath it only breaks the process started from it next.
+    fs.writeFileSync(serverPath, 'throw new Error("this upgrade is broken");\n');
+
+    assert.equal((await postJson(baseUrl, "/api/restart", {}, null)).status, 202);
+
+    const deadline = Date.now() + 30_000;
+    let recovered;
+    while (Date.now() < deadline) {
+      try {
+        const state = await (await fetch(`${baseUrl}/api/state`)).json();
+        if (state.restartError) {
+          recovered = state;
+          break;
+        }
+      } catch {
+        // The listening socket is closed while the handover is attempted.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    assert.ok(recovered, "the old manager never came back");
+    // Same process, still serving, and the reason is on the state everyone reads.
+    assert.equal(recovered.compatibility.servicePid, before.servicePid);
+    assert.match(recovered.restartError, /新进程启动后立刻退出/);
+    // Not stuck: a second attempt is accepted rather than refused as in-flight.
+    assert.equal((await postJson(baseUrl, "/api/restart", {}, null)).status, 202);
+  } finally {
+    child.kill();
+    fs.rmSync(projectDir, { recursive: true, force: true });
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});

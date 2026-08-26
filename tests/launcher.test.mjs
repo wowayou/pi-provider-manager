@@ -7,7 +7,7 @@
 // Everything here drives the real script.
 
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -306,4 +306,95 @@ test("the installed shim runs the checkout's launcher, not its own logic", { ski
   assert.equal(moved.status, 1);
   assert.match(moved.stderr, /no longer at/);
   assert.match(moved.stderr, /npm run install:launcher/);
+});
+
+// The PowerShell launcher's reuse report had no local coverage: this file drives
+// bash, and CI is the only place PowerShell runs. That is thin for the one message
+// a Windows user reads when their manager is already up — and it is the message
+// that explains a panel showing an old version. Drive the real script here too,
+// wherever a Windows PowerShell is reachable, which on WSL it is.
+//
+// The launcher is copied to a Windows-local path first, and that is not a
+// convenience: the default RemoteSigned policy refuses an unsigned script on a UNC
+// path, which is exactly what this checkout is when reached from PowerShell. The
+// copy is byte-identical, so the launcher's own stale-copy warning stays quiet.
+const windowsPowerShell = ["pwsh.exe", "powershell.exe", ...(process.platform === "win32" ? ["pwsh", "powershell"] : [])]
+  .find((candidate) => {
+    try {
+      return spawnSync(candidate, ["-NoProfile", "-Command", "exit 0"], { timeout: 30_000 }).status === 0;
+    } catch {
+      return false;
+    }
+  });
+
+// PowerShell needs Windows spellings of both paths. Under WSL that is a
+// conversion; on Windows itself they already are.
+function windowsPath(target) {
+  if (process.platform === "win32") return target;
+  return execFileSync("wslpath", ["-w", target], { encoding: "utf8" }).trim();
+}
+
+test("the PowerShell launcher describes a reused instance too", { skip: windowsPowerShell ? false : "no Windows PowerShell on this machine" }, async (t) => {
+  if (builtUiGate(t)) return;
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-pwsh-pi-"));
+  const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-pwsh-codex-"));
+  t.after(() => {
+    fs.rmSync(agentDir, { recursive: true, force: true });
+    fs.rmSync(codexDir, { recursive: true, force: true });
+  });
+  const port = await freePort();
+
+  // Started directly rather than through the launcher: what is under test is the
+  // report about an instance that is already running, and starting it from Node
+  // keeps a Windows node out of the picture.
+  const running = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+    cwd: projectRoot,
+    env: {
+      ...process.env,
+      PI_CODING_AGENT_DIR: agentDir,
+      PI_PROVIDER_MANAGER_CODEX_DIR: codexDir,
+      PI_PROVIDER_MANAGER_PORT: String(port),
+      PI_PROVIDER_MANAGER_SERVE_UI: "1",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(() => running.kill());
+
+  const deadline = Date.now() + 20_000;
+  let state;
+  while (Date.now() < deadline) {
+    try {
+      state = await (await fetch(`http://127.0.0.1:${port}/api/state`)).json();
+      break;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+  assert.ok(state, "the manager under test never came up");
+
+  const script = `
+    $ErrorActionPreference = 'Stop'
+    $local = Join-Path $env:TEMP ('ppm-launcher-test-' + [guid]::NewGuid().ToString('N') + '.ps1')
+    Copy-Item -LiteralPath '${windowsPath(path.join(projectRoot, "bin", "pi-provider-manager.ps1"))}' -Destination $local
+    try {
+      $env:PI_PROVIDER_MANAGER_PROJECT_DIR = '${windowsPath(projectRoot)}'
+      $env:PI_PROVIDER_MANAGER_OPEN_BROWSER = '0'
+      $env:PI_PROVIDER_MANAGER_PORT = '${port}'
+      & $local
+    } finally { Remove-Item -LiteralPath $local -Force -ErrorAction SilentlyContinue }
+  `;
+  const reused = spawnSync(windowsPowerShell, ["-NoProfile", "-Command", script], { encoding: "utf8", timeout: 120_000 });
+  const output = `${reused.stdout || ""}${reused.stderr || ""}`;
+  assert.equal(reused.status, 0, output);
+
+  // Reported from what the instance says about itself, not from what this shell
+  // computed: during an upgrade those are different answers, and the launcher's
+  // own directory is the wrong one.
+  assert.match(output, /reused the instance already running/);
+  assert.ok(output.includes(`version ${state.compatibility.appVersion}`), output);
+  assert.ok(output.includes(agentDir), output);
+  assert.ok(output.includes(codexDir), output);
+  assert.match(output, new RegExp(`Stop-Process -Id ${state.compatibility.servicePid}\\b`));
+  // A byte-identical copy is not a stale copy.
+  assert.equal(/not the one in the checkout/.test(output), false, output);
 });
