@@ -120,12 +120,13 @@ jobs:
             $servicePid = [int]$state.compatibility.servicePid
             if ($servicePid -le 0) { throw "the server reported no process id" }
 
-            # Matched by leaf, not by the whole path. The first run of this step
-            # showed the launcher printing a directory that does not compare equal
-            # to the string it was handed — the runner's TEMP and the resolved form
-            # differ, which is Windows path normalisation and not the launcher. The
-            # claim worth asserting is that it prints the directory it was given
-            # rather than one it assumed, and the leaf carries that.
+            # Matched by leaf, not by the whole path. This runner's TEMP is the 8.3
+            # short form, C:\Users\RUNNER~1\AppData\Local\Temp, and the launcher
+            # prints it resolved to C:\Users\runneradmin\...; comparing the printed
+            # line against the string handed over therefore fails on Windows path
+            # normalisation rather than on the launcher. The claim worth asserting is
+            # that it prints the directory it was given rather than one it assumed,
+            # and the leaf carries that whatever a runner calls its TEMP.
             if ($first -notmatch "Pi config:\s+\S*ppm-ci-agent\b") { throw "no Pi directory:`n$first" }
             if ($first -notmatch "Codex config:\s+\S*ppm-ci-codex\b") { throw "no Codex directory:`n$first" }
 
