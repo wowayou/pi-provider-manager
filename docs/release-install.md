@@ -10,6 +10,11 @@ second copy of Pi.
 2. Extract the `linux-wsl.tar.gz` archive.
 3. Run `./bin/pi-provider-manager-ui` from the extracted directory.
 
+The full usage manual travels in this archive as `docs/usage.zh-CN.md` (Simplified
+Chinese): both provider wizards step by step, the managed bridge, every environment
+variable, upgrade and uninstall, and a troubleshooting table indexed by the exact
+text on screen.
+
 The launcher opens the browser and stores its log under `~/.pi/agent`. Set
 `PI_CODING_AGENT_DIR` before launching to use another isolated Pi directory.
 

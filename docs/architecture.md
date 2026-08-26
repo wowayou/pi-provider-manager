@@ -179,6 +179,7 @@ The scheduled monitor lives under `.github/workflows/` and reads the public `ear
 | Product runtime and security ownership | this document and `SECURITY.md`, checked against the server tests |
 | Pi update triage and validation steps | `docs/compatibility.md` |
 | Historical visual and compatibility evidence | dated entries in `design-qa.md`; they are evidence, not live runtime state |
+| How to install, operate, and troubleshoot the product | `docs/usage.zh-CN.md`, written for users rather than maintainers; it ships inside release archives |
 | Publication tasks still open | `OPEN_SOURCE_CHECKLIST.md` |
 
 Do not create another live copy of the app version, validated Pi version, or open-item count. Release notes and dated QA evidence may quote the values they actually tested; current documentation should point to the source above.
