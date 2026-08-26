@@ -26,17 +26,20 @@ Use the vocabulary in the architecture guide consistently: a provider is one Pi 
 
 ```bash
 npm ci
-npm run build
-npm run test:server
-npm run test:sites
-npm run test:pi-update
+npm test
 ```
+
+`npm test` runs the build and every suite in order. It replaced a list of three
+suites here that had stopped being all of them — nine exist. Individual scripts
+(`npm run test:server`, `test:codex`, `test:ui`, …) stay useful while iterating on
+one area; what a pull request needs to pass is the whole thing.
 
 For UI changes, repeat the relevant browser scenarios in `design-qa.md` against `/?demo=1` with Playwright or equivalent browser automation, and update the evidence when the visible product changes materially. The repository does not currently bundle a browser-test command. Any change touching the served page or API must also be exercised against `PI_PROVIDER_MANAGER_SERVE_UI=1 node server.mjs` with a temporary `PI_CODING_AGENT_DIR`; Vite alone does not cover production CSP or the real API boundary.
 
 ## Pull requests
 
-`main` is protected. Land changes through a branch and pull request, wait for the required aggregate `ci-passed` check, and use rebase merge so history remains linear.
+`main` is protected. Land changes through a branch and pull request, wait for the required aggregate `ci-passed` check, and squash-merge, so each commit on `main` is one pull request. (This said rebase
+for several releases while every merge was in fact a squash.)
 
 Describe:
 

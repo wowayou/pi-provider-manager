@@ -74,22 +74,27 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - **It is the only check that answers whether Codex accepts what we write.** Everything else verifies against a schema read from source, which cannot. It runs the installed binary and asserts `codex doctor --json` loaded the config; it skips itself where Codex is absent. Run it after any change to what goes into `config.toml`, and after a Codex upgrade.
 - `lib/` holds dependency-free server modules shipped as source in the release archive. `lib/toml-document.mjs` is also imported by the browser so a pasted vendor snippet is parsed by the same code that writes the file.
 
-## Handoff — current state as of 2026-08-19
+## Handoff
 
 Read this section first, then `design-qa.md` for how the UI got to its current
 form and what has already been reviewed.
 
-**Where things are.** The latest published release is `v0.2.1`; `v0.2.0` added
-Codex CLI support; releases `v0.1.2` through `v0.2.0` are tagged and published. `main` contains the
-structured issue forms, architecture and compatibility documentation, decoupled
-Pi update monitoring, dated real-Pi evidence, Node 24-based GitHub Actions,
-deletion protection for the model Pi is currently using (PR #27), guarded
-provider deletion with optional credential retention (PR #34), optimistic
-concurrency protection, and Linux/WSL plus Windows release archives.
-`package.json.version` is `0.2.1`.
-Every checklist item required before the first public push is done. The source
-of truth for remaining publication work and its prerequisites is
-`OPEN_SOURCE_CHECKLIST.md`; do not copy its item count here.
+**Where things are — and where to read it, rather than here.** This section used
+to enumerate the latest release, the version number, and the notable pull
+requests, and it was three releases stale before anyone noticed. It was also the
+section that says to keep one source for live facts, so the enumeration is gone
+rather than refreshed:
+
+| Question | Authority |
+|---|---|
+| What has shipped | GitHub Releases and git tags |
+| What version `main` is | `package.json.version` |
+| What is on `main` but unreleased | `CHANGELOG.md`'s `Unreleased` section |
+| What changed in a release, and why | that release's `CHANGELOG.md` section |
+| What was actually exercised, with dates | `design-qa.md` |
+| What remains before publication | `OPEN_SOURCE_CHECKLIST.md`; do not copy its item count here |
+
+Every checklist item required before the first public push is done.
 
 **Use one project vocabulary and one source for live facts.** The vocabulary and
 documentation ownership table are in `docs/architecture.md`. In particular, a
@@ -100,9 +105,11 @@ READMEs aligned.
 
 **How to land changes.** `main` is protected and the rules apply to
 administrators, so there is no direct push. Open a branch, open a pull request,
-let the required `ci-passed` check go green, then merge with a rebase to keep
-history linear. `ci-passed` is a single aggregate job that depends on the whole
-Node matrix, the production-browser UI job, and the Windows launcher parser; require that check and never the
+let the required `ci-passed` check go green, then squash-merge. Every merge back
+through #45 is a squash, so the history is single-parent commits each naming
+their pull request; this says squash because that is what is actually done. `ci-passed` is a single aggregate job that depends on the whole
+Node matrix, the production-browser UI job, and the Windows launcher job — which runs the launcher's
+first-run refusals, not only parses it; require that check and never the
 individual implementation jobs, because a required check naming a Node version
 or UI job disappears when the workflow changes and then blocks every pull request
 with no visible cause.
@@ -150,11 +157,14 @@ Settings shows it beside the Pi version detected on the machine, saying plainly
 when the two differ. Release notes quote it. The full procedure after a Pi
 upgrade is in `docs/compatibility.md`.
 
-**Latest real-Pi evidence.** On 2026-08-18, the production-shaped server wrote a
-fake provider into an isolated `PI_CODING_AGENT_DIR`, and Pi `0.84.2` listed its
-model with the expected context, output, thinking, and image capabilities. No
-real endpoint, credential, or normal home config was used. The dated record is
-in `design-qa.md`; the live baseline remains only in `package.json`.
+**There is real-Pi evidence, and it is not summarised here.** Each run has the
+same shape: the production-shaped server writes a fake provider into an isolated
+`PI_CODING_AGENT_DIR` with a non-routable URL and a dummy key, and the released
+Pi is asked to list its model. No real endpoint, credential, or normal home
+config is ever used. `design-qa.md` holds the dated records and which version
+each one exercised — this paragraph naming a date and a version is how it went
+stale before, so the live baseline stays only in `package.json` and the evidence
+stays only in `design-qa.md`.
 
 **Pi updates are monitored outside the product runtime.** A daily/manual
 workflow compares `piValidatedVersion` with the latest stable
