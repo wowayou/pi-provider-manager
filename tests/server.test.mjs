@@ -984,9 +984,14 @@ test("a bundle older than its sources blocks the restart, and says which", async
   fs.mkdirSync(path.join(projectDir, "src"));
   fs.writeFileSync(path.join(projectDir, "src", "App.jsx"), "// older than the bundle\n");
   // The bundle is built from the sources, so an equal-or-newer bundle is the
-  // ordinary state. Set it explicitly rather than relying on write order.
-  const built = Date.now() / 1000;
-  fs.utimesSync(path.join(projectDir, "src", "App.jsx"), built - 60, built - 60);
+  // ordinary state. Set every mtime explicitly, in whole seconds: the rule takes
+  // the newest of a directory *and* its entries, so leaving src/'s own mtime at
+  // "just now" makes the fixture stale before the test has done anything — which
+  // is how this first ran green here and red on a CI runner.
+  const built = Math.floor(Date.now() / 1000);
+  for (const target of [path.join(projectDir, "src", "App.jsx"), path.join(projectDir, "src")]) {
+    fs.utimesSync(target, built - 120, built - 120);
+  }
   fs.utimesSync(path.join(projectDir, "dist", "client", "index.html"), built, built);
 
   const port = await freePort();
@@ -1008,6 +1013,7 @@ test("a bundle older than its sources blocks the restart, and says which", async
 
     // A pull is what does this: every file it changes gets a current mtime.
     fs.utimesSync(path.join(projectDir, "src", "App.jsx"), built + 60, built + 60);
+    assert.equal(fs.statSync(path.join(projectDir, "src", "App.jsx")).mtimeMs > fs.statSync(path.join(projectDir, "dist", "client", "index.html")).mtimeMs, true);
     const stale = await (await fetch(`${baseUrl}/api/state`)).json();
     assert.match(stale.compatibility.bundleProblem, /dist\/client 比 src\/ 旧/);
 
@@ -1019,7 +1025,7 @@ test("a bundle older than its sources blocks the restart, and says which", async
     assert.equal(after.compatibility.servicePid, fresh.compatibility.servicePid);
 
     // Building is what clears it, and the state says so without a restart.
-    fs.utimesSync(path.join(projectDir, "dist", "client", "index.html"), built + 120, built + 120);
+    fs.utimesSync(path.join(projectDir, "dist", "client", "index.html"), built + 180, built + 180);
     assert.equal((await (await fetch(`${baseUrl}/api/state`)).json()).compatibility.bundleProblem, "");
   } finally {
     child.kill();
