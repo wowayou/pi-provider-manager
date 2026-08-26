@@ -967,3 +967,69 @@ test("updating refuses in order: unchecked, then unapplicable", async () => {
     fs.rmSync(agentDir, { recursive: true, force: true });
   }
 });
+
+// An upgrade that pulls and then fails to build leaves the source tree newer than
+// the bundle being served. Restarting there is the one outcome of a half-finished
+// upgrade that looks like it worked: a new server behind the previous page. The
+// panel has to say so, and the endpoint has to refuse even if the page asking is
+// older than this rule.
+test("a bundle older than its sources blocks the restart, and says which", async () => {
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-stale-bundle-"));
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-stale-agent-"));
+  fs.copyFileSync(path.join(projectRoot, "server.mjs"), path.join(projectDir, "server.mjs"));
+  fs.copyFileSync(path.join(projectRoot, "package.json"), path.join(projectDir, "package.json"));
+  fs.cpSync(path.join(projectRoot, "lib"), path.join(projectDir, "lib"), { recursive: true });
+  fs.mkdirSync(path.join(projectDir, "dist", "client"), { recursive: true });
+  fs.writeFileSync(path.join(projectDir, "dist", "client", "index.html"), "<!doctype html>");
+  fs.mkdirSync(path.join(projectDir, "src"));
+  fs.writeFileSync(path.join(projectDir, "src", "App.jsx"), "// older than the bundle\n");
+  // The bundle is built from the sources, so an equal-or-newer bundle is the
+  // ordinary state. Set every mtime explicitly, in whole seconds: the rule takes
+  // the newest of a directory *and* its entries, so leaving src/'s own mtime at
+  // "just now" makes the fixture stale before the test has done anything — which
+  // is how this first ran green here and red on a CI runner.
+  const built = Math.floor(Date.now() / 1000);
+  for (const target of [path.join(projectDir, "src", "App.jsx"), path.join(projectDir, "src")]) {
+    fs.utimesSync(target, built - 120, built - 120);
+  }
+  fs.utimesSync(path.join(projectDir, "dist", "client", "index.html"), built, built);
+
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.join(projectDir, "server.mjs")], {
+    cwd: projectDir,
+    env: serverEnv({
+      PI_CODING_AGENT_DIR: agentDir,
+      PI_PROVIDER_MANAGER_PORT: String(port),
+      PI_PROVIDER_MANAGER_SERVE_UI: "1",
+    }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+    const fresh = await (await fetch(`${baseUrl}/api/state`)).json();
+    assert.equal(fresh.compatibility.bundleProblem, "");
+
+    // A pull is what does this: every file it changes gets a current mtime.
+    fs.utimesSync(path.join(projectDir, "src", "App.jsx"), built + 60, built + 60);
+    assert.equal(fs.statSync(path.join(projectDir, "src", "App.jsx")).mtimeMs > fs.statSync(path.join(projectDir, "dist", "client", "index.html")).mtimeMs, true);
+    const stale = await (await fetch(`${baseUrl}/api/state`)).json();
+    assert.match(stale.compatibility.bundleProblem, /dist\/client 比 src\/ 旧/);
+
+    const refused = await postJson(baseUrl, "/api/restart", {}, null);
+    assert.equal(refused.status, 409);
+    assert.match((await refused.json()).error, /dist\/client 比 src\/ 旧/);
+    // Still the same process: the refusal happened before any handover.
+    const after = await (await fetch(`${baseUrl}/api/state`)).json();
+    assert.equal(after.compatibility.servicePid, fresh.compatibility.servicePid);
+
+    // Building is what clears it, and the state says so without a restart.
+    fs.utimesSync(path.join(projectDir, "dist", "client", "index.html"), built + 180, built + 180);
+    assert.equal((await (await fetch(`${baseUrl}/api/state`)).json()).compatibility.bundleProblem, "");
+  } finally {
+    child.kill();
+    fs.rmSync(projectDir, { recursive: true, force: true });
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});

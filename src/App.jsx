@@ -1171,10 +1171,18 @@ function SettingsScreen({ state, saving, error, demoMode, onSave, onBack }) {
   // `state` could. Without this the restart button below would still offer a plain
   // restart with an upgrade sitting there waiting.
   const [pendingOverride, setPendingOverride] = useState("");
+  // null means "nothing newer than `state` to say". A pull that has not been built
+  // yet appears between mount and the end of an upgrade, so the answer has to be
+  // allowed to change without a page load.
+  const [bundleOverride, setBundleOverride] = useState(null);
   // The versions on the card describe the running process, not the checkout on
   // disk. Without this, an upgrade that was installed but not restarted reads as an
   // upgrade that failed — every number there is simply the old one.
   const pendingApp = pendingOverride || state.compatibility?.pendingAppVersion || "";
+  // A source tree newer than the bundle it is served from. Restarting there swaps
+  // the server and leaves the page, which is the one outcome of a half-finished
+  // upgrade that looks like it worked.
+  const bundleProblem = bundleOverride === null ? (state.compatibility?.bundleProblem || "") : bundleOverride;
   const checkUpdate = async () => {
     setUpdateBusy("checking");
     setUpdateError("");
@@ -1206,6 +1214,7 @@ function SettingsScreen({ state, saving, error, demoMode, onSave, onBack }) {
         const next = await fetch("/api/state", { cache: "no-store" }).then((reply) => reply.json());
         if (next.update) setUpdateInfo(next.update);
         setPendingOverride(next.compatibility?.pendingAppVersion || "");
+        setBundleOverride(next.compatibility?.bundleProblem || "");
         if (next.update && !next.update.running) {
           if (next.update.error) setUpdateError(next.update.error);
           return;
@@ -1392,7 +1401,7 @@ function SettingsScreen({ state, saving, error, demoMode, onSave, onBack }) {
                     // The demo has no local service behind it, so the control is
                     // shown and refused rather than hidden: a reader comparing the
                     // demo with their own install should see the same card.
-                    disabled={restartPhase === "working" || demoMode}
+                    disabled={restartPhase === "working" || demoMode || Boolean(bundleProblem)}
                     // `edited`, not `dirty`: an unwritten default is not something a
                     // restart can lose — it is a key settings.json does not carry,
                     // and will still not carry afterwards. Confirming over that
@@ -1403,12 +1412,14 @@ function SettingsScreen({ state, saving, error, demoMode, onSave, onBack }) {
                       ? <><Spinner />正在重启…</>
                       : <><ArrowsClockwise size={18} />{pendingApp ? `重启以应用 ${pendingApp}` : "重启本地服务"}</>}
                   </button>
-                  <span className="compat-restart-hint">
-                    {demoMode
-                      ? "演示模式没有本地服务可以重启。"
-                      : restartPhase === "working"
-                        ? "正在把端口交给从磁盘上的文件启动的新进程，接管后本页会自动刷新。"
-                        : "只替换本管理器进程：已经在跑的 LiteLLM 桥和 Pi / Codex 会话不受影响，新进程起不来时会保留当前这个。"}
+                  <span className={`compat-restart-hint${bundleProblem ? " is-warning" : ""}`}>
+                    {bundleProblem
+                      ? `${bundleProblem}现在重启只会让新的服务端配上旧界面。`
+                      : demoMode
+                        ? "演示模式没有本地服务可以重启。"
+                        : restartPhase === "working"
+                          ? "正在把端口交给从磁盘上的文件启动的新进程，接管后本页会自动刷新。"
+                          : "只替换本管理器进程：已经在跑的 LiteLLM 桥和 Pi / Codex 会话不受影响，新进程起不来时会保留当前这个。"}
                   </span>
                 </>
               )}
