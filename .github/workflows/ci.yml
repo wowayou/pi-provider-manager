@@ -89,6 +89,58 @@ jobs:
           $unbounded = try { & ./bin/pi-provider-manager.ps1; "" } catch { $_.Exception.Message }
           if ($unbounded -match "is too old") { throw "a floor was invented:`n$unbounded" }
 
+      # The reuse report is the launcher's only account of an instance that is
+      # already running, and without it an upgrade that was installed but never
+      # restarted looks like an upgrade that failed. The bash equivalent is
+      # covered by tests/launcher.test.mjs, which cannot run PowerShell — so this
+      # is the only place the Windows start-and-reuse path is executed at all.
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - name: Report a reused instance rather than pretending to start one
+        shell: pwsh
+        run: |
+          $env:PI_PROVIDER_MANAGER_OPEN_BROWSER = "0"
+          $env:PI_PROVIDER_MANAGER_PORT = "43137"
+          $env:PI_CODING_AGENT_DIR = Join-Path $env:TEMP "ppm-ci-agent"
+          $env:PI_PROVIDER_MANAGER_CODEX_DIR = Join-Path $env:TEMP "ppm-ci-codex"
+          # On the record, because the next person to read the assertions below
+          # will want to know what this runner's TEMP actually is.
+          Write-Host "TEMP=$env:TEMP"
+          $servicePid = 0
+          try {
+            $first = & ./bin/pi-provider-manager.ps1 | Out-String
+            # The URL is unconditional: printing it only when no browser is opened
+            # left a blocked browser bridge with no port and no error on screen.
+            if ($first -notmatch "ready: http://127\.0\.0\.1:43137/") { throw "no url:`n$first" }
+            if ($first -match "reused") { throw "a first start claimed a reuse:`n$first" }
+
+            # Learn the process id before asserting anything else, so a failed
+            # assertion still has something for the finally block to stop.
+            $state = Invoke-RestMethod -Uri "http://127.0.0.1:43137/api/state" -TimeoutSec 10
+            $servicePid = [int]$state.compatibility.servicePid
+            if ($servicePid -le 0) { throw "the server reported no process id" }
+
+            # Matched by leaf, not by the whole path. This runner's TEMP is the 8.3
+            # short form, C:\Users\RUNNER~1\AppData\Local\Temp, and the launcher
+            # prints it resolved to C:\Users\runneradmin\...; comparing the printed
+            # line against the string handed over therefore fails on Windows path
+            # normalisation rather than on the launcher. The claim worth asserting is
+            # that it prints the directory it was given rather than one it assumed,
+            # and the leaf carries that whatever a runner calls its TEMP.
+            if ($first -notmatch "Pi config:\s+\S*ppm-ci-agent\b") { throw "no Pi directory:`n$first" }
+            if ($first -notmatch "Codex config:\s+\S*ppm-ci-codex\b") { throw "no Codex directory:`n$first" }
+
+            $second = & ./bin/pi-provider-manager.ps1 | Out-String
+            if ($second -notmatch "reused the instance already running") { throw "no reuse report:`n$second" }
+            # The version and the process id both have to be the running
+            # instance's: during an upgrade they are exactly what this launcher's
+            # own directory would get wrong.
+            if ($second -notmatch [regex]::Escape("version $($state.compatibility.appVersion)")) { throw "the running version is not named:`n$second" }
+            if ($second -notmatch [regex]::Escape("Stop-Process -Id $servicePid")) { throw "the restart command names no pid:`n$second" }
+          } finally {
+            if ($servicePid -gt 0) { Stop-Process -Id $servicePid -Force -ErrorAction SilentlyContinue }
+          }
+
   # Single stable gate for branch protection. Requiring matrix or UI jobs directly
   # would couple protection to implementation details and changing either later
   # could leave a required check that never reports and blocks every pull request.

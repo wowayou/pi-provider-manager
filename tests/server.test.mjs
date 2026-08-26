@@ -748,3 +748,52 @@ test("a UTF-8 BOM does not stop this manager reading what Pi reads", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// A manager is upgraded by updating the checkout, but the process already
+// running keeps serving the code it loaded — so every number on the
+// compatibility card stays at the old release until someone restarts it. That
+// read as an upgrade that had silently failed. The panel has to be able to say
+// which version is running and which one is waiting on disk.
+test("reports a checkout that has moved ahead of the running process", async () => {
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-upgrade-"));
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-upgrade-agent-"));
+  const manifestPath = path.join(projectDir, "package.json");
+  const manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"));
+  fs.copyFileSync(path.join(projectRoot, "server.mjs"), path.join(projectDir, "server.mjs"));
+  fs.cpSync(path.join(projectRoot, "lib"), path.join(projectDir, "lib"), { recursive: true });
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.join(projectDir, "server.mjs")], {
+    cwd: projectDir,
+    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+    const started = await (await fetch(`${baseUrl}/api/state`)).json();
+    assert.equal(started.compatibility.appVersion, manifest.version);
+    // Nothing to announce while the two agree: the note has to stay absent
+    // during the state everyone is normally in.
+    assert.equal(started.compatibility.pendingAppVersion, "");
+
+    fs.writeFileSync(manifestPath, JSON.stringify({ ...manifest, version: "9.9.9" }));
+    const upgraded = await (await fetch(`${baseUrl}/api/state`)).json();
+    // The running version must not follow the file: it names the code in
+    // memory, and claiming the new one would hide exactly the problem.
+    assert.equal(upgraded.compatibility.appVersion, manifest.version);
+    assert.equal(upgraded.compatibility.pendingAppVersion, "9.9.9");
+
+    fs.rmSync(manifestPath);
+    // An unreadable manifest is not evidence of an upgrade.
+    const removed = await (await fetch(`${baseUrl}/api/state`)).json();
+    assert.equal(removed.compatibility.appVersion, manifest.version);
+    assert.equal(removed.compatibility.pendingAppVersion, "");
+  } finally {
+    child.kill();
+    fs.rmSync(projectDir, { recursive: true, force: true });
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});

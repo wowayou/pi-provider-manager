@@ -74,7 +74,14 @@ pwsh -File .\bin\pi-provider-manager.ps1
 
 Windows 上没有既成的"命令安装位置"惯例，所以 `npm run install:launcher` 在这里什么都不装，
 只告诉你从仓库/归档里怎么起。PowerShell 启动器和 bash 启动器的检查是对齐的：同样的四处查找
-说明、同样的 Node 下限、同样的过期副本告警。
+说明、同样的 Node 下限、同样的过期副本告警、同样的复用报告与重启命令。
+
+**从 PowerShell 跑一个放在 WSL 里的 checkout 是跑不起来的**，这一点值得单独说，因为报错不会
+提到本项目：默认执行策略 `RemoteSigned` 把 `\\wsl.localhost\...` 当远程路径，未签名脚本一律
+拒绝，只留下一句 `is not digitally signed`。实测于 PowerShell 7.6.3。两条正路：checkout 放在
+Windows 本地盘（本地未签名脚本是策略允许的），或者就用 WSL 里的 bash 启动器——它本来就是
+WSL checkout 的那一条。`pwsh -ExecutionPolicy Bypass -File ...` 也能跑通，但那是按进程放宽
+执行策略，要清楚自己在放宽什么。
 
 ### 启动之后
 
@@ -95,7 +102,7 @@ Worker 和站点缓存。**再次运行同一条命令不会起第二个进程**
 
 ```
   (reused the instance already running on this port, version <运行中那个实例的版本>)
-  Restart it to pick up an upgrade or a newly installed LiteLLM:
+  Restart it to pick up an upgrade: the version and directories above are the ones it started with.
     kill <pid> && '<launcher>'
 ```
 
@@ -183,12 +190,17 @@ pi --model provider/model:thinking
 
 | 字段 | 含义 |
 |---|---|
-| 管理器版本 | 本程序版本 |
-| Pi 版本 | 这台机器上检测到的 Pi |
-| 已验证兼容 | 本版本实际验证过的 Pi 版本（`piValidatedVersion`） |
+| 管理器版本 | **正在运行的**这个进程的版本，不是磁盘上的版本 |
+| Pi 版本 | 这台机器上检测到的 Pi，实时读取，Pi 升级后无需重启本程序 |
+| 已验证兼容 | 正在运行的这个版本实际验证过的 Pi 版本（`piValidatedVersion`） |
 | 配置目录 / 路径来源 | 实际在编辑哪个目录，以及这个路径是环境变量给的还是默认推出来的 |
 | 配置策略 | 固定「保留未知字段」 |
 | 本地服务 / Node | 服务端状态与 Node 版本 |
+
+升级本程序（`git pull` 或解开新的发布包）之后，已经在跑的进程仍然是旧代码：「管理器版本」和
+「已验证兼容」都还是旧的那一组数字。这时卡片上会多出一行提示，写明磁盘上是哪个版本、当前跑的
+是哪个版本；重启本地服务后才会更新。启动器（`pi-provider-manager-ui`）复用已在运行的实例时也会
+打印同样的信息，并给出 `kill <pid> && …` 的重启命令。
 
 ## 六、Codex：接一个网关
 

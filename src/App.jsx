@@ -1159,6 +1159,10 @@ function SettingsScreen({ state, saving, error, onSave, onBack }) {
   const validatedPi = state.compatibility?.validatedPiVersion;
   const piVersionDiffers = Boolean(installedPi) && installedPi !== "unknown"
     && Boolean(validatedPi) && validatedPi !== "unknown" && installedPi !== validatedPi;
+  // The versions above describe the running process, not the checkout on disk.
+  // Without this line, an upgrade that was installed but not restarted reads as
+  // an upgrade that failed — every number on the card is simply the old one.
+  const pendingApp = state.compatibility?.pendingAppVersion || "";
   const selectedProvider = state.providers.find((provider) => provider.id === draft.defaultProvider);
   const availableModels = selectedProvider?.models || [];
   // Keep whatever is currently selected in the list, even with no models, so the
@@ -1188,6 +1192,12 @@ function SettingsScreen({ state, saving, error, onSave, onBack }) {
           </section>
           <section className="settings-card compatibility-card">
             <h2>兼容状态</h2><dl><div><dt>Pi 版本</dt><dd className="mono">{state.compatibility?.piVersion || "unknown"}</dd></div><div><dt>已验证兼容</dt><dd className="mono">Pi {state.compatibility?.validatedPiVersion || "unknown"}</dd></div><div><dt>管理器版本</dt><dd className="mono">{state.compatibility?.appVersion || "unknown"}</dd></div><div><dt>配置策略</dt><dd>保留未知字段</dd></div><div><dt>配置目录</dt><dd className="mono" title={state.agentDir}>{state.agentDir}</dd></div><div><dt>路径来源</dt><dd>{state.compatibility?.configDirSource === "PI_CODING_AGENT_DIR" ? "PI_CODING_AGENT_DIR" : "自动识别 · 用户主目录"}</dd></div><div><dt>Node</dt><dd className="mono">{state.compatibility?.nodeVersion || "unknown"}</dd></div><div><dt>本地服务</dt><dd className="mono">{state.compatibility?.serviceHost || "127.0.0.1"}:{state.compatibility?.servicePort || 43127}</dd></div></dl>
+            {pendingApp && (
+              <p className="compat-note is-warning">
+                <WarningCircle size={20} weight="fill" />
+                磁盘上的管理器已是 {pendingApp}，当前运行的仍是 {state.compatibility?.appVersion || "unknown"}。上面这些数值来自正在运行的进程，重启本地服务后才会更新。
+              </p>
+            )}
             {piVersionDiffers && (
               <p className="compat-note is-warning">
                 <WarningCircle size={20} weight="fill" />

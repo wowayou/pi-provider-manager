@@ -248,7 +248,11 @@ if [[ "$reused" -eq 1 ]]; then
   echo "  (reused the instance already running on this port${running_version:+, version $running_version})"
   echo "  Pi config:    $(printf '%s' "$running" | sed -n 2p)"
   echo "  Codex config: $(printf '%s' "$running" | sed -n 3p)"
-  echo "  Restart it to pick up an upgrade or a newly installed LiteLLM:"
+  # Not "restart it to pick up a newly installed LiteLLM": the bridge resolves
+  # that binary on every read precisely so an install made after the manager was
+  # opened is noticed without one. What a restart is actually for is everything
+  # fixed when the process started — which is the three lines just printed.
+  echo "  Restart it to pick up an upgrade: the version and directories above are the ones it started with."
   if [[ -n "$running_pid" ]]; then
     echo "    kill $running_pid && '$0'"
   else

@@ -20,6 +20,16 @@ function Test-ManagerPort([int]$Port) {
     }
 }
 
+# Set-StrictMode turns a reference to a property an object does not carry into a
+# terminating error, and an instance older than this launcher need not carry
+# every field it reads. Returns $null for anything absent.
+function Read-Field($Object, [string]$Name) {
+    if ($null -eq $Object) { return $null }
+    $property = $Object.PSObject.Properties[$Name]
+    if (-not $property) { return $null }
+    return $property.Value
+}
+
 function Test-PortInUse([int]$Port) {
     $client = [System.Net.Sockets.TcpClient]::new()
     try {
@@ -187,7 +197,14 @@ if ($env:PI_PROVIDER_MANAGER_PORT) {
 }
 
 $url = "http://127.0.0.1:$port/"
-if (-not (Test-ManagerPort $port)) {
+
+# Reusing an already-running manager is the point of the port scan, but this
+# launcher said nothing about it — and printed nothing at all when it opened a
+# browser, so a blocked browser bridge left no port and no error on screen. The
+# bash launcher reports both; someone who moves between WSL and PowerShell reads
+# the two as one command.
+$reused = Test-ManagerPort $port
+if (-not $reused) {
     New-Item -ItemType Directory -Path $agentDir -Force | Out-Null
     $logOut = Join-Path $agentDir "pi-provider-manager-ui.log"
     $logError = Join-Path $agentDir "pi-provider-manager-ui.error.log"
@@ -226,8 +243,39 @@ if (-not (Test-ManagerPort $port)) {
     }
 }
 
-if ($env:PI_PROVIDER_MANAGER_OPEN_BROWSER -eq "0") {
-    Write-Output "Pi Provider Manager is ready: $url"
+Write-Output "Pi Provider Manager is ready: $url"
+if ($reused) {
+    # A reused server is using whatever it was started with, which need not match
+    # this shell. Report what it says about itself rather than what we computed,
+    # or the directory lines would be a confident guess.
+    $running = $null
+    try {
+        $running = Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/state" -TimeoutSec 2
+    } catch {}
+    $compatibility = Read-Field $running "compatibility"
+    $runningVersion = [string](Read-Field $compatibility "appVersion")
+    $runningPid = [string](Read-Field $compatibility "servicePid")
+    $suffix = ""
+    if ($runningVersion) { $suffix = ", version $runningVersion" }
+    Write-Output "  (reused the instance already running on this port$suffix)"
+    Write-Output "  Pi config:    $([string](Read-Field $running 'agentDir'))"
+    Write-Output "  Codex config: $([string](Read-Field (Read-Field $running 'codex') 'dir'))"
+    Write-Output "  Restart it to pick up an upgrade: the version and directories above are the ones it started with."
+    if ($runningPid) {
+        Write-Output "    Stop-Process -Id $runningPid; & '$PSCommandPath'"
+    } else {
+        # An instance older than 0.3.0 does not report its process id, and
+        # guessing one from this launcher's own directory names exactly the
+        # directory a running instance is not in during an upgrade.
+        Write-Output "    Could not determine its process id. Find it with: Get-Process node"
+    }
 } else {
+    Write-Output "  Pi config:    $agentDir"
+    Write-Output "  Codex config: $codexDir"
+}
+# Only worth a line when it is set: an empty value means "find litellm on PATH".
+if ($litellmBin) { Write-Output "  LiteLLM:      $litellmBin" }
+
+if ($env:PI_PROVIDER_MANAGER_OPEN_BROWSER -ne "0") {
     Start-Process $url
 }

@@ -188,7 +188,7 @@ are documented in `docs/compatibility.md`.
 
 ```bash
 git -C . log --oneline -1 && node -e "const p=require('./package.json'); console.log({version:p.version, piValidatedVersion:p.piValidatedVersion})"
-npm ci && npm run build && npm run test:server && npm run test:codex && npm run test:ui && npm run test:sites && npm run test:pi-update && npm run test:release
+npm ci && npm test
 npm run check:pi-update
 gh pr list --state open
 gh issue list --state open

@@ -5,7 +5,6 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -19,6 +18,7 @@ import {
 import { createCodexConfig } from "./lib/codex-config.mjs";
 import { createBridgeRunner } from "./lib/litellm-bridge.mjs";
 import { createPromptLibrary } from "./lib/prompt-library.mjs";
+import { detectCodexVersion, detectPiVersion, liveVersion } from "./lib/version-detect.mjs";
 import { ConflictError, PROVIDER_ID_PATTERN, isLoopbackHostname, normalizeUrl } from "./lib/validation.mjs";
 
 const HOST = "127.0.0.1";
@@ -128,69 +128,27 @@ const PI_VALIDATED_VERSION = PACKAGE_MANIFEST.piValidatedVersion || "unknown";
 // actually detected on the machine.
 const CODEX_VALIDATED_VERSION = PACKAGE_MANIFEST.codexValidatedVersion || "unknown";
 
-function detectPiVersion() {
-  const nvmNodes = path.join(os.homedir(), ".nvm", "versions", "node");
-  if (fs.existsSync(nvmNodes)) {
-    const versions = [];
-    for (const nodeVersion of fs.readdirSync(nvmNodes)) {
-      const packagePath = path.join(
-        nvmNodes,
-        nodeVersion,
-        "lib",
-        "node_modules",
-        "@earendil-works",
-        "pi-coding-agent",
-        "package.json",
-      );
-      try {
-        const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
-        if (typeof packageJson.version === "string") versions.push(packageJson.version);
-      } catch {}
-    }
-    if (versions.length > 0) {
-      return versions.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0];
-    }
-  }
-  const commands = process.platform === "win32"
-    ? [["pi", ["--version"]]]
-    : [["/bin/bash", ["-lic", "pi --version"]], ["pi", ["--version"]]];
-  for (const [command, args] of commands) {
-    try {
-      const output = execFileSync(command, args, {
-        encoding: "utf8",
-        timeout: 8000,
-        stdio: ["ignore", "pipe", "ignore"],
-      });
-      const match = output.match(/\d+\.\d+\.\d+/);
-      if (match) return match[0];
-    } catch {}
-  }
-  return "unknown";
+// Both are read through a self-refreshing cache rather than captured here: Pi
+// and Codex can be upgraded while this manager keeps running, and a panel
+// quoting the versions installed at startup is what sends people looking for a
+// bug in an upgrade that actually worked. See lib/version-detect.mjs.
+const piVersion = liveVersion(() => detectPiVersion());
+const codexVersion = liveVersion(() => detectCodexVersion());
+
+// The manager's own version is the opposite case, and stays the value read at
+// startup: it names the code that is actually running, so re-reading the
+// manifest would claim an upgrade this process has never loaded. Report what the
+// manifest now says as well, so an old version on screen explains itself
+// instead of looking like the upgrade did not take. Every release bumps this
+// field, and carries the validated baselines with it, so it is the one
+// comparison worth making.
+function readPendingAppVersion() {
+  try {
+    const manifest = JSON.parse(fs.readFileSync(path.join(PROJECT_DIR, "package.json"), "utf8"));
+    if (typeof manifest.version === "string" && manifest.version !== APP_VERSION) return manifest.version;
+  } catch {}
+  return "";
 }
-
-const PI_VERSION = detectPiVersion();
-
-// Codex is a single binary rather than an npm package, so unlike Pi there is
-// no install tree to inspect — only the command itself.
-function detectCodexVersion() {
-  const commands = process.platform === "win32"
-    ? [["codex", ["--version"]]]
-    : [["/bin/bash", ["-lic", "codex --version"]], ["codex", ["--version"]]];
-  for (const [command, args] of commands) {
-    try {
-      const output = execFileSync(command, args, {
-        encoding: "utf8",
-        timeout: 8000,
-        stdio: ["ignore", "pipe", "ignore"],
-      });
-      const match = output.match(/\d+\.\d+\.\d+/);
-      if (match) return match[0];
-    } catch {}
-  }
-  return "unknown";
-}
-
-const CODEX_VERSION = detectCodexVersion();
 
 // A broken or unreadable Codex directory must not take the whole state
 // response down with it: the launcher probes /api/state to decide whether a
@@ -324,9 +282,10 @@ function publicState() {
     prompts: { pi: prompts.pi.publicState(), codex: prompts.codex.publicState() },
     compatibility: {
       appVersion: APP_VERSION,
-      piVersion: PI_VERSION,
+      pendingAppVersion: readPendingAppVersion(),
+      piVersion: piVersion.get(),
       validatedPiVersion: PI_VALIDATED_VERSION,
-      codexVersion: CODEX_VERSION,
+      codexVersion: codexVersion.get(),
       validatedCodexVersion: CODEX_VALIDATED_VERSION,
       supportedApis: [...ALLOWED_APIS],
       configMode: "preserve-unknown-fields",
@@ -832,6 +791,11 @@ const server = http.createServer(async (request, response) => {
     sendJson(response, Number.isInteger(error.statusCode) ? error.statusCode : 400, { error: error.message });
   }
 });
+
+// Detect once before accepting anything, so the first request is served from a
+// warm cache: the launcher's readiness probe times out after a second, and
+// detection can outlast that on a machine where it needs a login shell.
+await Promise.all([piVersion.ready(), codexVersion.ready()]);
 
 server.listen(PORT, HOST, () => {
   process.stdout.write(`Pi Provider Manager API listening on http://${HOST}:${PORT}\n`);
