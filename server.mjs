@@ -17,6 +17,7 @@ import {
   writeJsonAtomic,
 } from "./lib/atomic-files.mjs";
 import { createCodexConfig } from "./lib/codex-config.mjs";
+import { builtUiProblem } from "./lib/built-ui.mjs";
 import { createBridgeRunner } from "./lib/litellm-bridge.mjs";
 import { createPromptLibrary } from "./lib/prompt-library.mjs";
 import {
@@ -153,6 +154,18 @@ const codexVersion = liveVersion(() => detectCodexVersion());
 // instead of looking like the upgrade did not take. Every release bumps this
 // field, and carries the validated baselines with it, so it is the one
 // comparison worth making.
+// Whether the page being served was built from the sources now on disk. Only asked
+// when this process is the one serving it: in development the UI comes from Vite,
+// where the question is meaningless and the answer would be noise. A pull that has
+// not been followed by a build is the case that matters — restarting there puts a
+// new server behind an old page, and the panel is where that has to be said.
+function readBundleProblem() {
+  if (!SERVE_UI) return "";
+  const problem = builtUiProblem(PROJECT_DIR);
+  if (!problem || problem.kind !== "stale") return "";
+  return "dist/client 比 src/ 旧：磁盘上的源码已经更新，但界面还没重新构建。先构建，再重启。";
+}
+
 function readPendingAppVersion() {
   try {
     const manifest = JSON.parse(fs.readFileSync(path.join(PROJECT_DIR, "package.json"), "utf8"));
@@ -488,6 +501,7 @@ function publicState() {
     compatibility: {
       appVersion: APP_VERSION,
       pendingAppVersion: readPendingAppVersion(),
+      bundleProblem: readBundleProblem(),
       piVersion: piVersion.get(),
       validatedPiVersion: PI_VALIDATED_VERSION,
       codexVersion: codexVersion.get(),
@@ -950,6 +964,14 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "POST" && request.url === "/api/restart") {
       if (restarting) {
         sendJson(response, 409, { error: "已经在重启中。" });
+        return;
+      }
+      // Refused here as well as hidden in the button: a restart across a stale
+      // bundle is the one outcome of an interrupted upgrade that looks like it
+      // worked, and the page asking for it may be older than this rule.
+      const bundleProblem = readBundleProblem();
+      if (bundleProblem) {
+        sendJson(response, 409, { error: bundleProblem });
         return;
       }
       // Answered before the handover begins: the port this reply travels over is
