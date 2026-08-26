@@ -1876,3 +1876,111 @@ test("every control is big enough to hit", { timeout: 60_000 }, async () => {
     fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
+
+// The compatibility card is the one place that answers "which Pi is this talking
+// to", and every number on it belongs to the running process. After an upgrade
+// that nobody restarted, all of them are the previous release's — which reads as
+// an upgrade that failed rather than one that is merely not loaded yet. The card
+// has to say so, and the state payload alone cannot prove that it does.
+test("the compatibility card says when the checkout has moved ahead of the process", { timeout: 60_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  // A copy of the checkout, so the manifest can move underneath a running server
+  // without touching this repository's own.
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-upgrade-"));
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-upgrade-agent-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-"));
+  const manifestPath = path.join(projectDir, "package.json");
+  const manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"));
+  fs.copyFileSync(path.join(projectRoot, "server.mjs"), path.join(projectDir, "server.mjs"));
+  fs.cpSync(path.join(projectRoot, "lib"), path.join(projectDir, "lib"), { recursive: true });
+  fs.cpSync(path.join(projectRoot, "dist", "client"), path.join(projectDir, "dist", "client"), { recursive: true });
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  writeFixture(agentDir);
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server;
+  let chrome;
+  let cdp;
+
+  try {
+    server = spawn(process.execPath, [path.join(projectDir, "server.mjs")], {
+      cwd: projectDir,
+      env: {
+        ...process.env,
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_SERVE_UI: "1",
+        PI_PROVIDER_MANAGER_PORT: String(appPort),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    await waitForUrl(`http://127.0.0.1:${appPort}/api/state`);
+
+    chrome = spawn(chromePath, [
+      "--headless",
+      "--no-sandbox",
+      "--disable-gpu",
+      `--remote-debugging-port=${debugPort}`,
+      `--user-data-dir=${profileDir}`,
+      "about:blank",
+    ], {
+      detached: process.platform !== "win32",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
+    const target = await fetch(
+      `http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(`http://127.0.0.1:${appPort}`)}`,
+      { method: "PUT" },
+    ).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl);
+    await cdp.send("Page.enable");
+    await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false });
+
+    const openSettings = async () => {
+      await cdp.waitFor(`document.querySelector('.nav-settings')`);
+      await cdp.evaluate(`document.querySelector('.nav-settings').click()`);
+      await cdp.waitFor(`document.querySelector('.compatibility-card')`);
+      return cdp.evaluate(`(() => {
+        const card = document.querySelector('.compatibility-card');
+        const labels = [...card.querySelectorAll('dt')].map((term) => term.textContent);
+        return {
+          managerVersion: card.querySelector('dl').children[[...labels].indexOf('管理器版本')].querySelector('dd').textContent,
+          notes: [...card.querySelectorAll('.compat-note')].map((note) => note.textContent),
+        };
+      })()`);
+    };
+
+    // The state everyone is normally in: nothing to announce.
+    const before = await openSettings();
+    assert.equal(before.managerVersion, manifest.version);
+    assert.equal(before.notes.some((note) => note.includes("磁盘上的管理器")), false, before.notes.join(" | "));
+
+    // An upgrade lands on disk. The process keeps serving the code it loaded.
+    fs.writeFileSync(manifestPath, JSON.stringify({ ...manifest, version: "9.9.9" }));
+    await cdp.send("Page.reload", { ignoreCache: true });
+    const after = await openSettings();
+    // The card still reports the running version — claiming the new one would
+    // hide exactly the problem — and names both versions plus the way out.
+    assert.equal(after.managerVersion, manifest.version);
+    const note = after.notes.find((text) => text.includes("磁盘上的管理器"));
+    assert.ok(note, `no upgrade note rendered: ${after.notes.join(" | ")}`);
+    assert.match(note, /9\.9\.9/);
+    assert.ok(note.includes(manifest.version), `the running version is not named: ${note}`);
+    assert.match(note, /重启/);
+
+    assert.deepEqual(cdp.errors, []);
+  } finally {
+    if (cdp) {
+      await Promise.race([
+        cdp.send("Browser.close").catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+      cdp.close();
+    }
+    await stopProcess(chrome, true);
+    await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});

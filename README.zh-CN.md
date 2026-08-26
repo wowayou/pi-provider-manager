@@ -193,7 +193,9 @@ cd .\pi-provider-manager\pi-provider-manager-v*
 pwsh -File .\bin\pi-provider-manager.ps1
 ```
 
-环境变量覆盖和执行策略说明见归档内的 `INSTALL.md`。
+环境变量覆盖和执行策略说明见归档内的 `INSTALL.md`。归档请解到 Windows 本地盘：PowerShell 默认的
+`RemoteSigned` 把 UNC 路径（`\\wsl.localhost\...`，也就是 WSL 里的 checkout）当远程来源，未签名脚本
+一律拒绝，只留一句 `is not digitally signed`。checkout 在 WSL 里就用 WSL 的 bash 启动器。
 
 ## 在 Linux 或 WSL 从源码构建
 

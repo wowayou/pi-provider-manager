@@ -24,7 +24,21 @@ The launcher opens the browser and stores its log under `~/.pi/agent`. Set
 2. Extract the `windows.zip` archive into a new directory.
 3. Run `pwsh -File .\bin\pi-provider-manager.ps1` from the versioned directory inside it.
 
-PowerShell may require a one-process policy override for a downloaded script:
+Extract the archive onto a Windows-local path. The default `RemoteSigned` policy
+permits an unsigned script from the local filesystem and refuses one on a UNC
+path — `\\wsl.localhost\...`, which is what a WSL checkout is — with
+`is not digitally signed`. From a checkout that lives in WSL, use the bash
+launcher instead.
+
+A downloaded archive can still carry the mark that makes its extracted scripts
+remote. Clearing that mark is the narrower fix, and leaves the policy untouched:
+
+```powershell
+Get-ChildItem -Recurse .\pi-provider-manager | Unblock-File
+```
+
+The alternative relaxes the execution policy for that one process. It is a
+security control being switched off for the run, not a configuration setting:
 
 ```powershell
 pwsh -ExecutionPolicy Bypass -File .\bin\pi-provider-manager.ps1

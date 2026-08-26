@@ -193,7 +193,7 @@ cd .\pi-provider-manager\pi-provider-manager-v*
 pwsh -File .\bin\pi-provider-manager.ps1
 ```
 
-See `INSTALL.md` inside the archive for environment overrides and execution-policy guidance.
+See `INSTALL.md` inside the archive for environment overrides and execution-policy guidance. Extract the archive onto a Windows-local path: PowerShell's default `RemoteSigned` policy treats a UNC path — `\\wsl.localhost\...`, which is what a WSL checkout is — as remote, and refuses any unsigned script there with `is not digitally signed`. For a checkout that lives in WSL, use the bash launcher from WSL.
 
 ## Build from source on Linux or WSL
 
