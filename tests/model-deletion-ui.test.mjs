@@ -1901,6 +1901,9 @@ test("the compatibility card says when the checkout has moved ahead of the proce
   let server;
   let chrome;
   let cdp;
+  // The restart replaces the server this test started, so the process to stop at
+  // the end is not the one spawn() returned.
+  let replacedPid = 0;
 
   try {
     server = spawn(process.execPath, [path.join(projectDir, "server.mjs")], {
@@ -1968,6 +1971,47 @@ test("the compatibility card says when the checkout has moved ahead of the proce
     assert.ok(note.includes(manifest.version), `the running version is not named: ${note}`);
     assert.match(note, /重启/);
 
+    // The note names a restart, and the card offers to do it. Telling someone to
+    // find a pid and kill it is the version of this that nobody carries out.
+    const label = await cdp.evaluate(`document.querySelector('.restart-button').textContent`);
+    assert.match(label, /重启以应用 9\.9\.9/);
+    replacedPid = (await (await fetch(`http://127.0.0.1:${appPort}/api/state`)).json()).compatibility.servicePid;
+    // Marks this document, because every selector on the page survives the reload:
+    // waiting for one of those would pass against the page that is still up and
+    // then race the reload. A property on window does not survive it.
+    await cdp.evaluate(`window.__beforeRestart = true`);
+    await cdp.evaluate(`document.querySelector('.restart-button').click()`);
+    // The page reloads itself once a different process answers, so this covers the
+    // whole handover rather than just the request being accepted.
+    await cdp.waitFor(`!window.__beforeRestart && document.querySelector('.nav-settings')`, 40_000);
+    const applied = await openSettings();
+    assert.equal(applied.managerVersion, "9.9.9");
+    // Nothing left to announce: the version running is the version on disk.
+    assert.equal(applied.notes.some((text) => text.includes("磁盘上的管理器")), false, applied.notes.join(" | "));
+    const replacement = await (await fetch(`http://127.0.0.1:${appPort}/api/state`)).json();
+    assert.notEqual(replacement.compatibility.servicePid, replacedPid, "the same process cannot be running new code");
+    assert.equal(replacement.restartError, "");
+    replacedPid = replacement.compatibility.servicePid;
+
+    // An actual edit is the one thing a restart would discard, so that — and only
+    // that — is confirmed first. Two of this screen's five keys are absent from the
+    // fixture's settings.json, which is the ordinary state and must not be treated
+    // as unsaved work.
+    await cdp.evaluate(`(() => {
+      const select = document.querySelector('.settings-card select');
+      select.value = [...select.options].map((option) => option.value).find((value) => value !== select.value);
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    await cdp.evaluate(`document.querySelector('.restart-button').click()`);
+    await cdp.waitFor(`[...document.querySelectorAll('.compat-restart button')].some((button) => button.textContent.includes('确认重启'))`);
+    const asked = await cdp.evaluate(`document.querySelector('.compat-restart .is-warning').textContent`);
+    assert.match(asked, /未保存的修改/);
+    // Cancelling has to leave the manager alone.
+    await cdp.evaluate(`[...document.querySelectorAll('.compat-restart button')].find((button) => button.textContent.includes('取消')).click()`);
+    await cdp.waitFor(`document.querySelector('.restart-button')`);
+    const stillThere = await (await fetch(`http://127.0.0.1:${appPort}/api/state`)).json();
+    assert.equal(stillThere.compatibility.servicePid, replacedPid);
+
     assert.deepEqual(cdp.errors, []);
   } finally {
     if (cdp) {
@@ -1979,6 +2023,16 @@ test("the compatibility card says when the checkout has moved ahead of the proce
     }
     await stopProcess(chrome, true);
     await stopProcess(server);
+    // Whoever holds the port now, rather than a pid remembered earlier: a failure
+    // between the restart and the last assertion would leave the replacement
+    // running under a pid this test never recorded.
+    try {
+      const holder = await (await fetch(`http://127.0.0.1:${appPort}/api/state`)).json();
+      if (holder.compatibility?.servicePid > 0) replacedPid = holder.compatibility.servicePid;
+    } catch {}
+    if (replacedPid > 0) {
+      try { process.kill(replacedPid, "SIGTERM"); } catch {}
+    }
     fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     fs.rmSync(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

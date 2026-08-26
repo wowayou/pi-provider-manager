@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  ArrowsClockwise,
   Asterisk,
   CaretDown,
   ChatCircleDots,
@@ -1135,7 +1136,7 @@ function SuccessScreen({ result, onCopy, onReturn, onAdd }) {
   );
 }
 
-function SettingsScreen({ state, saving, error, onSave, onBack }) {
+function SettingsScreen({ state, saving, error, demoMode, onSave, onBack }) {
   const saved = useMemo(() => ({
     defaultProvider: state.settings.defaultProvider || state.providers[0]?.id || "",
     defaultModel: state.settings.defaultModel || "",
@@ -1163,6 +1164,51 @@ function SettingsScreen({ state, saving, error, onSave, onBack }) {
   // Without this line, an upgrade that was installed but not restarted reads as
   // an upgrade that failed — every number on the card is simply the old one.
   const pendingApp = state.compatibility?.pendingAppVersion || "";
+  // idle | confirm | working | failed. "confirm" exists only because a restart
+  // discards an unsaved draft on this very screen; with nothing to lose, asking
+  // would be a step for its own sake.
+  const [restartPhase, setRestartPhase] = useState("idle");
+  const [restartMessage, setRestartMessage] = useState("");
+  // Applying an upgrade replaces the process serving this page, so the page cannot
+  // trust anything it reads until a different one answers. The server reports the
+  // pid it is replacing for exactly that reason.
+  const restartService = async () => {
+    setRestartPhase("working");
+    setRestartMessage("");
+    try {
+      const response = await fetch("/api/restart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const accepted = await readApiResponse(response, "无法重启本地服务。");
+      const deadline = Date.now() + 40_000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        try {
+          const next = await fetch("/api/state", { cache: "no-store" }).then((reply) => reply.json());
+          if (next.restartError) {
+            setRestartMessage(next.restartError);
+            setRestartPhase("failed");
+            return;
+          }
+          if (next.compatibility?.servicePid && next.compatibility.servicePid !== accepted.pid) {
+            // Reloaded rather than merged into this page: the code that served it
+            // is not the code answering now.
+            window.location.reload();
+            return;
+          }
+        } catch {
+          // The port belongs to nobody for a moment in the middle of the handover.
+        }
+      }
+      setRestartMessage("等了 40 秒也没有新的进程接管端口，请查看日志。");
+      setRestartPhase("failed");
+    } catch (problem) {
+      setRestartMessage(problem.message);
+      setRestartPhase("failed");
+    }
+  };
   const selectedProvider = state.providers.find((provider) => provider.id === draft.defaultProvider);
   const availableModels = selectedProvider?.models || [];
   // Keep whatever is currently selected in the list, even with no models, so the
@@ -1205,6 +1251,45 @@ function SettingsScreen({ state, saving, error, onSave, onBack }) {
               </p>
             )}
             <p className="compat-note"><ShieldCheck size={20} weight="duotone" />Pi 更新后若出现新字段，本程序会保留未识别字段；涉及字段改名或 API 类型变化时仍需发布兼容更新。</p>
+            <div className="compat-restart">
+              {restartPhase === "confirm" ? (
+                <>
+                  <span className="compat-restart-hint is-warning">这个页面有未保存的修改，重启会丢弃它们。</span>
+                  <button type="button" className="secondary-button" onClick={() => setRestartPhase("idle")}>取消</button>
+                  <button type="button" className="primary-button" onClick={restartService}>确认重启</button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className={`restart-button ${pendingApp ? "primary-button" : "secondary-button"}`}
+                    // The demo has no local service behind it, so the control is
+                    // shown and refused rather than hidden: a reader comparing the
+                    // demo with their own install should see the same card.
+                    disabled={restartPhase === "working" || demoMode}
+                    // `edited`, not `dirty`: an unwritten default is not something a
+                    // restart can lose — it is a key settings.json does not carry,
+                    // and will still not carry afterwards. Confirming over that
+                    // would ask most users to approve losing nothing.
+                    onClick={() => (edited ? setRestartPhase("confirm") : restartService())}
+                  >
+                    {restartPhase === "working"
+                      ? <><Spinner />正在重启…</>
+                      : <><ArrowsClockwise size={18} />{pendingApp ? `重启以应用 ${pendingApp}` : "重启本地服务"}</>}
+                  </button>
+                  <span className="compat-restart-hint">
+                    {demoMode
+                      ? "演示模式没有本地服务可以重启。"
+                      : restartPhase === "working"
+                        ? "正在把端口交给从磁盘上的文件启动的新进程，接管后本页会自动刷新。"
+                        : "只替换本管理器进程：已经在跑的 LiteLLM 桥和 Pi / Codex 会话不受影响，新进程起不来时会保留当前这个。"}
+                  </span>
+                </>
+              )}
+            </div>
+            {restartPhase === "failed" && (
+              <p className="compat-note is-warning" role="alert"><WarningCircle size={20} weight="fill" />{restartMessage}</p>
+            )}
           </section>
         </div>
         {error && <div className="error-banner" role="alert"><WarningCircle size={20} weight="fill" />{error}</div>}
@@ -1846,7 +1931,7 @@ export function App() {
               />
             </>
           )
-        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDeleteProvider={openDeleteProvider} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} />}</>}
+        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} demoMode={demoMode} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDeleteProvider={openDeleteProvider} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} />}</>}
       </section>
       {codexDeleteTargetId && codexProvider(codexDeleteTargetId) && (
         <CodexDeleteDialog

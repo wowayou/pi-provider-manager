@@ -657,6 +657,14 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
 .compat-note.is-warning { color: var(--warn-text) !important; align-items: flex-start; }
 .compat-note.is-warning .mono { margin: 0 3px; }
 .compat-note.is-warning svg { color: var(--warn-icon); }
+/* The restart lives in the compatibility card because that is where the versions
+   it changes are read. Wraps rather than shrinks: the hint beside it is a sentence,
+   not a label, and a narrow window must not squeeze the button to a sliver. */
+.compat-restart { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 20px; }
+.compat-restart .restart-button { flex: none; }
+.compat-restart-hint { flex: 1 1 260px; min-width: 220px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.compat-restart-hint.is-warning { color: var(--warn-text); }
+
 .settings-footer { flex: none; z-index: 4; padding: 16px 36px 36px; border-top: 1px solid var(--line); background: var(--panel); display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
 .dirty-note { color: var(--muted); font-size: 12.5px; }
 
