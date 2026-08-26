@@ -657,6 +657,20 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
 .compat-note.is-warning { color: var(--warn-text) !important; align-items: flex-start; }
 .compat-note.is-warning .mono { margin: 0 3px; }
 .compat-note.is-warning svg { color: var(--warn-icon); }
+/* Checking for a release is one row, and what to do about it is another: the two
+   read as a sequence rather than a toolbar, and each keeps its explanation beside
+   it instead of in a tooltip nobody opens. */
+.compat-update { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--divider); }
+.compat-update-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.compat-update-row > button { flex: none; }
+.compat-update .compat-note { margin-top: 0 !important; }
+.update-steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.update-steps li { color: var(--muted); font-size: 12.5px; }
+.update-steps li > span { display: flex; align-items: center; gap: 8px; }
+.update-steps li.is-done > span { color: var(--green); }
+.update-steps li.is-failed > span { color: var(--warn-text); }
+.update-steps pre { margin: 6px 0 0 22px; padding: 8px 10px; border-radius: 8px; background: var(--surface-sunken); color: var(--ink-2); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; overflow-x: auto; max-height: 180px; }
+
 /* The restart lives in the compatibility card because that is where the versions
    it changes are read. Wraps rather than shrinks: the hint beside it is a sentence,
    not a label, and a narrow window must not squeeze the button to a sliver. */

@@ -9,6 +9,7 @@ import {
   Check,
   CheckCircle,
   CircleNotch,
+  CloudArrowDown,
   Copy,
   Cube,
   Desktop,
@@ -1160,10 +1161,63 @@ function SettingsScreen({ state, saving, error, demoMode, onSave, onBack }) {
   const validatedPi = state.compatibility?.validatedPiVersion;
   const piVersionDiffers = Boolean(installedPi) && installedPi !== "unknown"
     && Boolean(validatedPi) && validatedPi !== "unknown" && installedPi !== validatedPi;
-  // The versions above describe the running process, not the checkout on disk.
-  // Without this line, an upgrade that was installed but not restarted reads as
-  // an upgrade that failed — every number on the card is simply the old one.
-  const pendingApp = state.compatibility?.pendingAppVersion || "";
+  // Held locally rather than read from `state`: the page's copy of the server state
+  // was fetched at mount, and a check made now is newer than that. The apply job
+  // reports through /api/state, so the same field is refreshed while it runs.
+  const [updateInfo, setUpdateInfo] = useState(state.update || {});
+  const [updateBusy, setUpdateBusy] = useState("");
+  const [updateError, setUpdateError] = useState("");
+  // A successful pull moves the version on disk, which this page learned before
+  // `state` could. Without this the restart button below would still offer a plain
+  // restart with an upgrade sitting there waiting.
+  const [pendingOverride, setPendingOverride] = useState("");
+  // The versions on the card describe the running process, not the checkout on
+  // disk. Without this, an upgrade that was installed but not restarted reads as an
+  // upgrade that failed — every number there is simply the old one.
+  const pendingApp = pendingOverride || state.compatibility?.pendingAppVersion || "";
+  const checkUpdate = async () => {
+    setUpdateBusy("checking");
+    setUpdateError("");
+    try {
+      const data = await readApiResponse(
+        await fetch("/api/update/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }),
+        "检查更新失败。",
+      );
+      setUpdateInfo(data.update || {});
+    } catch (problem) {
+      setUpdateError(problem.message);
+    } finally {
+      setUpdateBusy("");
+    }
+  };
+  const applyUpdate = async () => {
+    setUpdateBusy("applying");
+    setUpdateError("");
+    try {
+      await readApiResponse(
+        await fetch("/api/update/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }),
+        "无法开始更新。",
+      );
+      // Polled rather than awaited: `npm ci` and a build take minutes, and the
+      // steps have to appear as they finish rather than all at the end.
+      const deadline = Date.now() + 15 * 60_000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        const next = await fetch("/api/state", { cache: "no-store" }).then((reply) => reply.json());
+        if (next.update) setUpdateInfo(next.update);
+        setPendingOverride(next.compatibility?.pendingAppVersion || "");
+        if (next.update && !next.update.running) {
+          if (next.update.error) setUpdateError(next.update.error);
+          return;
+        }
+      }
+      setUpdateError("更新过了 15 分钟还没结束，请查看日志。");
+    } catch (problem) {
+      setUpdateError(problem.message);
+    } finally {
+      setUpdateBusy("");
+    }
+  };
   // idle | confirm | working | failed. "confirm" exists only because a restart
   // discards an unsaved draft on this very screen; with nothing to lose, asking
   // would be a step for its own sake.
@@ -1251,6 +1305,78 @@ function SettingsScreen({ state, saving, error, demoMode, onSave, onBack }) {
               </p>
             )}
             <p className="compat-note"><ShieldCheck size={20} weight="duotone" />Pi 更新后若出现新字段，本程序会保留未识别字段；涉及字段改名或 API 类型变化时仍需发布兼容更新。</p>
+            <div className="compat-update">
+              <div className="compat-update-row">
+                <button type="button" className="secondary-button" disabled={Boolean(updateBusy) || demoMode} onClick={checkUpdate}>
+                  {updateBusy === "checking" ? <><Spinner />正在检查…</> : <><CloudArrowDown size={18} />检查更新</>}
+                </button>
+                <span className="compat-restart-hint">
+                  {demoMode
+                    ? "演示模式不联网。"
+                    : updateInfo.checkedAt
+                      ? updateInfo.newer
+                        ? <>有新版本 <strong>{updateInfo.latestVersion}</strong>，当前运行 {state.compatibility?.appVersion || "unknown"}。{updateInfo.releaseUrl && <> <a href={updateInfo.releaseUrl} target="_blank" rel="noreferrer">发布说明</a></>}</>
+                        : <>已是最新：{updateInfo.latestVersion}。</>
+                      : "只有按下这个按钮才会联网：向 api.github.com 查询最新发布，其他任何时候本程序都不外联。"}
+                </span>
+              </div>
+              {updateInfo.newer && updateInfo.install?.kind === "checkout" && (
+                updateInfo.install.canApply ? (
+                  <div className="compat-update-row">
+                    <button type="button" className="primary-button" disabled={Boolean(updateBusy)} onClick={applyUpdate}>
+                      {updateBusy === "applying" ? <><Spinner />正在更新…</> : <>拉取并构建 {updateInfo.latestVersion}</>}
+                    </button>
+                    <span className="compat-restart-hint">
+                      在 {updateInfo.install.branch} 上快进到 {updateInfo.install.upstream}，只有依赖清单变了才重装依赖，最后重新构建界面。这一步只改磁盘，不动正在运行的进程。
+                    </span>
+                  </div>
+                ) : (
+                  <p className="compat-note is-warning">
+                    <WarningCircle size={20} weight="fill" />
+                    {updateInfo.install.reason}
+                    {Array.isArray(updateInfo.install.dirtyFiles) && updateInfo.install.dirtyFiles.length > 0
+                      && <> <span className="mono">{updateInfo.install.dirtyFiles.join("、")}</span></>}
+                  </p>
+                )
+              )}
+              {updateInfo.newer && updateInfo.install?.kind === "archive" && (
+                <div className="compat-update-row">
+                  <button type="button" className="primary-button" disabled={Boolean(updateBusy)} onClick={applyUpdate}>
+                    {updateBusy === "applying" ? <><Spinner />正在下载…</> : <>下载 {updateInfo.latestVersion} 到相邻目录</>}
+                  </button>
+                  <span className="compat-restart-hint">
+                    这是归档安装，不能原地升级。新版本会解包到当前目录的相邻位置，当前安装一个字节都不动；解包完成后运行新目录里的启动器即可。
+                  </span>
+                </div>
+              )}
+              {updateInfo.steps?.length > 0 && (
+                <ol className="update-steps">
+                  {updateInfo.steps.map((step) => (
+                    <li key={step.name} className={`is-${step.state || (step.ok ? "done" : "failed")}`}>
+                      <span>{step.state === "running" ? <Spinner size={14} /> : step.ok ? <Check size={14} weight="bold" /> : <X size={14} weight="bold" />}{step.name}</span>
+                      {step.output && <pre>{step.output}</pre>}
+                    </li>
+                  ))}
+                </ol>
+              )}
+              {updateInfo.applied && !updateError && (
+                <p className="compat-note">
+                  <CheckCircle size={20} weight="duotone" />
+                  {updateInfo.applied === "unchanged"
+                    ? "磁盘上已经是这个版本了，没有需要拉取的提交。"
+                    : <>{updateInfo.applied} 已经在磁盘上，用下面的按钮重启即生效。</>}
+                </p>
+              )}
+              {updateInfo.downloaded && !updateError && (
+                <p className="compat-note">
+                  <CheckCircle size={20} weight="duotone" />
+                  已解包到 <span className="mono">{updateInfo.downloaded.directory}</span>。运行 <span className="mono">{updateInfo.downloaded.launcher}</span> 启动新版本，确认没问题后再删掉旧目录。
+                </p>
+              )}
+              {updateError && (
+                <p className="compat-note is-warning" role="alert"><WarningCircle size={20} weight="fill" />{updateError}</p>
+              )}
+            </div>
             <div className="compat-restart">
               {restartPhase === "confirm" ? (
                 <>

@@ -19,6 +19,15 @@ import {
 import { createCodexConfig } from "./lib/codex-config.mjs";
 import { createBridgeRunner } from "./lib/litellm-bridge.mjs";
 import { createPromptLibrary } from "./lib/prompt-library.mjs";
+import {
+  applyCheckout,
+  assetFor,
+  compareVersions,
+  describeInstall,
+  downloadArchive,
+  latestRelease,
+  repositorySlug,
+} from "./lib/self-update.mjs";
 import { detectCodexVersion, detectPiVersion, liveVersion } from "./lib/version-detect.mjs";
 import { ConflictError, PROVIDER_ID_PATTERN, isLoopbackHostname, normalizeUrl } from "./lib/validation.mjs";
 
@@ -257,6 +266,91 @@ async function applyRestart() {
   process.stdout.write(`${restartError}\n`);
 }
 
+// Everything the panel knows about a newer release. Held here rather than fetched
+// per read: a page load must not reach the network, so this stays empty until
+// somebody asks, and then stays as the answer they got.
+const updateState = {
+  checkedAt: "",
+  latestVersion: "",
+  releaseUrl: "",
+  newer: false,
+  asset: "",
+  install: null,
+  running: false,
+  steps: [],
+  error: "",
+  applied: "",
+  downloaded: null,
+};
+
+let latestReleaseSeen = null;
+
+async function checkForUpdate() {
+  updateState.error = "";
+  const release = await latestRelease({ slug: repositorySlug(PACKAGE_MANIFEST), version: APP_VERSION });
+  latestReleaseSeen = release;
+  const install = await describeInstall({ projectDir: PROJECT_DIR });
+  const asset = assetFor(release);
+  Object.assign(updateState, {
+    checkedAt: new Date().toISOString(),
+    latestVersion: release.version,
+    releaseUrl: release.url,
+    // Compared against the version this process is running, which is the one the
+    // panel shows beside it. A checkout already pulled but not restarted reads as
+    // "not newer" only after the restart, which is the honest order.
+    newer: compareVersions(release.version, APP_VERSION) > 0,
+    asset: asset ? asset.name : "",
+    install,
+  });
+  return updateState;
+}
+
+// The upgrade runs in the background and reports through /api/state, the same place
+// every other truth about this process lives. Two shapes, because the two kinds of
+// install cannot be upgraded the same way: a checkout fast-forwards in place, an
+// archive gets a sibling and a command to run.
+async function runUpdate() {
+  updateState.running = true;
+  updateState.steps = [];
+  updateState.error = "";
+  updateState.applied = "";
+  updateState.downloaded = null;
+  try {
+    if (updateState.install?.kind === "checkout") {
+      const result = await applyCheckout({
+        projectDir: PROJECT_DIR,
+        onStep: (step) => {
+          const existing = updateState.steps.findIndex((entry) => entry.name === step.name);
+          if (existing >= 0) updateState.steps[existing] = step;
+          else updateState.steps.push(step);
+        },
+      });
+      if (!result.ok) throw new Error(`${result.failed}这一步失败了。`);
+      // Deliberately not restarted from here: the new version is on disk and the
+      // panel now has something to apply, which is a state someone can look at
+      // before replacing the process they are talking to.
+      updateState.applied = result.unchanged ? "unchanged" : readPendingAppVersion() || updateState.latestVersion;
+    } else {
+      if (!latestReleaseSeen) throw new Error("先检查一次更新，才知道要下载哪个版本。");
+      updateState.steps.push({ name: "下载并解包到相邻目录", state: "running", ok: true, output: "" });
+      const downloaded = await downloadArchive({ release: latestReleaseSeen, projectDir: PROJECT_DIR });
+      updateState.steps[updateState.steps.length - 1] = {
+        name: "下载并解包到相邻目录",
+        state: "done",
+        ok: true,
+        output: downloaded.directory,
+      };
+      updateState.downloaded = downloaded;
+    }
+  } catch (error) {
+    updateState.error = error.message;
+    const last = updateState.steps[updateState.steps.length - 1];
+    if (last && last.state === "running") updateState.steps[updateState.steps.length - 1] = { ...last, state: "failed", ok: false };
+  } finally {
+    updateState.running = false;
+  }
+}
+
 // A broken or unreadable Codex directory must not take the whole state
 // response down with it: the launcher probes /api/state to decide whether a
 // port already belongs to this manager, and the Pi workflow does not depend
@@ -389,6 +483,7 @@ function publicState() {
     // Empty unless a restart was asked for and did not take. The page that asked
     // is the one that needs to hear about it.
     restartError,
+    update: updateState,
     prompts: { pi: prompts.pi.publicState(), codex: prompts.codex.publicState() },
     compatibility: {
       appVersion: APP_VERSION,
@@ -825,6 +920,31 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "POST" && request.url === "/api/providers/delete") {
       deleteProvider(await readBody(request));
       sendJson(response, 200, { ok: true, state: publicState() });
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/update/check") {
+      // A POST because it has an effect off this machine: one request to
+      // api.github.com, made because somebody pressed a button. Nothing here runs
+      // on a timer or on page load.
+      sendJson(response, 200, { ok: true, update: await checkForUpdate() });
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/update/apply") {
+      if (updateState.running) {
+        sendJson(response, 409, { error: "已经在更新中。" });
+        return;
+      }
+      if (!updateState.checkedAt) {
+        sendJson(response, 400, { error: "先检查更新。" });
+        return;
+      }
+      if (updateState.install?.kind === "checkout" && !updateState.install.canApply) {
+        sendJson(response, 409, { error: updateState.install.reason || "当前 checkout 不能自动升级。" });
+        return;
+      }
+      updateState.running = true;
+      sendJson(response, 202, { ok: true });
+      response.on("finish", () => { runUpdate(); });
       return;
     }
     if (request.method === "POST" && request.url === "/api/restart") {

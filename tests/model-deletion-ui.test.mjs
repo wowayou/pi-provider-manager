@@ -1958,6 +1958,17 @@ test("the compatibility card says when the checkout has moved ahead of the proce
     assert.equal(before.managerVersion, manifest.version);
     assert.equal(before.notes.some((note) => note.includes("磁盘上的管理器")), false, before.notes.join(" | "));
 
+    // Checking for a release is offered, and says where it would go before it goes:
+    // a page load that had already looked would be a page load that reached the
+    // network, which this project does not do.
+    const update = await cdp.evaluate(`(() => {
+      const row = document.querySelector('.compat-update-row');
+      return { button: row.querySelector('button').textContent, hint: row.querySelector('span').textContent };
+    })()`);
+    assert.match(update.button, /检查更新/);
+    assert.match(update.hint, /只有按下这个按钮才会联网/);
+    assert.match(update.hint, /api\.github\.com/);
+
     // An upgrade lands on disk. The process keeps serving the code it loaded.
     fs.writeFileSync(manifestPath, JSON.stringify({ ...manifest, version: "9.9.9" }));
     await cdp.send("Page.reload", { ignoreCache: true });

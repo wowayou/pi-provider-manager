@@ -922,3 +922,48 @@ test("a replacement that cannot start leaves the old manager serving, and says w
     fs.rmSync(agentDir, { recursive: true, force: true });
   }
 });
+
+// The update endpoints reach GitHub, so what is tested here is everything around
+// that: no test in this suite makes an upstream request, for the same reason the
+// application makes none on startup or on a page load. The lookup, the install
+// detection and the two apply shapes are covered against injected commands and
+// responses in tests/self-update.test.mjs.
+test("updating refuses in order: unchecked, then unapplicable", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-update-agent-"));
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+    cwd: projectRoot,
+    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+    const state = await (await fetch(`${baseUrl}/api/state`)).json();
+    // Nothing has been asked for, so nothing has been looked up: a page load that
+    // reported a latest version would mean a page load had reached the network.
+    assert.deepEqual(
+      {
+        checkedAt: state.update.checkedAt,
+        latestVersion: state.update.latestVersion,
+        running: state.update.running,
+        error: state.update.error,
+      },
+      { checkedAt: "", latestVersion: "", running: false, error: "" },
+    );
+    assert.deepEqual(state.update.steps, []);
+
+    // Applying before checking has nothing to apply, and says that rather than
+    // reaching for a release on its own.
+    const early = await postJson(baseUrl, "/api/update/apply", {}, null);
+    assert.equal(early.status, 400);
+    assert.match((await early.json()).error, /先检查更新/);
+
+    // Still nothing running after a refusal.
+    assert.equal((await (await fetch(`${baseUrl}/api/state`)).json()).update.running, false);
+  } finally {
+    child.kill();
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
