@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Recorded the upgrade chain being run end to end against the real `0.3.6` release, and the Windows archive branch being run on Windows against the real `0.3.5` archive. Both were listed in `design-qa.md` as not claimed when `0.3.6` shipped, because neither could be done before there was a release newer than the running one. No code changed.
+
 ## 0.3.6 - 2026-08-26
 
 - A bundle older than the sources it was built from now blocks the restart instead of being applied. That is the state an interrupted upgrade leaves behind — a pull gives every changed file a current mtime, so between the pull and the build the source tree really is newer than `dist/client` — and restarting there puts a new server behind the previous page, which is the one outcome of a half-finished upgrade that looks like it worked. The button is disabled with the reason, and `POST /api/restart` returns `409` regardless of what the page thinks, because the page asking may be older than the rule. A `npm run build` clears it with no restart.
