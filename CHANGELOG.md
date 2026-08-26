@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.6 - 2026-08-26
 
 - A bundle older than the sources it was built from now blocks the restart instead of being applied. That is the state an interrupted upgrade leaves behind — a pull gives every changed file a current mtime, so between the pull and the build the source tree really is newer than `dist/client` — and restarting there puts a new server behind the previous page, which is the one outcome of a half-finished upgrade that looks like it worked. The button is disabled with the reason, and `POST /api/restart` returns `409` regardless of what the page thinks, because the page asking may be older than the rule. A `npm run build` clears it with no restart.
 - The rule for that has one home. It was a test helper — the UI suite serves a gitignored `dist/client` that no checkout or pull ever updates — and is now `lib/built-ui.mjs`, read by both the suite and the server. It is asked only when this process is the one serving the UI: under Vite the question is meaningless, and a release archive carries no sources to be out of step with.
