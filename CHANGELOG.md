@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A blocked fast-forward now says what is in the way. git's account of one is three lines of hints about `merge` and `rebase` — advice for a different situation — so the step leads with `本地有 N 个远端没有的提交，无法快进`, and keeps git's own words underneath. The count is taken after the fetch: before it, a commit already pushed from somewhere else would read as local. Found by staging the failure against the real remote rather than by reading the code.
+- An archive install already running the latest release refuses to download it again, rather than leaving a copy of itself in the next directory along. A checkout is deliberately not refused on the same test — commits land after a release bump, so it can be behind its upstream with the release number unchanged, and pulling those is still right. The rule is `applyRefusal` in `lib/self-update.mjs`, where it can be stated for every case without a server or a network.
 - Recorded the upgrade chain being run end to end against the real `0.3.6` release, and the Windows archive branch being run on Windows against the real `0.3.5` archive. Both were listed in `design-qa.md` as not claimed when `0.3.6` shipped, because neither could be done before there was a release newer than the running one. No code changed.
 
 ## 0.3.6 - 2026-08-26

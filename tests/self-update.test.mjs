@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   applyCheckout,
+  applyRefusal,
   assetFor,
   compareVersions,
   describeInstall,
@@ -222,6 +223,44 @@ test("a failed step stops the sequence, and the build is never skipped past", as
   ]);
 });
 
+test("a fast-forward blocked by local commits names them, rather than quoting git's advice", async () => {
+  const run = async (command, args) => {
+    const line = [command, ...args].join(" ");
+    if (line.includes("rev-parse HEAD")) return { ok: true, stdout: "aaa\n" };
+    if (line.includes("merge --ff-only")) {
+      return {
+        ok: false,
+        stderr: "hint: Diverging branches can't be fast-forwarded, you need to either:\nfatal: Not possible to fast-forward, aborting.",
+      };
+    }
+    // Counted after the fetch, so the remote-tracking ref is current.
+    if (line.includes("rev-list --count")) return { ok: true, stdout: "2\n" };
+    return { ok: true, stdout: "" };
+  };
+  const applied = await applyCheckout({ projectDir: "/repo", run });
+  assert.equal(applied.ok, false);
+  assert.equal(applied.failed, "快进到远端版本");
+  const step = applied.steps[applied.steps.length - 1];
+  assert.match(step.output, /本地有 2 个远端没有的提交/);
+  // git's own words are kept underneath: they are the authoritative failure.
+  assert.match(step.output, /Not possible to fast-forward/);
+});
+
+test("a fast-forward that fails with nothing local ahead is left as git reported it", async () => {
+  const run = async (command, args) => {
+    const line = [command, ...args].join(" ");
+    if (line.includes("rev-parse HEAD")) return { ok: true, stdout: "aaa\n" };
+    if (line.includes("merge --ff-only")) return { ok: false, stderr: "fatal: refusing to merge unrelated histories" };
+    if (line.includes("rev-list --count")) return { ok: true, stdout: "0\n" };
+    return { ok: true, stdout: "" };
+  };
+  const applied = await applyCheckout({ projectDir: "/repo", run });
+  assert.equal(applied.ok, false);
+  const step = applied.steps[applied.steps.length - 1];
+  assert.equal(step.output.startsWith("本地有"), false, step.output);
+  assert.match(step.output, /unrelated histories/);
+});
+
 test("an upgrade that is already applied says so instead of rebuilding", async () => {
   const run = async (command, args) => {
     const line = [command, ...args].join(" ");
@@ -334,4 +373,30 @@ test("a platform with no archive in the release is told so", async () => {
     }),
     /没有适用于 linux 的归档/,
   );
+});
+
+test("a checkout may pull without a version bump; an archive at the latest may not", () => {
+  const checkout = (extra) => ({ kind: "checkout", canApply: true, reason: "", ...extra });
+  // The case the asymmetry exists for: commits land after a release bump, so a
+  // checkout at the current release number can still be behind its upstream.
+  assert.equal(applyRefusal({ install: checkout(), newer: false, latestVersion: "0.3.6" }), "");
+  assert.equal(applyRefusal({ install: checkout(), newer: true, latestVersion: "0.3.7" }), "");
+  assert.match(
+    applyRefusal({ install: checkout({ canApply: false, reason: "工作区有未提交的改动。" }), newer: true }),
+    /未提交的改动/,
+  );
+  // A reason is always given, even where the caller did not supply one.
+  assert.match(applyRefusal({ install: checkout({ canApply: false, reason: "" }), newer: true }), /不能自动升级/);
+
+  // An archive install has nothing but the release it was unpacked from.
+  assert.equal(applyRefusal({ install: { kind: "archive" }, newer: true, latestVersion: "0.3.7" }), "");
+  assert.match(
+    applyRefusal({ install: { kind: "archive" }, newer: false, latestVersion: "0.3.6" }),
+    /已经是最新发布的版本了（0\.3\.6）/,
+  );
+  // Falls back to the running version when a check has somehow left no latest.
+  assert.match(applyRefusal({ install: { kind: "archive" }, newer: false, appVersion: "0.3.6" }), /0\.3\.6/);
+
+  // No check yet is its own answer, not an empty one.
+  assert.match(applyRefusal({}), /先检查更新/);
 });
