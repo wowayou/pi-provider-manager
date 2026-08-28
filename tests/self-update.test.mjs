@@ -274,13 +274,14 @@ test("an upgrade that is already applied says so instead of rebuilding", async (
 });
 
 test("an archive is unpacked beside the install, never over it", async () => {
+  const archive1 = Buffer.from("not really a tarball");
   const parent = temporaryDir("ppm-sibling-");
   const projectDir = path.join(parent, "pi-provider-manager-v0.3.6");
   fs.mkdirSync(projectDir);
   fs.writeFileSync(path.join(projectDir, "server.mjs"), "// the running install\n");
   const release = {
     tag: "v0.3.7",
-    assets: [{ name: "pi-provider-manager-v0.3.7-linux-wsl.tar.gz", url: "https://example.invalid/a.tar.gz" }],
+    assets: [{ name: "pi-provider-manager-v0.3.7-linux-wsl.tar.gz", url: "https://example.invalid/a.tar.gz", size: 20 }, { name: "pi-provider-manager-v0.3.7-linux-wsl.tar.gz.sha256", url: "https://example.invalid/a.sha256", size: 100 }],
   };
 
   let downloadedFrom = "";
@@ -289,13 +290,15 @@ test("an archive is unpacked beside the install, never over it", async () => {
     projectDir,
     platform: "linux",
     fetchBinary: async (url) => {
+      if (url.endsWith(".sha256")) return Buffer.from("b3b786ecd6e4f6ab3398d0b1bfd62dbc47534c8723cd3802f642f7203a3b55d7  pi-provider-manager-v0.3.7-linux-wsl.tar.gz\n");
       downloadedFrom = url;
-      return Buffer.from("not really a tarball");
+      return archive1;
     },
     // Stands in for tar: the contract under test is what happens around the
     // extraction, so what unpacks it is the one part worth substituting.
     run: async (command, args) => {
       assert.equal(command, "tar");
+      if (args[0] === "-tzf") return { ok: true, stdout: "pi-provider-manager-v0.3.7/\npi-provider-manager-v0.3.7/server.mjs\npi-provider-manager-v0.3.7/dist/client/index.html\n" };
       assert.equal(args[0], "-xzf");
       assert.equal(fs.existsSync(args[1]), true, "the archive must exist while it is unpacked");
       const unpacked = path.join(args[3], "pi-provider-manager-v0.3.7", "dist", "client");
@@ -315,21 +318,55 @@ test("an archive is unpacked beside the install, never over it", async () => {
   assert.equal(fs.existsSync(path.join(parent, "pi-provider-manager-v0.3.7-linux-wsl.tar.gz")), false);
 });
 
+test("archive updates reject missing checksums, bad digests, and escaping paths", async () => {
+  const parent = temporaryDir("ppm-sibling-guard-");
+  const projectDir = path.join(parent, "pi-provider-manager-v0.3.6");
+  fs.mkdirSync(projectDir);
+  const name = "pi-provider-manager-v0.3.7-linux-wsl.tar.gz";
+  const archive = Buffer.from("x");
+  const checksum = Buffer.from("2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881  " + name + "\n");
+
+  await assert.rejects(() => downloadArchive({
+    release: { tag: "v0.3.7", assets: [{ name, url: "archive", size: 1 }] },
+    projectDir, platform: "linux", fetchBinary: async () => archive,
+  }), /缺少.*sha256/);
+
+  const release = { tag: "v0.3.7", assets: [
+    { name, url: "archive", size: 1 },
+    { name: name + ".sha256", url: "checksum", size: checksum.length },
+  ] };
+  await assert.rejects(() => downloadArchive({
+    release, projectDir, platform: "linux",
+    fetchBinary: async (url) => url === "checksum" ? Buffer.from("0".repeat(64) + "  " + name) : archive,
+  }), /SHA-256 校验失败/);
+  assert.equal(fs.existsSync(path.join(parent, name)), false);
+
+  await assert.rejects(() => downloadArchive({
+    release, projectDir, platform: "linux",
+    fetchBinary: async (url) => url === "checksum" ? checksum : archive,
+    run: async (command, args) => args[0] === "-tzf"
+      ? { ok: true, stdout: "pi-provider-manager-v0.3.7/../escaped\n" }
+      : { ok: true, stdout: "" },
+  }), /目标目录之外/);
+  assert.equal(fs.existsSync(path.join(parent, "escaped")), false);
+});
 test("an archive that is missing what a launcher needs is reported, not left half-installed", async () => {
+  const archive2 = Buffer.from("x");
   const parent = temporaryDir("ppm-sibling-bad-");
   const projectDir = path.join(parent, "pi-provider-manager-v0.3.6");
   fs.mkdirSync(projectDir);
   const release = {
     tag: "v0.3.7",
-    assets: [{ name: "pi-provider-manager-v0.3.7-linux-wsl.tar.gz", url: "https://example.invalid/a.tar.gz" }],
+    assets: [{ name: "pi-provider-manager-v0.3.7-linux-wsl.tar.gz", url: "https://example.invalid/a.tar.gz", size: 1 }, { name: "pi-provider-manager-v0.3.7-linux-wsl.tar.gz.sha256", url: "https://example.invalid/a.sha256", size: 100 }],
   };
   await assert.rejects(
     () => downloadArchive({
       release,
       projectDir,
       platform: "linux",
-      fetchBinary: async () => Buffer.from("x"),
+      fetchBinary: async (url) => url.endsWith(".sha256") ? Buffer.from("2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881  pi-provider-manager-v0.3.7-linux-wsl.tar.gz\n") : archive2,
       run: async (command, args) => {
+        if (args[0] === "-tzf") return { ok: true, stdout: "pi-provider-manager-v0.3.7/\n" };
         fs.mkdirSync(path.join(args[3], "pi-provider-manager-v0.3.7"), { recursive: true });
         return { ok: true, stdout: "" };
       },

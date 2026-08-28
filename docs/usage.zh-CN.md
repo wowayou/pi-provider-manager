@@ -422,7 +422,7 @@ PI_CODING_AGENT_DIR=/tmp/pi-try CODEX_HOME=/tmp/codex-try \
 | `Port N is already used by another application.` | 你指定的端口被别的程序占了。换一个，或者别指定让它自动选 |
 | `No free port found in 43127-43146.` | 20 个端口全被占。用 `PI_PROVIDER_MANAGER_PORT` 指一个 |
 | `Pi Provider Manager failed to start.` | 服务起不来。它会打印一条可以直接粘贴的手动启动命令，前台跑一遍就能看到真正的报错；日志在 `$PI_CODING_AGENT_DIR/pi-provider-manager-ui.log` |
-| 打印了 `(reused the instance already running on this port)` | 端口上已经有一个了，这是**正常复用**。升级或刚装完 LiteLLM 需要重启时，照它给的 `kill <pid> && <launcher>` 做 |
+| 打印了 `(reused the instance already running on this port)` | 端口上已经有一个了，这是**正常复用**。LiteLLM 会在每次读取时重新发现，刚装 LiteLLM 不需要重启本管理器；只有管理器代码升级才按它给的 `kill <pid> && <launcher>` 做 |
 
 ### Codex 相关
 

@@ -22,7 +22,7 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 
 function codexVersion() {
   try {
-    return execFileSync("codex", ["--version"], { encoding: "utf8", timeout: 20_000 }).trim();
+    return execFileSync("codex", ["--version"], { encoding: "utf8", timeout: 20_000, shell: process.platform === "win32" }).trim();
   } catch {
     return "";
   }
@@ -43,6 +43,7 @@ function doctorConfigStatus(codexHome) {
       cwd: os.tmpdir(),
       env: { ...process.env, CODEX_HOME: codexHome },
       stdio: ["ignore", "pipe", "pipe"],
+      shell: process.platform === "win32",
     });
   } catch (error) {
     stdout = error.stdout;
@@ -209,6 +210,7 @@ test("Codex rejects --profile against a legacy table in config.toml", { skip: in
       "",
     ].join("\n"));
     const run = spawnSync("codex", ["exec", "--profile", "custom", "--skip-git-repo-check", "hi"], {
+      shell: process.platform === "win32",
       encoding: "utf8",
       timeout: 30_000,
       cwd: os.tmpdir(),
@@ -278,7 +280,8 @@ test("codex exec reaches a manager-configured gateway with the stored key", { sk
 
     // Codex prints its resolved provider, model and effort on stderr and the
     // model's answer on stdout, so both are needed.
-    const run = spawnSync("codex", ["exec", "--skip-git-repo-check", "say hi"], {
+    const run = spawnSync("codex", ["exec", "--skip-git-repo-check", "hi"], {
+      shell: process.platform === "win32",
       encoding: "utf8",
       timeout: 180_000,
       cwd: os.tmpdir(),
@@ -361,7 +364,8 @@ test("codex reaches a chat-completions-only upstream through the managed bridge"
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
-    const run = spawnSync("codex", ["exec", "--skip-git-repo-check", "say hi"], {
+    const run = spawnSync("codex", ["exec", "--skip-git-repo-check", "hi"], {
+      shell: process.platform === "win32",
       encoding: "utf8",
       timeout: 180_000,
       cwd: os.tmpdir(),

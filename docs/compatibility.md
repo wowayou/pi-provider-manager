@@ -45,7 +45,7 @@ Codex layers a `.codex/config.toml` from the working directory tree on top of th
 
 Unknown top-level keys in `config.toml` are ignored by Codex rather than rejected (`ConfigToml` carries `schemars(deny_unknown_fields)` but not the serde equivalent). That is why a legacy `disable_response_storage` can be preserved without breaking a current install, even though the key is gone from the schema and `store` is hard-coded to `false` in the request builder.
 
-`npm run test:codex-real` runs the real binary against a manager-generated config and asserts `codex doctor --json` reports `checks["config.load"].status === "ok"`. It skips itself when Codex is not installed, so it is the first thing to run after a Codex upgrade and the only check that answers whether Codex actually accepts what we write.
+`npm run test:codex-real` runs the real binary against a manager-generated config. A green result requires `skipped: 0`; a skipped result is an unverified environment, not compatibility evidence. It is the first thing to run after a Codex upgrade and the only check that answers whether Codex actually accepts what we write.
 
 **`config.load` being `ok` is not enough on its own.** The generated `[profiles.*]` tables passed that check for two releases — a legacy table parses fine; it is the `--profile` selector that rejects it, and only running the command finds that. Any command this manager's UI tells someone to run belongs in that suite as an actual invocation.
 

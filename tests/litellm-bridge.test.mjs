@@ -87,6 +87,58 @@ test("pins LiteLLM to loopback rather than its default 0.0.0.0", async (t) => {
   }
 });
 
+test("restarting a running bridge replaces the old process safely", async (t) => {
+  if (process.platform !== "linux") return t.skip("procfs only");
+  const dir = sandbox();
+  const fake = path.join(dir, "fake-litellm");
+  const starts = path.join(dir, "starts.txt");
+  fs.writeFileSync(
+    fake,
+    `#!/usr/bin/env bash
+if [ "$1" = "--version" ]; then echo "LiteLLM: Current Version = 1.97.0"; exit 0; fi
+printf '%s|%s\\n' "$PPM_BRIDGE_UPSTREAM_KEY" "$*" >> ${JSON.stringify(starts)}
+trap 'exit 0' TERM INT
+while true; do sleep 1; done
+`,
+    { mode: 0o755 },
+  );
+  process.env.PI_PROVIDER_MANAGER_LITELLM = fake;
+  try {
+    const runner = createBridgeRunner({ dir });
+    runner.writeConfig({ models: [{ id: "m" }], upstreamBaseUrl: "https://upstream.example/v1" });
+    await runner.start({ providerId: "first", port: 44022, upstreamKey: "first-key" });
+    const firstPid = runner.status().pid;
+    for (let attempt = 0; attempt < 100 && !fs.existsSync(starts); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(runner.status().running, true);
+
+    runner.writeConfig({ models: [{ id: "m2" }], upstreamBaseUrl: "https://new.example/v1" });
+    await runner.start({ providerId: "second", port: 44023, upstreamKey: "second-key" });
+    // start() resolves once the replacement is spawned, which is before it has
+    // exec'd: until then its /proc/<pid>/cmdline is still this test's, so the
+    // ownership check behind status().running has nothing to match on and the
+    // stand-in has not appended its line yet. Wait for that line — written
+    // after the exec — and read the rest only once it is there.
+    let recorded = "";
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      recorded = fs.readFileSync(starts, "utf8");
+      if (recorded.split("\n").filter(Boolean).length >= 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.match(recorded, /second-key/);
+    const second = runner.status();
+    assert.equal(second.running, true);
+    assert.equal(second.port, 44023);
+    assert.notEqual(second.pid, firstPid);
+    assert.throws(() => process.kill(firstPid, 0), { code: "ESRCH" });
+    runner.stop();
+  } finally {
+    delete process.env.PI_PROVIDER_MANAGER_LITELLM;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("refuses to signal a pid it cannot prove is its own", async (t) => {
   if (process.platform !== "linux") return t.skip("procfs only");
   const dir = sandbox();
