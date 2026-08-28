@@ -25,11 +25,16 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: tar -czf "artifacts/pi-provider-manager-${RELEASE_TAG}-linux-wsl.tar.gz" -C artifacts "pi-provider-manager-${RELEASE_TAG}"
+      - name: Write Linux and WSL SHA-256
+        working-directory: artifacts
+        run: |
+          archive=$(find . -maxdepth 1 -name "*-linux-wsl.tar.gz" -printf "%f\\n")
+          sha256sum "$archive" > "$archive.sha256"
       - name: Upload Linux and WSL archive
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" artifacts/*-linux-wsl.tar.gz --clobber
+        run: gh release upload "$RELEASE_TAG" artifacts/*-linux-wsl.tar.gz* --clobber
 
   windows:
     runs-on: windows-latest
@@ -51,9 +56,11 @@ jobs:
           $source = "artifacts/pi-provider-manager-v$version"
           $destination = "artifacts/pi-provider-manager-v$version-windows.zip"
           Compress-Archive -LiteralPath $source -DestinationPath $destination -CompressionLevel Optimal
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $destination).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path -Leaf $destination)" | Set-Content -LiteralPath "$destination.sha256" -NoNewline
       - name: Upload Windows archive
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload $env:RELEASE_TAG artifacts/*-windows.zip --clobber
+        run: gh release upload $env:RELEASE_TAG artifacts/*-windows.zip* --clobber

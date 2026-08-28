@@ -1036,7 +1036,7 @@ const server = http.createServer(async (request, response) => {
       const spec = codex.bridgeSpec(String(body.providerId || ""));
       if (!spec) throw new Error("这个供应商没有配置本地桥。");
       bridge.writeConfig(spec);
-      bridge.start(spec);
+      await bridge.start(spec);
       sendJson(response, 200, { ok: true, bridge: bridgeStatus() });
       return;
     }
