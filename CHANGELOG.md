@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- A bridge this manager started counts as its own even while procfs cannot name it. `/proc/<pid>/cmdline` reads empty for about one start in twenty — the kernel has not finished the exec — and the command line was the only ownership proof, so a restart in that window launched a second proxy over the first and a stop dropped the record instead of signalling it. Either way the first kept the port and the upstream key with nothing left that could reach it. `createBridgeRunner` now remembers the pids it spawned and forgets each one when the process exits, so a reused pid still has to prove itself by command line.
 - Managed LiteLLM bridge replacement now stops the previous owned process before changing provider, port, or upstream key, rechecks PID ownership before each signal, and waits for exit so stale proxies and orphaned credentials are not left running.
 - Release archive updates now require a bounded download, a matching SHA-256 sidecar, a version-safe archive name, and a path-checked staging extraction before the sibling directory is created. The release workflow publishes the sidecars used by that verifier.
 - Real Codex tests use the same Windows shell discovery as the product; documentation now treats skipped real-binary tests as unverified rather than passed.

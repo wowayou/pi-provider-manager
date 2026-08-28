@@ -139,6 +139,114 @@ while true; do sleep 1; done
   }
 });
 
+// A stand-in that replaces itself with something whose command line no longer
+// names the config file. Procfs presents exactly that — a live bridge it cannot
+// name — transiently while a real one is still exec'ing: reading
+// /proc/<pid>/cmdline straight after spawn comes back empty for roughly one
+// start in twenty on this machine. Here it is permanent, so the tests below
+// exercise that state deterministically instead of waiting for the window.
+function selfErasingFake(dir, log) {
+  const fake = path.join(dir, "fake-litellm");
+  fs.writeFileSync(
+    fake,
+    `#!/usr/bin/env bash
+if [ "$1" = "--version" ]; then echo "LiteLLM: Current Version = 1.97.0"; exit 0; fi
+printf '%s|%s\\n' "$$" "$*" >> ${JSON.stringify(log)}
+exec sleep 300
+`,
+    { mode: 0o755 },
+  );
+  return fake;
+}
+
+async function waitFor(check) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (check()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return false;
+}
+
+function gone(pid) {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return error.code === "ESRCH";
+  }
+}
+
+function unnamed(pid, configPath) {
+  try {
+    return !fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").includes(configPath);
+  } catch {
+    return false;
+  }
+}
+
+test("a bridge procfs cannot name is still this runner's own", async (t) => {
+  if (process.platform !== "linux") return t.skip("procfs only");
+  const dir = sandbox();
+  process.env.PI_PROVIDER_MANAGER_LITELLM = selfErasingFake(dir, path.join(dir, "starts.txt"));
+  try {
+    const runner = createBridgeRunner({ dir });
+    runner.writeConfig({ models: [{ id: "m" }], upstreamBaseUrl: "https://upstream.example/v1" });
+    const { pid } = await runner.start({ providerId: "p", port: 44030, upstreamKey: "k" });
+    assert.equal(await waitFor(() => unnamed(pid, runner.configPath)), true, "the stand-in never erased its own argv");
+
+    // The command line is no longer evidence, but this runner started this
+    // process: reporting it as stopped would be a claim it cannot support, and
+    // it is what leaves a proxy holding the port and the upstream key with
+    // nothing left that can reach it.
+    assert.equal(runner.isOurProcess(pid), true);
+    assert.equal(runner.status().running, true);
+    assert.equal(runner.stop().stopped, true);
+    assert.equal(await waitFor(() => gone(pid)), true, "the bridge was left running");
+    assert.equal(runner.status().running, false);
+  } finally {
+    delete process.env.PI_PROVIDER_MANAGER_LITELLM;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a restart replaces a bridge procfs cannot name rather than orphaning it", async (t) => {
+  if (process.platform !== "linux") return t.skip("procfs only");
+  const dir = sandbox();
+  const starts = path.join(dir, "starts.txt");
+  process.env.PI_PROVIDER_MANAGER_LITELLM = selfErasingFake(dir, starts);
+  try {
+    const runner = createBridgeRunner({ dir });
+    runner.writeConfig({ models: [{ id: "m" }], upstreamBaseUrl: "https://upstream.example/v1" });
+    const first = await runner.start({ providerId: "first", port: 44031, upstreamKey: "first-key" });
+    assert.equal(await waitFor(() => unnamed(first.pid, runner.configPath)), true, "the stand-in never erased its own argv");
+
+    // A bridge that cannot be recognised is one the manager launches a second
+    // copy over: two proxies, and the first unreachable through this manager
+    // for the rest of the session.
+    const second = await runner.start({ providerId: "second", port: 44032, upstreamKey: "second-key" });
+    assert.notEqual(second.pid, first.pid);
+    assert.equal(await waitFor(() => gone(first.pid)), true, "the first bridge was left running");
+    assert.equal(runner.status().port, 44032);
+    assert.equal(runner.status().providerId, "second");
+    assert.equal(runner.status().running, true);
+    // The replacement records itself once it is running, which is after start()
+    // resolves: two lines and no more means one bridge replaced the other.
+    assert.equal(
+      await waitFor(() => fs.readFileSync(starts, "utf8").split("\n").filter(Boolean).length >= 2),
+      true,
+      "the replacement never started",
+    );
+    const logged = fs.readFileSync(starts, "utf8").split("\n").filter(Boolean);
+    assert.equal(logged.length, 2);
+    assert.match(logged[1], new RegExp(`^${second.pid}\\|.*--port 44032`));
+    runner.stop();
+    assert.equal(await waitFor(() => gone(second.pid)), true, "the replacement was left running");
+  } finally {
+    delete process.env.PI_PROVIDER_MANAGER_LITELLM;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("refuses to signal a pid it cannot prove is its own", async (t) => {
   if (process.platform !== "linux") return t.skip("procfs only");
   const dir = sandbox();
