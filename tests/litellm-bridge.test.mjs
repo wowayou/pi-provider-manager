@@ -115,12 +115,23 @@ while true; do sleep 1; done
 
     runner.writeConfig({ models: [{ id: "m2" }], upstreamBaseUrl: "https://new.example/v1" });
     await runner.start({ providerId: "second", port: 44023, upstreamKey: "second-key" });
+    // start() resolves once the replacement is spawned, which is before it has
+    // exec'd: until then its /proc/<pid>/cmdline is still this test's, so the
+    // ownership check behind status().running has nothing to match on and the
+    // stand-in has not appended its line yet. Wait for that line — written
+    // after the exec — and read the rest only once it is there.
+    let recorded = "";
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      recorded = fs.readFileSync(starts, "utf8");
+      if (recorded.split("\n").filter(Boolean).length >= 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.match(recorded, /second-key/);
     const second = runner.status();
     assert.equal(second.running, true);
     assert.equal(second.port, 44023);
     assert.notEqual(second.pid, firstPid);
     assert.throws(() => process.kill(firstPid, 0), { code: "ESRCH" });
-    assert.match(fs.readFileSync(starts, "utf8"), /second-key/);
     runner.stop();
   } finally {
     delete process.env.PI_PROVIDER_MANAGER_LITELLM;
