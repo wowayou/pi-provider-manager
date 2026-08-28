@@ -176,23 +176,41 @@ function gone(pid) {
   }
 }
 
-function unnamed(pid, configPath) {
+// Lines the stand-ins have written so far. A start that has not reached its
+// printf yet leaves no file at all, which is not an error here.
+function startLines(log) {
   try {
-    return !fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").includes(configPath);
+    return fs.readFileSync(log, "utf8").split("\n").filter(Boolean);
   } catch {
-    return false;
+    return [];
   }
+}
+
+// A bridge that has run and then erased its own argv. Waiting on the cmdline
+// alone would also be satisfied by the transient empty read this whole change
+// is about, which on a loaded runner happens before the stand-in has written
+// anything — so its line is the barrier, and the cmdline the condition.
+async function erasedItsArgv(pid, log, configPath) {
+  if (!await waitFor(() => startLines(log).some((line) => line.startsWith(`${pid}|`)))) return false;
+  return waitFor(() => {
+    try {
+      return !fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").includes(configPath);
+    } catch {
+      return false;
+    }
+  });
 }
 
 test("a bridge procfs cannot name is still this runner's own", async (t) => {
   if (process.platform !== "linux") return t.skip("procfs only");
   const dir = sandbox();
-  process.env.PI_PROVIDER_MANAGER_LITELLM = selfErasingFake(dir, path.join(dir, "starts.txt"));
+  const starts = path.join(dir, "starts.txt");
+  process.env.PI_PROVIDER_MANAGER_LITELLM = selfErasingFake(dir, starts);
   try {
     const runner = createBridgeRunner({ dir });
     runner.writeConfig({ models: [{ id: "m" }], upstreamBaseUrl: "https://upstream.example/v1" });
     const { pid } = await runner.start({ providerId: "p", port: 44030, upstreamKey: "k" });
-    assert.equal(await waitFor(() => unnamed(pid, runner.configPath)), true, "the stand-in never erased its own argv");
+    assert.equal(await erasedItsArgv(pid, starts, runner.configPath), true, "the stand-in never erased its own argv");
 
     // The command line is no longer evidence, but this runner started this
     // process: reporting it as stopped would be a claim it cannot support, and
@@ -218,7 +236,7 @@ test("a restart replaces a bridge procfs cannot name rather than orphaning it", 
     const runner = createBridgeRunner({ dir });
     runner.writeConfig({ models: [{ id: "m" }], upstreamBaseUrl: "https://upstream.example/v1" });
     const first = await runner.start({ providerId: "first", port: 44031, upstreamKey: "first-key" });
-    assert.equal(await waitFor(() => unnamed(first.pid, runner.configPath)), true, "the stand-in never erased its own argv");
+    assert.equal(await erasedItsArgv(first.pid, starts, runner.configPath), true, "the stand-in never erased its own argv");
 
     // A bridge that cannot be recognised is one the manager launches a second
     // copy over: two proxies, and the first unreachable through this manager
@@ -231,12 +249,8 @@ test("a restart replaces a bridge procfs cannot name rather than orphaning it", 
     assert.equal(runner.status().running, true);
     // The replacement records itself once it is running, which is after start()
     // resolves: two lines and no more means one bridge replaced the other.
-    assert.equal(
-      await waitFor(() => fs.readFileSync(starts, "utf8").split("\n").filter(Boolean).length >= 2),
-      true,
-      "the replacement never started",
-    );
-    const logged = fs.readFileSync(starts, "utf8").split("\n").filter(Boolean);
+    assert.equal(await waitFor(() => startLines(starts).length >= 2), true, "the replacement never started");
+    const logged = startLines(starts);
     assert.equal(logged.length, 2);
     assert.match(logged[1], new RegExp(`^${second.pid}\\|.*--port 44032`));
     runner.stop();
