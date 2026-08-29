@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Recorded the release-archive sidecar check being run against `0.3.7`, the first release that publishes sidecars: the real archive verified and unpacked beside a stand-in older install, and three refusals — a flipped byte, a missing sidecar, a sidecar naming another file — each leaving nothing on disk. It was listed as unclaimed when `0.3.7` shipped because no release carried a sidecar to check against. No code changed.
+
 ## 0.3.7 - 2026-08-29
 
 - A bridge this manager started counts as its own even while procfs cannot name it. `/proc/<pid>/cmdline` reads empty for about one start in twenty — the kernel has not finished the exec — and the command line was the only ownership proof, so a restart in that window launched a second proxy over the first and a stop dropped the record instead of signalling it. Either way the first kept the port and the upstream key with nothing left that could reach it. `createBridgeRunner` now remembers the pids it spawned and forgets each one when the process exits, so a reused pid still has to prove itself by command line.

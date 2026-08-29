@@ -335,3 +335,14 @@ final result: passed
 - **Not run in this pass, and so not claimed:** the archive upgrade was exercised on Linux/WSL; its Windows twin has been run as far as the download and `Expand-Archive` (previous section) but not through the endpoints on a Windows-hosted manager. No archive install was upgraded twice in a row, so nothing has met an existing sibling directory outside the unit tests.
 
 final result: passed
+
+## Sidecar Verification On A Real Release — Evidence
+
+- Evidence date: `2026-08-29`. Release `0.3.7`.
+- **The check that could not be run before there was a release carrying sidecars was run.** `latestRelease` against the real API returned `v0.3.7` with four assets — both archives and both `.sha256` files. `downloadArchive`, using the module's own fetch rather than a stand-in, downloaded `pi-provider-manager-v0.3.7-linux-wsl.tar.gz`, verified it against the published sidecar, listed the entries, extracted into a staging directory and renamed it to the sibling `pi-provider-manager-v0.3.7` beside a stand-in `0.3.6` install: `server.mjs`, `dist/client/index.html` and `bin/pi-provider-manager-ui` all present, `package.json` reading `0.3.7`, the stand-in untouched, and no archive file left in the parent.
+- **Three refusals were staged against those same real assets.** One flipped byte in the middle of the archive gave `发布归档的 SHA-256 校验失败，未写入磁盘。`; removing the sidecar from the release gave `发布缺少 pi-provider-manager-v0.3.7-linux-wsl.tar.gz.sha256，无法验证下载完整性。`; rewriting the sidecar to name a different file gave `发布归档的 SHA-256 文件无效。` After each one the parent directory still held only the stand-in install — the refusals write nothing, which is the part that matters.
+- **The install that came out of it was started.** Its launcher run with `PI_PROVIDER_MANAGER_OPEN_BROWSER=0`, a throwaway config directory for each agent and port `43191` reported ready, and `/api/state` read `appVersion 0.3.7`, `pendingAppVersion ""`, `bundleProblem ""`, `piVersion 0.84.3` equal to the validated Pi version and `codexVersion 0.149.0` equal to the validated Codex version. Stopped afterwards, and the extraction and both config directories removed.
+- `npm test`: 145 pass, 0 fail, 0 skipped.
+- **Not run in this pass, and so not claimed:** the Windows half of the same path. `pi-provider-manager-v0.3.7-windows.zip.sha256` is published, but nothing on Windows read it, and the PowerShell branches that list and expand the zip have still only been reached in tests. The library was also called directly rather than through `POST /api/update/apply`, so the panel's route into this verification remains covered by `tests/server.test.mjs` and `tests/self-update.test.mjs` rather than by this run.
+
+final result: passed
