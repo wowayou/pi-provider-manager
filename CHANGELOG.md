@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.7 - 2026-08-29
 
 - A bridge this manager started counts as its own even while procfs cannot name it. `/proc/<pid>/cmdline` reads empty for about one start in twenty — the kernel has not finished the exec — and the command line was the only ownership proof, so a restart in that window launched a second proxy over the first and a stop dropped the record instead of signalling it. Either way the first kept the port and the upstream key with nothing left that could reach it. `createBridgeRunner` now remembers the pids it spawned and forgets each one when the process exits, so a reused pid still has to prove itself by command line.
 - The two places that state that ownership rule caught up with it. `docs/architecture.md` and `AGENTS.md` both said a recorded process id is signalled only while procfs names our own config file, which stopped being the whole rule once a spawned pid counted as proof — read literally, the invariant they stated forbids stopping a bridge that is still coming up.
