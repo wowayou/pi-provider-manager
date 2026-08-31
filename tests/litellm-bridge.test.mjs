@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -488,5 +489,82 @@ test("notices a LiteLLM installed after the manager was already running", async 
     else process.env.HOME = realHome;
     fs.rmSync(dir, { recursive: true, force: true });
     fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+// A pid that is alive and has no command line is the shape of two different
+// things: a bridge another manager process spawned a moment ago and has not
+// exec'd yet, and something that will never have a name at all. Both must read
+// as unknown rather than as "not ours" — 0.3.7 fixed this runner's view of its
+// own children, and this is the same window seen from the outside.
+//
+// A zombie is used to stage it because it is deterministic: it accepts signal 0,
+// so it is alive as far as any liveness check can tell, and its
+// /proc/<pid>/cmdline is empty for as long as it stays unreaped.
+function zombiePid() {
+  const before = new Set(livingZombies());
+  const parent = spawn("setsid", ["bash", "-c", 'bash -c "exit 0" & exec sleep 30'], { stdio: "ignore", detached: true });
+  parent.unref();
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const found = livingZombies().find((pid) => !before.has(pid));
+    if (found) return { pid: found, stop: () => { try { process.kill(parent.pid, "SIGKILL"); } catch {} } };
+    execFileSync("sleep", ["0.05"]);
+  }
+  try { process.kill(parent.pid, "SIGKILL"); } catch {}
+  return null;
+}
+
+function livingZombies() {
+  const uid = process.getuid();
+  const pids = [];
+  for (const entry of fs.readdirSync("/proc")) {
+    if (!/^\d+$/.test(entry)) continue;
+    try {
+      if (fs.statSync(`/proc/${entry}`).uid !== uid) continue;
+      if (!/^State:\s+Z/m.test(fs.readFileSync(`/proc/${entry}/status`, "utf8"))) continue;
+      if (fs.readFileSync(`/proc/${entry}/cmdline`, "utf8").length > 0) continue;
+    } catch {
+      continue;
+    }
+    pids.push(Number(entry));
+  }
+  return pids;
+}
+
+test("a living pid procfs cannot name is unknown, not someone else's", async (t) => {
+  if (process.platform !== "linux") return t.skip("procfs only");
+  const zombie = zombiePid();
+  if (!zombie) return t.skip("could not stage an unreaped process");
+  const dir = sandbox();
+  const runner = createBridgeRunner({ dir });
+  runner.writeConfig({ models: [{ id: "m" }], upstreamBaseUrl: "https://upstream.example/v1" });
+  const statePath = path.join(dir, "pi-provider-manager-bridge.json");
+  fs.writeFileSync(statePath, JSON.stringify({ pid: zombie.pid, port: 44041, providerId: "first" }));
+  try {
+    // Never false: false is what would let start() launch a second proxy over a
+    // bridge that is still coming up, and stop() forget one that is running.
+    assert.equal(runner.isOurProcess(zombie.pid), null);
+
+    const status = runner.status();
+    assert.equal(status.running, false);
+    assert.equal(status.unverified, true);
+    assert.equal(status.pid, zombie.pid);
+
+    // The refusal is the point. Both paths say so and change nothing.
+    // start() refuses before it reaches the async replacement path, so this
+    // throw is synchronous.
+    assert.throws(() => runner.start({ providerId: "second", port: 44042, upstreamKey: "k" }), /无法确认/);
+    assert.deepEqual(JSON.parse(fs.readFileSync(statePath, "utf8")), { pid: zombie.pid, port: 44041, providerId: "first" });
+    assert.throws(() => runner.stop(), /无法确认/);
+
+    // Waited out once, answered from memory afterwards: a pid that is nameless
+    // for good must not cost the settle budget on every /api/state.
+    const started = Date.now();
+    assert.equal(runner.isOurProcess(zombie.pid), null);
+    assert.ok(Date.now() - started < 100, `second answer took ${Date.now() - started}ms`);
+  } finally {
+    zombie.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
