@@ -117,7 +117,17 @@ test("writes router-style providers without exposing credentials", async () => {
       },
     },
   }));
-  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ futureSetting: "keep-setting" }));
+  // Shaped like a settings.json a current Pi actually writes: `futureSetting`
+  // stands in for a key this manager will never know, and the three beside it
+  // are real keys Pi 0.84.4 added — per-model startup thinking levels and two
+  // JSON-only terminal overrides. This manager owns none of them, so a save
+  // that dropped one would silently undo a Pi setting.
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({
+    futureSetting: "keep-setting",
+    modelThinkingLevels: { "any-router/anthropic/claude-opus": "high" },
+    fullscreenCopyOnSelect: false,
+    terminal: { hyperlinks: "auto", trueColor: true },
+  }));
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
@@ -224,6 +234,9 @@ test("writes router-style providers without exposing credentials", async () => {
     assert.equal(updatedSettings.hideThinkingBlock, true);
     assert.equal(updatedSettings.transport, "websocket");
     assert.equal(updatedSettings.futureSetting, "keep-setting");
+    assert.deepEqual(updatedSettings.modelThinkingLevels, { "any-router/anthropic/claude-opus": "high" });
+    assert.equal(updatedSettings.fullscreenCopyOnSelect, false);
+    assert.deepEqual(updatedSettings.terminal, { hyperlinks: "auto", trueColor: true });
   } finally {
     child.kill("SIGTERM");
     fs.rmSync(agentDir, { recursive: true, force: true });
