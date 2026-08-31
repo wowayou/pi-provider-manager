@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Pi `0.84.4` triaged against the compatibility checklist. Only `settings.md` moved, and only to document four keys this manager does not own — `modelThinkingLevels`, `fullscreenCopyOnSelect`, and the three `terminal.*` overrides — so the settings fixture now carries the real ones instead of a single invented key, and asserts they survive a save. `piValidatedVersion` stays `0.84.3`: running `0.84.4` itself is the one step that did not happen, and the baseline moves only after every step passes.
+- Validated against Pi `0.84.4`. Only `settings.md` moved between the two releases, and only to document four keys this manager does not own — `modelThinkingLevels`, `fullscreenCopyOnSelect`, and the three `terminal.*` overrides — so the settings fixture now carries the real ones instead of a single invented key and asserts they survive a save. The released `0.84.4` then read a config this manager wrote and listed the model with every field intact, identical to the `0.84.3` control, so `piValidatedVersion` moved.
 
 - Recorded the release-archive sidecar check being run against `0.3.7`, the first release that publishes sidecars: the real archive verified and unpacked beside a stand-in older install, and three refusals — a flipped byte, a missing sidecar, a sidecar naming another file — each leaving nothing on disk. It was listed as unclaimed when `0.3.7` shipped because no release carried a sidecar to check against. No code changed.
 

@@ -358,3 +358,13 @@ final result: passed
 - **Not run in this pass, and so not claimed:** step 8 against Pi `0.84.4` itself. Reaching that release means fetching it, which this environment declined, so the baseline stays where it was — step 10 permits advancing `piValidatedVersion` only after every check passes, and this one has not. The prepared directory and the exact command are recorded in the compatibility issue. `design-qa.md`'s browser scenarios were also not walked by hand; the UI suite drives the real page for the model-deletion flow only.
 
 final result: passed except step 8, which is blocked rather than failed
+
+## Pi 0.84.4 — The Step That Was Blocked
+
+- Evidence date: `2026-08-31`. Manager `0.3.7`. Baseline moved to Pi `0.84.4`.
+- **Step 8 ran, on the release itself.** A `compat-check` provider was written again through the real API into a temporary directory — `http://127.0.0.1:9/v1`, dummy key, nothing routable — and `PI_OFFLINE=1 … @earendil-works/pi-coding-agent@0.84.4 --list-models compat-check` listed `compat-model` with `200K` context, `8.2K` max output, thinking `yes`, images `no`. The installed `0.84.3` was run against the same directory immediately afterwards and printed the same row, character for character. The release was run without being installed, so the machine's own Pi is still `0.84.3`.
+- **What this supersedes.** The previous section recorded step 8 as blocked rather than failed, and `piValidatedVersion` as deliberately held at `0.84.3`. Both are now closed: every checklist step has passed, and the baseline is `0.84.4`.
+- **Also confirmed nothing had moved again.** The latest stable `earendil-works/pi` release is still `0.84.4` (published `2026-08-28`), so this baseline is current rather than one behind on arrival.
+- **Not run in this pass, and so not claimed:** the optional interactive smoke test — `/model` inside a running Pi — and `design-qa.md`'s browser scenarios by hand. The `0.84.4` run was `--list-models` only.
+
+final result: passed
