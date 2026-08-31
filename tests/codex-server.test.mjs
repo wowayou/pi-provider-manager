@@ -678,3 +678,61 @@ test("a provider needing no credential reports that auth.json was left alone", a
     assert.equal(active.bridge.upstreamBaseUrl, "https://chatonly.example/v1");
   });
 });
+
+// Codex 0.151.0's ReasoningEffort gained `persistent`, and carries a
+// Custom(String) variant for efforts a model defines that the client has never
+// heard of. Both are values Codex accepts and this manager must not correct: it
+// owns the key, but not the vocabulary.
+const CUSTOM_EFFORT = `model_provider = "custom"
+model = "gpt-5.6-sol"
+model_reasoning_effort = "turbo"
+plan_mode_reasoning_effort = "persistent"
+
+[model_providers.custom]
+name = "现成的供应商"
+base_url = "https://existing.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+`;
+
+test("an effort Codex accepts and this manager does not know survives a save", async () => {
+  await withServer(CUSTOM_EFFORT, async (api) => {
+    const before = await api.state();
+    // Reported as itself, not silently reduced to a value the select happens to
+    // carry: the browser cannot keep what it was never shown.
+    assert.equal(before.codex.settings.reasoningEffort, "turbo");
+    assert.equal(before.codex.settings.planModeReasoningEffort, "persistent");
+    assert.equal(before.codex.reasoningEfforts.includes("persistent"), true);
+    assert.equal(before.codex.reasoningEfforts.includes("turbo"), true);
+
+    // Echoing back what was shown is not a request to change anything.
+    const kept = await api.post("/api/codex/settings", {
+      reasoningEffort: "turbo",
+      planModeReasoningEffort: "persistent",
+      verbosity: "medium",
+    });
+    assert.equal(kept.status, 200);
+    assert.match(api.config(), /^model_reasoning_effort = "turbo"$/m);
+    assert.match(api.config(), /^plan_mode_reasoning_effort = "persistent"$/m);
+
+    // A value neither known nor on disk leaves the file's own value alone,
+    // rather than replacing an effort Codex accepts with our default.
+    const nonsense = await api.post("/api/codex/settings", {
+      reasoningEffort: "Not A Value",
+      planModeReasoningEffort: "persistent",
+      verbosity: "medium",
+    });
+    assert.equal(nonsense.status, 200);
+    assert.match(api.config(), /^model_reasoning_effort = "turbo"$/m);
+
+    // And a known one still wins when it is actually chosen.
+    const chosen = await api.post("/api/codex/settings", {
+      reasoningEffort: "persistent",
+      planModeReasoningEffort: "medium",
+      verbosity: "medium",
+    });
+    assert.equal(chosen.status, 200);
+    assert.match(api.config(), /^model_reasoning_effort = "persistent"$/m);
+    assert.equal(/model_reasoning_effort = "turbo"/.test(api.config()), false);
+  });
+});

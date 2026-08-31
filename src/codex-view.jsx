@@ -27,7 +27,7 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 
-import { CODEX_REASONING_EFFORTS, CODEX_VERBOSITIES, idSlug } from "../lib/codex-shared.mjs";
+import { CODEX_REASONING_EFFORTS, CODEX_VERBOSITIES, adoptableEffort, effortOptions, idSlug } from "../lib/codex-shared.mjs";
 import { TomlDocument } from "../lib/toml-document.mjs";
 import { isLoopbackHostname } from "../lib/validation.mjs";
 import { BulkModal, Spinner, createRadioKeyHandler, titleFromId } from "./ui-kit.jsx";
@@ -138,7 +138,7 @@ export function parseCodexSnippet(text) {
     baseUrl: typeof keys.base_url === "string" ? keys.base_url : "",
     requiresAuth: keys.requires_openai_auth !== false,
     model: typeof model === "string" ? model : "",
-    reasoningEffort: CODEX_REASONING_EFFORTS.includes(effort) ? effort : "high",
+    reasoningEffort: CODEX_REASONING_EFFORTS.includes(effort) || adoptableEffort(effort) ? effort : "high",
   };
 }
 
@@ -519,7 +519,7 @@ function CodexModelRow({ model, isDefault, isLiveModel, onChange, onDefault, onA
       <label>
         <span className="sr-only">推理强度</span>
         <select value={model.reasoningEffort} onChange={(event) => onChange({ ...model, reasoningEffort: event.target.value })}>
-          {CODEX_REASONING_EFFORTS.map((effort) => <option key={effort} value={effort}>{effort}</option>)}
+          {effortOptions(model.reasoningEffort).map((effort) => <option key={effort} value={effort}>{effort}</option>)}
         </select>
       </label>
       <label className="default-radio">
@@ -888,13 +888,13 @@ export function CodexSettingsScreen({ state, saving, error, onSave, onBack }) {
             <label>
               <span>推理强度 <code className="mono">model_reasoning_effort</code></span>
               <select value={draft.reasoningEffort} onChange={(event) => setDraft((current) => ({ ...current, reasoningEffort: event.target.value }))}>
-                {CODEX_REASONING_EFFORTS.map((effort) => <option key={effort} value={effort}>{effort}</option>)}
+                {effortOptions(draft.reasoningEffort).map((effort) => <option key={effort} value={effort}>{effort}</option>)}
               </select>
             </label>
             <label>
               <span>Plan 模式推理强度 <code className="mono">plan_mode_reasoning_effort</code></span>
               <select value={draft.planModeReasoningEffort} onChange={(event) => setDraft((current) => ({ ...current, planModeReasoningEffort: event.target.value }))}>
-                {CODEX_REASONING_EFFORTS.map((effort) => <option key={effort} value={effort}>{effort}</option>)}
+                {effortOptions(draft.planModeReasoningEffort).map((effort) => <option key={effort} value={effort}>{effort}</option>)}
               </select>
             </label>
             <label>
