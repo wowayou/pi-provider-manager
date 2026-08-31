@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- A download that cannot connect now says which host and why. `fetch failed` was all that reached the panel, with the actual reason hidden on the error's `cause` — measured on a Windows host whose security software reset every connection to GitHub's object storage while the same download from WSL on the same machine worked, so the one message the reader got named neither the host nor the cut. It now names both, and covers a connection lost midway through the body as well as one refused outright.
+
 ## 0.3.8 - 2026-08-31
 
 - A bridge another manager process started is no longer read as someone else's. `0.3.7` taught this runner to recognise the pids it spawned itself, which left the same window open one process removed: a second manager reading the state file mid-exec sees an empty `/proc/<pid>/cmdline`, and answering "not ours" there is what starts a second proxy over a running bridge or drops it from the record. An empty command line is now waited out for up to 250ms and then reported as unknown, which refuses and says so. A pid that is nameless for good — a kernel thread, an unreaped zombie — is remembered so it costs that wait once rather than on every `/api/state`.
