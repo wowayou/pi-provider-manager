@@ -2,11 +2,10 @@
 
 ## Unreleased
 
-- Recorded the archive verifier's Windows branch running on Windows: the published `0.3.7` zip listed with `ZipFile.OpenRead`, path-checked, expanded with `Expand-Archive`, verified against its published sidecar, and two refusals staged against the same assets. Found on the way that Windows Node cannot reach GitHub's object storage on that host — `read ECONNRESET`, where WSL on the same machine succeeds — so the real bytes were served from disk and that one narrowing is stated. No code changed.
-
+- A bridge another manager process started is no longer read as someone else's. `0.3.7` taught this runner to recognise the pids it spawned itself, which left the same window open one process removed: a second manager reading the state file mid-exec sees an empty `/proc/<pid>/cmdline`, and answering "not ours" there is what starts a second proxy over a running bridge or drops it from the record. An empty command line is now waited out for up to 250ms and then reported as unknown, which refuses and says so. A pid that is nameless for good — a kernel thread, an unreaped zombie — is remembered so it costs that wait once rather than on every `/api/state`.
 - Validated against Pi `0.84.4`. Only `settings.md` moved between the two releases, and only to document four keys this manager does not own — `modelThinkingLevels`, `fullscreenCopyOnSelect`, and the three `terminal.*` overrides — so the settings fixture now carries the real ones instead of a single invented key and asserts they survive a save. The released `0.84.4` then read a config this manager wrote and listed the model with every field intact, identical to the `0.84.3` control, so `piValidatedVersion` moved.
-
 - Recorded the release-archive sidecar check being run against `0.3.7`, the first release that publishes sidecars: the real archive verified and unpacked beside a stand-in older install, and three refusals — a flipped byte, a missing sidecar, a sidecar naming another file — each leaving nothing on disk. It was listed as unclaimed when `0.3.7` shipped because no release carried a sidecar to check against. No code changed.
+- Recorded the archive verifier's Windows branch running on Windows: the published `0.3.7` zip listed with `ZipFile.OpenRead`, path-checked, expanded with `Expand-Archive`, verified against its published sidecar, and two refusals staged against the same assets. Found on the way that Windows Node cannot reach GitHub's object storage on that host — `read ECONNRESET`, where WSL on the same machine succeeds — so the real bytes were served from disk and that one narrowing is stated. No code changed.
 
 ## 0.3.7 - 2026-08-29
 
