@@ -368,3 +368,14 @@ final result: passed except step 8, which is blocked rather than failed
 - **Not run in this pass, and so not claimed:** the optional interactive smoke test — `/model` inside a running Pi — and `design-qa.md`'s browser scenarios by hand. The `0.84.4` run was `--list-models` only.
 
 final result: passed
+
+## The Windows Half Of The Archive Verifier — Evidence
+
+- Evidence date: `2026-08-31`. Release `0.3.7`. Windows 11, Windows PowerShell `5.1.26100.8457`, Windows Node `v22.15.0`.
+- **The `win32` branch ran on Windows, against the published archive.** `lib/self-update.mjs` was copied to a Windows-local directory and driven by Windows Node, so `process.platform` was `win32` and the PowerShell branches were the ones that executed: `[IO.Compression.ZipFile]::OpenRead` to list the entries, the root-prefix and absolute-path checks over that listing, then `Expand-Archive` into a staging directory. `pi-provider-manager-v0.3.7-windows.zip` verified against its published `.sha256`, unpacked, and was renamed to the sibling `pi-provider-manager-v0.3.7` beside a stand-in `0.3.6` install — `server.mjs`, `dist\client\index.html` and `bin\pi-provider-manager.ps1` all present, `package.json` reading `0.3.7`, the stand-in untouched.
+- **Two refusals, same assets, on Windows.** One flipped byte gave `发布归档的 SHA-256 校验失败，未写入磁盘。`; the sidecar removed from the release gave `发布缺少 pi-provider-manager-v0.3.7-windows.zip.sha256，无法验证下载完整性。` The parent directory held only the stand-in afterwards in both cases.
+- **The bytes came from disk, and why.** Windows Node could not download from GitHub's object storage on this host: every attempt failed with `TypeError: fetch failed` caused by `read ECONNRESET` on the TLS socket, while the same download from WSL on the same machine succeeded. So both real assets were fetched beside the script and served to `downloadArchive` through `fetchBinary`. The archive and the sidecar are the published ones — the sidecar was separately confirmed to match the archive's actual SHA-256 — and the transport is the one part of that path which is not Windows-specific.
+- **What this supersedes.** Two earlier sections recorded the Windows sidecar and the PowerShell list/expand branches as reached only in tests. They have now been executed on Windows.
+- **Not run in this pass, and so not claimed:** the download itself on Windows, for the reason above, and the route through `POST /api/update/apply` from a manager actually hosted on Windows. Nothing was run twice in a row, so the existing-sibling refusal is still only covered by unit tests on that platform.
+
+final result: passed
