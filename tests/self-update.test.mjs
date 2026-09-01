@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
@@ -13,6 +12,7 @@ import {
   compareVersions,
   describeInstall,
   downloadArchive,
+  transportFailure,
   latestRelease,
   repositorySlug,
 } from "../lib/self-update.mjs";
@@ -439,40 +439,35 @@ test("a checkout may pull without a version bump; an archive at the latest may n
   assert.match(applyRefusal({}), /先检查更新/);
 });
 
-test("a download whose connection is cut names the host and the reason", async () => {
-  // Windows Node could not reach GitHub's object storage on one machine at all —
-  // every attempt reset the TLS socket, while the same download from WSL on the
-  // same machine worked — and what reached the panel was `fetch failed`, which
-  // names neither the host nor the cause and so reads as a bug in the manager.
-  // Staged with a listener that accepts and immediately destroys the socket,
-  // which is the same failure: `read ECONNRESET` under a `TypeError`.
-  const parent = temporaryDir("ppm-transport-");
-  const projectDir = path.join(parent, "pi-provider-manager-v0.3.6");
-  fs.mkdirSync(projectDir);
-  const server = net.createServer((socket) => socket.destroy());
-  const port = await new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server.address().port)));
-  const release = {
-    tag: "v0.3.7",
-    assets: [
-      { name: "pi-provider-manager-v0.3.7-linux-wsl.tar.gz", url: `http://127.0.0.1:${port}/a.tar.gz`, size: 20 },
-      { name: "pi-provider-manager-v0.3.7-linux-wsl.tar.gz.sha256", url: `http://127.0.0.1:${port}/a.sha256`, size: 100 },
-    ],
-  };
-  try {
-    // The module's own fetch is the thing under test, so nothing is substituted.
-    await assert.rejects(() => downloadArchive({ release, projectDir, platform: "linux" }), (error) => {
-      assert.match(error.message, new RegExp(`127\\.0\\.0\\.1:${port}`));
-      // undici reports either the errno or its own wrapper depending on where
-      // the reset lands; both are specific enough to act on, and pinning one
-      // would make this a test of undici's internals.
-      assert.match(error.message, /ECONNRESET|UND_ERR_SOCKET|closed/);
-      assert.match(error.message, /代理/);
-      assert.equal(/fetch failed/.test(error.message), false);
-      return true;
-    });
-    // Nothing was written on the way to that failure.
-    assert.deepEqual(fs.readdirSync(parent), ["pi-provider-manager-v0.3.6"]);
-  } finally {
-    server.close();
-  }
+// `fetch` reports a transport failure as `TypeError: fetch failed`, with the
+// real reason on `cause`. Both shapes below were taken from actual failures:
+// undici gives the errno itself when the socket is cut mid-request, and its own
+// wrapper when the cut lands elsewhere. Staging real sockets to produce them was
+// the first attempt and was wrong — the behaviour varies by Node version, and on
+// Node 20 the request never returned at all, which hung CI for six hours. The
+// message is a pure function of url and error, so it is tested as one.
+const failed = (cause) => Object.assign(new TypeError("fetch failed"), { cause });
+
+test("a failed download names the host and the reason, never just `fetch failed`", () => {
+  const reset = transportFailure(
+    "https://objects.githubusercontent.com/release/archive.zip",
+    failed(Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" })),
+  );
+  assert.match(reset.message, /objects\.githubusercontent\.com/);
+  assert.match(reset.message, /ECONNRESET/);
+  assert.match(reset.message, /代理/);
+  assert.equal(/fetch failed/.test(reset.message), false);
+
+  // undici's own wrapper, which carries the errno only in its text.
+  const wrapped = transportFailure(
+    "https://objects.githubusercontent.com/release/archive.zip",
+    failed(Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" })),
+  );
+  assert.match(wrapped.message, /UND_ERR_SOCKET/);
+
+  // A cause with nothing useful on it still names the host and asks the right
+  // question, rather than falling back to the string that started all this.
+  const bare = transportFailure("https://objects.githubusercontent.com/a.zip", failed(undefined));
+  assert.match(bare.message, /objects\.githubusercontent\.com/);
+  assert.match(bare.message, /代理/);
 });
