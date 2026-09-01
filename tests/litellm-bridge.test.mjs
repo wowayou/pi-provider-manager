@@ -502,35 +502,61 @@ test("notices a LiteLLM installed after the manager was already running", async 
 // so it is alive as far as any liveness check can tell, and its
 // /proc/<pid>/cmdline is empty for as long as it stays unreaped.
 function zombiePid() {
-  const before = new Set(livingZombies());
-  const parent = spawn("setsid", ["bash", "-c", 'bash -c "exit 0" & exec sleep 30'], { stdio: "ignore", detached: true });
+  // The child reports its own pid, so this claims exactly the process it
+  // staged. Finding one by diffing the set of zombies claimed whichever
+  // appeared next instead: on a busy machine that is somebody else's, and it is
+  // reaped by its real parent before the assertions run — which is a pid that no
+  // longer exists, so isOurProcess answers false and the test fails on CI while
+  // passing anywhere quiet.
+  const dir = sandbox();
+  const pidFile = path.join(dir, "child.pid");
+  const parent = spawn(
+    "bash",
+    ["-c", `bash -c 'echo $$ > ${JSON.stringify(pidFile)}; exit 0' & exec sleep 30`],
+    { stdio: "ignore", detached: true },
+  );
   parent.unref();
+  const give_up = () => { try { process.kill(parent.pid, "SIGKILL"); } catch {} fs.rmSync(dir, { recursive: true, force: true }); };
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
-    const found = livingZombies().find((pid) => !before.has(pid));
-    if (found) return { pid: found, stop: () => { try { process.kill(parent.pid, "SIGKILL"); } catch {} } };
+    const pid = Number(String(readIfPresent(pidFile)).trim());
+    // Its parent has to be the shell this staged, or it is not the process the
+    // pid file named any more.
+    if (Number.isInteger(pid) && pid > 0 && isZombieOf(pid, parent.pid)) {
+      return {
+        pid,
+        stillStaged: () => isZombieOf(pid, parent.pid),
+        stop: give_up,
+      };
+    }
     execFileSync("sleep", ["0.05"]);
   }
-  try { process.kill(parent.pid, "SIGKILL"); } catch {}
+  give_up();
   return null;
 }
 
-function livingZombies() {
-  const uid = process.getuid();
-  const pids = [];
-  for (const entry of fs.readdirSync("/proc")) {
-    if (!/^\d+$/.test(entry)) continue;
-    try {
-      if (fs.statSync(`/proc/${entry}`).uid !== uid) continue;
-      if (!/^State:\s+Z/m.test(fs.readFileSync(`/proc/${entry}/status`, "utf8"))) continue;
-      if (fs.readFileSync(`/proc/${entry}/cmdline`, "utf8").length > 0) continue;
-    } catch {
-      continue;
-    }
-    pids.push(Number(entry));
+function readIfPresent(file) {
+  try {
+    return fs.readFileSync(file, "utf8");
+  } catch {
+    return "";
   }
-  return pids;
 }
+
+// Alive, unreaped, still fathered by the shell this test started, and nameless.
+// The parentage check is what keeps a recycled pid from being mistaken for the
+// staged one.
+function isZombieOf(pid, parentPid) {
+  try {
+    const status = fs.readFileSync(`/proc/${pid}/status`, "utf8");
+    if (!/^State:\s+Z/m.test(status)) return false;
+    if (!new RegExp(`^PPid:\\s+${parentPid}$`, "m").test(status)) return false;
+    return fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").length === 0;
+  } catch {
+    return false;
+  }
+}
+
 
 test("a living pid procfs cannot name is unknown, not someone else's", async (t) => {
   if (process.platform !== "linux") return t.skip("procfs only");
@@ -542,6 +568,12 @@ test("a living pid procfs cannot name is unknown, not someone else's", async (t)
   const statePath = path.join(dir, "pi-provider-manager-bridge.json");
   fs.writeFileSync(statePath, JSON.stringify({ pid: zombie.pid, port: 44041, providerId: "first" }));
   try {
+    // Whatever this asserts is only about the staged process while it is still
+    // staged. Something outside this test reaping it would make isOurProcess
+    // answer false correctly — the pid really is gone — and reporting that as a
+    // failure of the behaviour under test would be a lie.
+    if (!zombie.stillStaged()) return t.skip("the staged process was reaped");
+
     // Never false: false is what would let start() launch a second proxy over a
     // bridge that is still coming up, and stop() forget one that is running.
     assert.equal(runner.isOurProcess(zombie.pid), null);
