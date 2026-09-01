@@ -379,3 +379,14 @@ final result: passed
 - **Not run in this pass, and so not claimed:** the download itself on Windows, for the reason above, and the route through `POST /api/update/apply` from a manager actually hosted on Windows. Nothing was run twice in a row, so the existing-sibling refusal is still only covered by unit tests on that platform.
 
 final result: passed
+
+## Codex 0.151.0 Compatibility Triage — Evidence
+
+- Evidence date: `2026-08-31`. Manager `0.3.8`. Baseline moved from Codex `0.149.0` to `0.151.0`.
+- **The five invariants `docs/compatibility.md` names were checked at `rust-v0.151.0`, and four are unchanged.** `wire_api` still deserialises `"responses"` alone, with `"chat"` answered by a specific removal error rather than a generic one. `ModelProviderInfo` still carries `deny_unknown_fields`. A provider table without `name` still takes down the whole config — asserted against the real binary, not read from the struct, because `name` is `#[serde(default)]` there and the refusal happens elsewhere. `--profile` against a legacy `[profiles.*]` table still fails. Credential resolution was confirmed the same way that matters: a manager-configured gateway with `requires_openai_auth = true` and a key in `auth.json` was actually reached.
+- **The fifth changed, and this manager was wrong about it.** `ReasoningEffort` gained `persistent`, and carries a `Custom(String)` variant for an effort a model defines that the client does not know. This manager offered eight values and rewrote anything else to `medium` — so a hand-written `model_reasoning_effort = "persistent"` was displayed as `medium` and silently became `medium` on the next save. Confirmed with `codex doctor --json` that both `"persistent"` and an invented `"turbo"` load fine on `0.151.0` **and** on `0.149.0`, so this was a live defect rather than a new-release consequence.
+- **`npm run test:codex-real` on `0.151.0`: 5 pass, 0 fail, 0 skipped.** The release was installed into a throwaway prefix and put on `PATH` for the run, so the machine's own Codex is still `0.149.0`; the suite is green on both.
+- `npm test`: 147 pass, 0 fail, 0 skipped.
+- **Not run in this pass, and so not claimed:** the interactive TUI. Everything here went through `codex doctor`, `codex exec` and the endpoints, so `/model`, `/thinking` and the plan-mode control were not exercised on `0.151.0`. Nor was a model-defined effort obtained from a real model — `"turbo"` is an invented stand-in for the `Custom(String)` shape, which is what the parser accepts, not proof that any model emits one.
+
+final result: passed

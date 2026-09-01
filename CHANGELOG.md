@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- A reasoning effort Codex accepts and this manager does not know is now left alone. Codex `0.151.0` added `persistent` to `ReasoningEffort`, which also carries a `Custom(String)` variant for values a model defines — so the eight this manager offered were never the set Codex accepts. Anything outside them was rewritten to `medium`, which displayed a hand-written `persistent` as `medium` and then made it `medium` on the next save. An unrecognised value is now reported and written back as itself, offered by the control that shows it, and only a value that is neither known nor already in the file falls back. `codex doctor` confirms both `persistent` and an invented `turbo` load on `0.149.0` as well, so this was a standing defect rather than a consequence of the new release.
+- Validated against Codex `0.151.0`. Of the five invariants the compatibility policy names, four are unchanged — the `wire_api` set, `deny_unknown_fields`, a nameless provider table taking down the whole config, and `--profile` rejecting a legacy table — each re-checked against the real binary rather than read from the source. `npm run test:codex-real` is green on `0.151.0` with nothing skipped.
+
 ## 0.3.8 - 2026-08-31
 
 - A bridge another manager process started is no longer read as someone else's. `0.3.7` taught this runner to recognise the pids it spawned itself, which left the same window open one process removed: a second manager reading the state file mid-exec sees an empty `/proc/<pid>/cmdline`, and answering "not ours" there is what starts a second proxy over a running bridge or drops it from the record. An empty command line is now waited out for up to 250ms and then reported as unknown, which refuses and says so. A pid that is nameless for good — a kernel thread, an unreaped zombie — is remembered so it costs that wait once rather than on every `/api/state`.
