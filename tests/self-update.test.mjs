@@ -12,6 +12,7 @@ import {
   compareVersions,
   describeInstall,
   downloadArchive,
+  transportFailure,
   latestRelease,
   repositorySlug,
 } from "../lib/self-update.mjs";
@@ -436,4 +437,37 @@ test("a checkout may pull without a version bump; an archive at the latest may n
 
   // No check yet is its own answer, not an empty one.
   assert.match(applyRefusal({}), /先检查更新/);
+});
+
+// `fetch` reports a transport failure as `TypeError: fetch failed`, with the
+// real reason on `cause`. Both shapes below were taken from actual failures:
+// undici gives the errno itself when the socket is cut mid-request, and its own
+// wrapper when the cut lands elsewhere. Staging real sockets to produce them was
+// the first attempt and was wrong — the behaviour varies by Node version, and on
+// Node 20 the request never returned at all, which hung CI for six hours. The
+// message is a pure function of url and error, so it is tested as one.
+const failed = (cause) => Object.assign(new TypeError("fetch failed"), { cause });
+
+test("a failed download names the host and the reason, never just `fetch failed`", () => {
+  const reset = transportFailure(
+    "https://objects.githubusercontent.com/release/archive.zip",
+    failed(Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" })),
+  );
+  assert.match(reset.message, /objects\.githubusercontent\.com/);
+  assert.match(reset.message, /ECONNRESET/);
+  assert.match(reset.message, /代理/);
+  assert.equal(/fetch failed/.test(reset.message), false);
+
+  // undici's own wrapper, which carries the errno only in its text.
+  const wrapped = transportFailure(
+    "https://objects.githubusercontent.com/release/archive.zip",
+    failed(Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" })),
+  );
+  assert.match(wrapped.message, /UND_ERR_SOCKET/);
+
+  // A cause with nothing useful on it still names the host and asks the right
+  // question, rather than falling back to the string that started all this.
+  const bare = transportFailure("https://objects.githubusercontent.com/a.zip", failed(undefined));
+  assert.match(bare.message, /objects\.githubusercontent\.com/);
+  assert.match(bare.message, /代理/);
 });
