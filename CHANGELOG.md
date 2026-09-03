@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.9 - 2026-09-03
 
 - A download that cannot connect now says which host and why. `fetch failed` was all that reached the panel, with the actual reason hidden on the error's `cause` — measured on a Windows host whose security software reset every connection to GitHub's object storage while the same download from WSL on the same machine worked, so the one message the reader got named neither the host nor the cut. It now names both, and covers a connection lost midway through the body as well as one refused outright.
 - A reasoning effort Codex accepts and this manager does not know is now left alone. Codex `0.151.0` added `persistent` to `ReasoningEffort`, which also carries a `Custom(String)` variant for values a model defines — so the eight this manager offered were never the set Codex accepts. Anything outside them was rewritten to `medium`, which displayed a hand-written `persistent` as `medium` and then made it `medium` on the next save. An unrecognised value is now reported and written back as itself, offered by the control that shows it, and only a value that is neither known nor already in the file falls back. `codex doctor` confirms both `persistent` and an invented `turbo` load on `0.149.0` as well, so this was a standing defect rather than a consequence of the new release.
