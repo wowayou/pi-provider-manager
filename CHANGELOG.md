@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Bumped the `browserslist` lockfile from 4.28.5 to 4.28.8, along with its data packages (`caniuse-lite`, `electron-to-chromium`, `baseline-browser-mapping`). Dependabot, no code change.
+
 ## 0.3.9 - 2026-09-03
 
 - A download that cannot connect now says which host and why. `fetch failed` was all that reached the panel, with the actual reason hidden on the error's `cause` — measured on a Windows host whose security software reset every connection to GitHub's object storage while the same download from WSL on the same machine worked, so the one message the reader got named neither the host nor the cut. It now names both, and covers a connection lost midway through the body as well as one refused outright.
