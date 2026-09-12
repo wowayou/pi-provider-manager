@@ -123,6 +123,18 @@ class CdpClient {
   }
 
   static async connect(webSocketUrl) {
+    // Node gained a global WebSocket in 22. On 18 and 20 every case here fails with
+    // a bare "WebSocket is not defined" from this line, which reads as eight
+    // defects in the product rather than one unmet requirement of the harness.
+    // `engines.node` allows 18 because the server and `lib/` do run there — this
+    // suite does not, and CI's ui job is why nobody noticed. Thrown, never skipped:
+    // a skip would report success for a browser that was never opened.
+    if (typeof WebSocket === "undefined") {
+      throw new Error(
+        `the browser suite needs a global WebSocket, added in Node 22; this is ${process.version}.`
+        + " Run it on the version CI's ui job uses.",
+      );
+    }
     const socket = new WebSocket(webSocketUrl);
     await new Promise((resolve, reject) => {
       socket.addEventListener("open", resolve, { once: true });
@@ -2195,5 +2207,310 @@ test("the compatibility card says when the checkout has moved ahead of the proce
     fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     fs.rmSync(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+// An ID that already names a provider is not an error — saving really does replace
+// that provider — so the field cannot refuse it. What it must not do is stay quiet.
+// The only earlier signal was the footer button on the *next* step reading
+// 保存更改 instead of 保存并设为默认, which nobody reads as "this discards
+// review-router's address and model list".
+test("the credentials step says when saving would replace another provider", { timeout: 60_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-overwrite-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-overwrite-"));
+  writeFixture(agentDir);
+  const modelsPath = path.join(agentDir, "models.json");
+  const untouched = fs.readFileSync(modelsPath, "utf8");
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server;
+  let chrome;
+  let cdp;
+  let serverOutput = "";
+
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
+        PI_PROVIDER_MANAGER_SERVE_UI: "1",
+        PI_PROVIDER_MANAGER_PORT: String(appPort),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; });
+    server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${appPort}/api/state`);
+
+    chrome = spawn(chromePath, [
+      "--headless",
+      "--no-sandbox",
+      "--disable-gpu",
+      `--remote-debugging-port=${debugPort}`,
+      `--user-data-dir=${profileDir}`,
+      "about:blank",
+    ], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
+    const target = await fetch(
+      `http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(`http://127.0.0.1:${appPort}`)}`,
+      { method: "PUT" },
+    ).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl);
+    await cdp.send("Page.enable");
+    await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.waitFor(`document.querySelectorAll('.provider-item').length === 2`);
+
+    const clickText = (selector, text) =>
+      cdp.evaluate(`[...document.querySelectorAll(${JSON.stringify(selector)})]
+        .find((node) => node.textContent.includes(${JSON.stringify(text)})).click()`);
+    const setId = (value) => cdp.evaluate(`(() => {
+      const input = document.querySelectorAll('.form-grid input')[0];
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)});
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    const warnings = () =>
+      cdp.evaluate(`[...document.querySelectorAll('.field-warning')].map((node) => node.textContent)`);
+    const idField = () => cdp.evaluate(`(() => {
+      const input = document.querySelectorAll('.form-grid input')[0];
+      return { value: input.value, invalid: input.getAttribute('aria-invalid') };
+    })()`);
+
+    // A fresh draft, stopped on the step where the ID is typed.
+    await cdp.evaluate(`document.querySelector('.add-provider').click()`);
+    await cdp.waitFor(`document.querySelector('.protocol-grid')`);
+    await clickText(".wizard-footer .primary-button", "下一步");
+    await cdp.waitFor(`document.querySelector('.form-grid input')`);
+    assert.deepEqual(await warnings(), []);
+
+    // The collision is stated beside the field, and states the cost.
+    await setId("review-router");
+    await cdp.waitFor(`document.querySelector('.field-warning')`);
+    const collision = await warnings();
+    assert.equal(collision.length, 1, collision.join(" | "));
+    assert.match(collision[0], /已有同名供应商/);
+    assert.match(collision[0], /替换/);
+    assert.match(collision[0], /地址/);
+    assert.match(collision[0], /模型列表/);
+    // A warning, not a refusal: the value stands and the field is not marked bad.
+    assert.deepEqual(await idField(), { value: "review-router", invalid: null });
+
+    // A free ID has nothing to say.
+    await setId("fresh-router");
+    await cdp.waitFor(`document.querySelectorAll('.field-warning').length === 0`);
+
+    // An ID the shared pattern rejects shows that rule instead of the collision
+    // one, and marks the field while it is being typed rather than reverting it.
+    await setId("bad@id");
+    await cdp.waitFor(`document.querySelector('.field-warning')`);
+    const rejected = await warnings();
+    assert.equal(rejected.length, 1, rejected.join(" | "));
+    assert.match(rejected[0], /只能使用小写字母/);
+    assert.equal((await idField()).invalid, "true");
+
+    // Editing review-router itself is not a collision with review-router. This is
+    // the half a plain "does this ID exist" check gets wrong, and getting it wrong
+    // puts an overwrite warning on every edit of every saved provider.
+    await cdp.evaluate(`document.querySelectorAll('.provider-item')[0].click()`);
+    await cdp.waitFor(`document.querySelector('.model-row')`);
+    await cdp.evaluate(`document.querySelectorAll('.stepper .step')[1].click()`);
+    await cdp.waitFor(`document.querySelector('.form-grid input')`);
+    assert.equal((await idField()).value, "review-router");
+    assert.deepEqual(await warnings(), []);
+
+    // Renaming that same draft onto its sibling is a collision again.
+    await setId("single-router");
+    await cdp.waitFor(`document.querySelector('.field-warning')`);
+    assert.match((await warnings())[0], /已有同名供应商/);
+
+    // Warning about a write is not performing one.
+    assert.equal(fs.readFileSync(modelsPath, "utf8"), untouched);
+    assert.deepEqual(cdp.errors, []);
+    assert.equal(serverOutput.includes("Error"), false, serverOutput);
+  } finally {
+    if (cdp) {
+      await Promise.race([
+        cdp.send("Browser.close").catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+      cdp.close();
+    }
+    await stopProcess(chrome, true);
+    await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+// The prompt editor holds the only copy of that text: it is the document, not a
+// form over a record that could be re-read. All three ways out of it — another
+// document, another file, 新建 — discarded the edit on the first click, so leaving
+// is offered through the toast's action instead.
+test("leaving an edited prompt goes through the toast, not the first click", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-promptguard-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-promptguard-"));
+  writeFixture(agentDir);
+  const liveText = "# 我的规则\n\n始终使用中文回复。\n";
+  const otherText = "Answer in English.\n";
+  // Two documents, one of them matching the file on disk so it resolves as live
+  // rather than being adopted as "现有内容".
+  fs.writeFileSync(path.join(agentDir, "pi-provider-manager-prompts.json"), JSON.stringify({
+    version: 1,
+    slots: {
+      agents: {
+        activeId: "chinese",
+        documents: {
+          chinese: { name: "中文优先", text: liveText },
+          english: { name: "English", text: otherText },
+        },
+      },
+    },
+  }));
+  const agentsPath = path.join(agentDir, "AGENTS.md");
+  fs.writeFileSync(agentsPath, liveText);
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server;
+  let chrome;
+  let cdp;
+  let serverOutput = "";
+
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
+        PI_PROVIDER_MANAGER_SERVE_UI: "1",
+        PI_PROVIDER_MANAGER_PORT: String(appPort),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; });
+    server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${appPort}/api/state`);
+
+    chrome = spawn(chromePath, [
+      "--headless",
+      "--no-sandbox",
+      "--disable-gpu",
+      `--remote-debugging-port=${debugPort}`,
+      `--user-data-dir=${profileDir}`,
+      "about:blank",
+    ], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
+    const target = await fetch(
+      `http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(`http://127.0.0.1:${appPort}`)}`,
+      { method: "PUT" },
+    ).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl);
+    await cdp.send("Page.enable");
+    await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+
+    await cdp.waitFor(`document.querySelector('.nav-prompts')`);
+    await cdp.evaluate(`document.querySelector('.nav-prompts').click()`);
+    await cdp.waitFor(`document.querySelector('.prompt-editor textarea')`);
+
+    const editor = () => cdp.evaluate(`(() => ({
+      text: document.querySelector('.prompt-editor textarea').value,
+      name: document.querySelector('.prompt-editor input').value,
+      selected: document.querySelector('.prompt-item.is-selected .prompt-item-name')?.textContent || "",
+      slot: document.querySelector('.prompt-slot.is-active code')?.textContent || "",
+    }))()`);
+    const type = (value) => cdp.evaluate(`(() => {
+      const area = document.querySelector('.prompt-editor textarea');
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(area, ${JSON.stringify(value)});
+      area.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    const toast = () => cdp.evaluate(`(() => {
+      const node = document.querySelector('.toast');
+      return node ? { text: node.textContent, error: node.classList.contains('is-error'), action: node.querySelector('.toast-action')?.textContent || "" } : null;
+    })()`);
+    const dismissToast = async () => {
+      await cdp.evaluate(`document.querySelector('.toast-close')?.click()`);
+      await cdp.waitFor(`!document.querySelector('.toast')`);
+    };
+
+    // The live document opens first, and AGENTS.md is one of three files.
+    const opened = await editor();
+    assert.equal(opened.selected, "中文优先");
+    assert.equal(opened.text, liveText);
+    assert.equal(opened.slot, "AGENTS.md");
+
+    const edited = `${liveText}又加了一行。\n`;
+
+    // 1. Another document. The first click must not switch, and must not discard.
+    await type(edited);
+    await cdp.evaluate(`[...document.querySelectorAll('.prompt-item')]
+      .find((node) => node.textContent.includes('English')).click()`);
+    await cdp.waitFor(`document.querySelector('.toast')`);
+    const blocked = await toast();
+    assert.equal(blocked.error, true);
+    assert.match(blocked.text, /未保存的修改/);
+    assert.equal(blocked.action, "放弃修改并切换");
+    const held = await editor();
+    assert.equal(held.selected, "中文优先", "the first click switched documents");
+    assert.equal(held.text, edited, "the first click discarded the edit");
+
+    // The toast's action is what leaves.
+    await cdp.evaluate(`document.querySelector('.toast-action').click()`);
+    await cdp.waitFor(`document.querySelector('.prompt-editor textarea').value === ${JSON.stringify(otherText)}`);
+    assert.equal((await editor()).selected, "English");
+
+    // 2. 新建. Same guard, same way out.
+    await dismissToast();
+    await type(`${otherText}another line\n`);
+    await cdp.evaluate(`document.querySelector('.prompt-list .add-provider').click()`);
+    await cdp.waitFor(`document.querySelector('.toast')`);
+    assert.equal((await toast()).action, "放弃修改并切换");
+    assert.equal((await editor()).text, `${otherText}another line\n`);
+    await cdp.evaluate(`document.querySelector('.toast-action').click()`);
+    await cdp.waitFor(`document.querySelector('.prompt-editor textarea').value === ''`);
+    assert.equal((await editor()).name, "");
+
+    // 3. Another file. A new draft with text in it counts as edited too.
+    await dismissToast();
+    await type("写给 SYSTEM.md 的内容\n");
+    await cdp.evaluate(`[...document.querySelectorAll('.prompt-slot')]
+      .find((node) => node.textContent.includes('SYSTEM.md')).click()`);
+    await cdp.waitFor(`document.querySelector('.toast')`);
+    assert.equal((await toast()).action, "放弃修改并切换");
+    assert.equal((await editor()).slot, "AGENTS.md", "the first click switched files");
+    await cdp.evaluate(`document.querySelector('.toast-action').click()`);
+    await cdp.waitFor(`document.querySelector('.prompt-slot.is-active code').textContent === 'SYSTEM.md'`);
+
+    // Clicking the document that is already open is not a switch, so it must not
+    // raise the guard against itself.
+    await dismissToast();
+    await cdp.evaluate(`[...document.querySelectorAll('.prompt-slot')]
+      .find((node) => node.textContent.includes('AGENTS.md')).click()`);
+    await cdp.waitFor(`document.querySelector('.prompt-slot.is-active code').textContent === 'AGENTS.md'`);
+    await cdp.evaluate(`document.querySelector('.prompt-item.is-selected').click()`);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(await toast(), null, "re-picking the open document raised the guard");
+
+    // None of that was a write: the guard exists to protect the editor, and the
+    // file only changes through 保存.
+    assert.equal(fs.readFileSync(agentsPath, "utf8"), liveText);
+    assert.deepEqual(cdp.errors, []);
+    assert.equal(serverOutput.includes("Error"), false, serverOutput);
+  } finally {
+    if (cdp) {
+      await Promise.race([
+        cdp.send("Browser.close").catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+      cdp.close();
+    }
+    await stopProcess(chrome, true);
+    await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
