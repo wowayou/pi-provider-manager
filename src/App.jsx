@@ -29,6 +29,7 @@ import {
   Question,
   ShieldCheck,
   SlidersHorizontal,
+  Tray,
   Stack,
   Sun,
   TerminalWindow,
@@ -520,10 +521,13 @@ function Sidebar({ state, target, onTarget, selectedId, onSelect, onAdd, onSetti
           );
         })}
         {providers.length === 0 && (
-          <p className="list-empty">
-            {isCodex
-              ? "还没有 Codex 供应商。点击上面的“添加供应商”，三步就能接上一个网关。"
-              : "还没有供应商。点击上面的“添加供应商”，三步就能接上一个网关。"}
+          <p className="list-empty list-empty-first">
+            <Tray size={22} weight="duotone" aria-hidden="true" />
+            <span>
+              {isCodex
+                ? "还没有 Codex 供应商。点击上面的“添加供应商”，三步就能接上一个网关。"
+                : "还没有供应商。点击上面的“添加供应商”，三步就能接上一个网关。"}
+            </span>
           </p>
         )}
         {providers.length > 0 && visible.length === 0 && (

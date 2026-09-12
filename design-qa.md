@@ -279,3 +279,16 @@ One row per superseded evidence section; the full dated text of each lives in gi
 | 2026-08-31 | 0.3.8 | Codex `0.151.0` triage: four invariants unchanged; the reasoning-effort rewrite defect found and fixed | passed |
 
 final result: all historical sections passed except the one recorded as blocked, which its successor section closed
+
+## UI Polish Round — Evidence
+
+- Evidence date: `2026-09-12`. Manager `0.3.10` (post-release). Owner-directed round referencing mature product patterns (Linear/Vercel/Stripe), inside the existing design language — no layout or structure change.
+- **Thin token-colored scrollbars on the app's inner scrollers.** The full-height native scrollbar was the loudest element in the dark theme. `--line-strong`/`--border-hover` thumbs, transparent tracks, 10px boxes with a padding-box inset; native scrolling untouched.
+- **Fixed a focus-cue defect on the prompt editor.** `outline: 2px solid var(--ring)` built an outline from a box-shadow value — an invalid declaration, which left the textarea with the global `outline: none` for text fields and nothing but a hairline border change on keyboard focus. It now takes the standard text-field treatment: orange border plus the `--ring` shadow. Found by reading, not by the contrast sweep — the sweep walks rendered text, not focus treatments.
+- **Settings/credential forms cap at 880px** on wide screens; a URL input stretched across the full card stopped reading as a field.
+- **First-run empty state** (zero providers) is now an icon plus the pointing sentence, still the `.list-empty` block with unchanged width behaviour.
+- **Verified against the production build served by `server.mjs`** (`PI_PROVIDER_MANAGER_SERVE_UI=1`, temporary config directories): dark model editor with the thin list scrollbar, light theme at the second token set, and the 420px rail layout each rendered and were screenshotted; computed styles confirmed the light-theme field backgrounds rather than trusting pixels after the capture pipeline produced stale-tile composites mid-session.
+- `npm test`: 148 pass, 0 fail, 0 skipped — the WCAG AA contrast sweep and the WCAG 2.2 target-size audit pass unchanged, as does the 420px overflow check.
+- **Found on the way, and fixed before landing:** the empty-state icon was first written as Phosphor's `Inbox`, which the pinned `@phosphor-icons/react@2.1.10` does not export — `vite build` would have failed, and the dev page rendered blank until the import was corrected to `Tray`. The earlier green `npm test` in this round had run before the JSX edit; the final run covers it.
+
+final result: passed

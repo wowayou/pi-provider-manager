@@ -239,6 +239,53 @@ button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .5; }
 
+/*
+ * Thin, token-colored scrollbars on the app's inner scrollers. A full-height
+ * native scrollbar is the loudest thing in the dark theme; the thumb now
+ * appears only where content overflows and never competes with it. Native
+ * scrolling is untouched — only the paint changes.
+ */
+.provider-list, .models-table, .step-scroll, .settings-scroll, .success-page,
+.update-steps pre, .bulk-modal textarea, .prompt-editor textarea, .snippet-input {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+.provider-list::-webkit-scrollbar, .models-table::-webkit-scrollbar,
+.step-scroll::-webkit-scrollbar, .settings-scroll::-webkit-scrollbar,
+.success-page::-webkit-scrollbar, .update-steps pre::-webkit-scrollbar,
+.bulk-modal textarea::-webkit-scrollbar, .prompt-editor textarea::-webkit-scrollbar,
+.snippet-input::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.provider-list::-webkit-scrollbar-thumb, .models-table::-webkit-scrollbar-thumb,
+.step-scroll::-webkit-scrollbar-thumb, .settings-scroll::-webkit-scrollbar-thumb,
+.success-page::-webkit-scrollbar-thumb, .update-steps pre::-webkit-scrollbar-thumb,
+.bulk-modal textarea::-webkit-scrollbar-thumb, .prompt-editor textarea::-webkit-scrollbar-thumb,
+.snippet-input::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+.provider-list::-webkit-scrollbar-thumb:hover, .models-table::-webkit-scrollbar-thumb:hover,
+.step-scroll::-webkit-scrollbar-thumb:hover, .settings-scroll::-webkit-scrollbar-thumb:hover,
+.success-page::-webkit-scrollbar-thumb:hover, .update-steps pre::-webkit-scrollbar-thumb:hover,
+.bulk-modal textarea::-webkit-scrollbar-thumb:hover, .prompt-editor textarea::-webkit-scrollbar-thumb:hover,
+.snippet-input::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+.provider-list::-webkit-scrollbar-track, .models-table::-webkit-scrollbar-track,
+.step-scroll::-webkit-scrollbar-track, .settings-scroll::-webkit-scrollbar-track,
+.success-page::-webkit-scrollbar-track, .update-steps pre::-webkit-scrollbar-track,
+.bulk-modal textarea::-webkit-scrollbar-track, .prompt-editor textarea::-webkit-scrollbar-track,
+.snippet-input::-webkit-scrollbar-track, .provider-list::-webkit-scrollbar-corner,
+.models-table::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* One focus ring for the whole app. */
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--orange);
@@ -298,6 +345,12 @@ code { color: var(--ink); background: transparent; }
 .provider-copy strong { font-size: 15px; font-weight: 680; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .provider-copy small { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .list-empty { margin: 6px 6px 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.6; }
+/* First-run empty state: the moment a new user sees before anything exists.
+   Same block, same width behaviour as .list-empty — an icon lifts it from a
+   stray sentence into the place the first action is announced from. */
+.list-empty-first { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 26px; padding: 18px 12px; text-align: center; }
+.list-empty-first svg { color: var(--icon-quiet); flex: none; }
+.list-empty-first span { max-width: 240px; }
 .status-ok { color: var(--green); }
 .status-warn { color: var(--status-warn); }
 
@@ -388,6 +441,10 @@ code { color: var(--ink); background: transparent; }
 
 /* ---------- forms ---------- */
 .form-step .step-scroll { padding-inline: 54px; }
+/* A field the width of the card stops reading as a field: an URL input 660px
+   long has the eye travelling for no reason. Capped to a comfortable measure;
+   the card keeps the room, the inputs give it back. */
+.form-grid, .credential-box { max-width: 880px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1.35fr; gap: 18px; }
 label { display: flex; flex-direction: column; gap: 7px; font-size: 13px; font-weight: 650; }
 label small { color: var(--muted); font-size: 11px; font-weight: 450; }
@@ -902,7 +959,11 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
 .prompt-text small { color: var(--muted); font-size: 11px; font-family: var(--mono); }
 .prompt-text small.is-error { color: var(--danger-text); font-weight: 700; }
 .prompt-editor textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 220px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 9px; background: var(--field); color: var(--ink); font-family: var(--mono); font-size: 12.5px; line-height: 1.65; tab-size: 2; }
-.prompt-editor textarea:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; border-color: var(--orange-edge); }
+/* `--ring` is a box-shadow value, not a colour: an outline built from it is an
+   invalid declaration, which left this textarea with line 398's `outline: none`
+   and nothing but a hairline border change as the focus cue. Text fields take
+   the app's standard treatment: orange border plus the ring shadow. */
+.prompt-editor textarea:focus-visible { outline: none; border-color: var(--orange); box-shadow: var(--ring); }
 
 .prompt-danger { margin-top: 15px; padding: 12px 14px; border: 1px solid var(--danger-border); border-radius: 10px; background: var(--danger-bg); color: var(--danger-text); font-size: 13px; line-height: 1.6; }
 .prompt-danger label { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
