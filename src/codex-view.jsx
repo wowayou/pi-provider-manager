@@ -549,7 +549,7 @@ function CodexModelRow({ model, isDefault, isLiveModel, onChange, onDefault, onA
   );
 }
 
-function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack, onSave, onNotify, onDeleteProvider, canDeleteProvider, isActive }) {
+function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, canDeleteProvider, isActive }) {
   const adopted = codex.providers.find((provider) => provider.id === form.providerId.trim())?.adopted;
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState("");
@@ -652,6 +652,9 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
                 <small>{!form.requiresAuth ? "Codex 不会带 Authorization" : form.credentialMode === "keep" ? "浏览器无法读取旧 key" : "当前草稿尚未写入 Codex 配置"}</small>
               </span>
             </div>
+            {canDeleteProvider && (
+              <button type="button" className="duplicate-provider-button" onClick={onDuplicate} title="以当前配置为模板新建：模型与推理强度照搬，凭据需要另填"><Copy size={18} />复制</button>
+            )}
             {canDeleteProvider && (
               <button type="button" className="delete-provider-button" onClick={onDeleteProvider}><Trash size={18} />删除供应商</button>
             )}

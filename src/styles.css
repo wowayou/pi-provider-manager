@@ -549,6 +549,10 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .gateway-side { display: flex; align-items: center; gap: 16px; }
 .delete-provider-button { min-height: 36px; border: 1px solid var(--danger-border); border-radius: 8px; background: var(--danger-bg); color: var(--danger-text); padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; white-space: nowrap; font-weight: 700; transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease); }
 .delete-provider-button:hover { border-color: var(--danger-solid); background: var(--danger-solid); color: var(--on-brand); }
+/* The duplicate sits beside delete as its calm counterpart: same geometry,
+   neutral palette — a copy is a safe act, so it must not read as a danger. */
+.duplicate-provider-button { min-height: 36px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--field); color: var(--ink-2); padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; white-space: nowrap; font-weight: 700; transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease); }
+.duplicate-provider-button:hover { border-color: var(--border-hover); background: var(--surface-soft); color: var(--ink); }
 
 .models-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 32px 0 12px; }
 .models-header h2 { margin: 0; font-size: 18px; display: flex; align-items: center; }
