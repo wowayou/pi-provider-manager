@@ -2,7 +2,7 @@
 // App.jsx so the Codex view can import them without the two files importing
 // each other.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowsClockwise, CircleNotch, WarningCircle, X } from "@phosphor-icons/react";
 
 // Marks which edges of a scroll container have content beyond them, so the
@@ -83,21 +83,59 @@ export async function readApiResponse(response, fallbackMessage) {
   throw error;
 }
 
-export function BulkModal({ text, ids, newIds, onText, onClose, onImport }) {
+// What every dialog owes the keyboard: Escape closes it, Tab stays inside
+// it, and focus goes back to the control that opened it once it is gone.
+// `locked` keeps it up while a request is in flight, so a stray key cannot
+// discard the error that request is about to report.
+export function useDialog({ ref, initialFocusRef, onClose, locked = false }) {
   useEffect(() => {
-    const onKeyDown = (event) => { if (event.key === "Escape") onClose(); };
+    const previousFocus = document.activeElement;
+    const first = initialFocusRef?.current
+      || ref.current?.querySelector("button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)");
+    first?.focus();
+    return () => previousFocus?.focus?.();
+    // Runs once per dialog lifetime by design.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        if (!locked) onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = [...(ref.current?.querySelectorAll(
+        "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)",
+      ) || [])];
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, [ref, locked, onClose]);
+}
+
+export function BulkModal({ text, ids, newIds, onText, onClose, onImport }) {
+  const dialogRef = useRef(null);
+  const textRef = useRef(null);
+  useDialog({ ref: dialogRef, initialFocusRef: textRef, onClose });
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="bulk-modal" role="dialog" aria-modal="true" aria-labelledby="bulk-title">
+      <section ref={dialogRef} className="bulk-modal" role="dialog" aria-modal="true" aria-labelledby="bulk-title">
         <div className="modal-heading">
           <div><h2 id="bulk-title">批量添加模型 ID</h2><p>每行一个，也可以用英文逗号分隔。重复项会自动忽略。</p></div>
           <button type="button" className="icon-button" onClick={onClose} aria-label="关闭"><X size={20} /></button>
         </div>
         <textarea
-          autoFocus
+          ref={textRef}
           value={text}
           onChange={(event) => onText(event.target.value)}
           onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); onImport(); } }}

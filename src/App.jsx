@@ -37,9 +37,10 @@ import {
   WarningCircle,
   X,
 } from "@phosphor-icons/react";
+import { PROVIDER_ID_PATTERN, normalizeUrl } from "../lib/validation.mjs";
 import { changedPersistedModel, duplicateCodexForm, duplicatePiForm, selectedNamedModel } from "./model-draft.mjs";
 import { PromptsScreen } from "./prompts-view.jsx";
-import { BulkModal, ErrorBanner, Spinner, createRadioKeyHandler, readApiResponse, titleFromId, useScrollEdges } from "./ui-kit.jsx";
+import { BulkModal, ErrorBanner, Spinner, createRadioKeyHandler, readApiResponse, titleFromId, useDialog, useScrollEdges } from "./ui-kit.jsx";
 import {
   CodexDeleteDialog,
   CodexSettingsScreen,
@@ -342,7 +343,7 @@ function Stepper({ step, onStep }) {
     [3, "确认模型", "添加并确认可用模型"],
   ];
   return (
-    <div className="stepper" aria-label="配置步骤">
+    <nav className="stepper" aria-label="配置步骤">
       {items.map(([number, title, subtitle], index) => (
         <div className="step-wrap" key={number}>
           <button
@@ -362,7 +363,7 @@ function Stepper({ step, onStep }) {
           {index < items.length - 1 && <span className={`step-line ${number < step ? "is-complete" : ""}`} />}
         </div>
       ))}
-    </div>
+    </nav>
   );
 }
 
@@ -435,7 +436,7 @@ function TargetSwitch({ target, onTarget }) {
   );
 }
 
-function Sidebar({ state, target, onTarget, selectedId, onSelect, onAdd, onSettings, onPrompts, activeView, theme, onTheme }) {
+function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd, onSettings, onPrompts, activeView, theme, onTheme }) {
   const [query, setQuery] = useState("");
   const providers = sidebarProviders(state, target);
   const listRef = useRef(null);
@@ -520,7 +521,7 @@ function Sidebar({ state, target, onTarget, selectedId, onSelect, onAdd, onSetti
             </button>
           );
         })}
-        {providers.length === 0 && (
+        {providers.length === 0 && !loading && (
           <p className="list-empty list-empty-first">
             <Tray size={22} weight="duotone" aria-hidden="true" />
             <span>
@@ -574,12 +575,12 @@ function ProtocolStep({ form, setForm, onNext }) {
       <div className="step-scroll">
         <div className="section-heading">
           <div><h1>选择网关的默认接口协议</h1><p>供应商类似 OpenRouter：先选默认协议，下面可以挂多个模型。</p></div>
-          <button type="button" className="help-link" aria-expanded={showHint} onClick={() => setShowHint((value) => !value)}>
+          <button type="button" className="help-link" aria-expanded={showHint} aria-controls="protocol-hint" onClick={() => setShowHint((value) => !value)}>
             <Question size={19} />不确定选哪个？
           </button>
         </div>
         {showHint && (
-          <div className="hint-panel">
+          <div className="hint-panel" id="protocol-hint">
             <p>打开供应商文档，看接口路径的结尾：</p>
             <ul>
               <li><code>/responses</code> → OpenAI Responses</li>
@@ -621,8 +622,9 @@ function ProtocolStep({ form, setForm, onNext }) {
   );
 }
 
-function CredentialsStep({ form, setForm, state, error, onBack, onNext }) {
+function CredentialsStep({ form, setForm, state, error, overwrites, onBack, onNext }) {
   const sources = state.authProviders.filter((id) => id !== form.providerId);
+  const providerIdInvalid = form.providerId !== "" && !PROVIDER_ID_PATTERN.test(form.providerId);
   return (
     <section className="step-content form-step">
       <div className="step-scroll">
@@ -633,7 +635,7 @@ function CredentialsStep({ form, setForm, state, error, onBack, onNext }) {
             // "keep" only means something while the id still names a stored credential.
             const keepStillValid = state.authProviders.includes(providerId);
             return { ...current, providerId, credentialMode: current.credentialMode === "keep" && !keepStillValid ? "new" : current.credentialMode };
-          })} placeholder="any-router" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" /></label>
+          })} placeholder="any-router" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" aria-invalid={providerIdInvalid || undefined} />{providerIdInvalid && <span className="field-warning"><WarningCircle size={15} weight="fill" />只能使用小写字母、数字、点、下划线和连字符，且以字母或数字开头。</span>}{overwrites && !providerIdInvalid && <span className="field-warning"><WarningCircle size={15} weight="fill" />已有同名供应商，保存会替换它的地址与模型列表。</span>}</label>
           <label><span>API 地址</span><small>填写接口根地址，不要包含具体模型路径</small><input className="mono" type="url" inputMode="url" value={form.baseUrl} onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))} placeholder="https://api.example.com/v1" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" /></label>
         </div>
         <fieldset className="credential-box">
@@ -647,7 +649,7 @@ function CredentialsStep({ form, setForm, state, error, onBack, onNext }) {
           {form.credentialMode === "new" && <label className="key-field"><span>API Key</span><div><Key size={20} /><input className="mono" type="password" autoComplete="new-password" value={form.apiKey} onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))} placeholder="输入后不会回显" /></div></label>}
           {form.credentialMode === "migrate" && <div className="migrate-fields"><label><span>选择已有供应商</span><select value={form.migrateFrom} onChange={(event) => setForm((current) => ({ ...current, migrateFrom: event.target.value }))}>{sources.map((id) => <option key={id} value={id}>{titleFromId(id)} ({id})</option>)}</select></label><label className="checkbox-row"><input type="checkbox" checked={form.moveCredential} onChange={(event) => setForm((current) => ({ ...current, moveCredential: event.target.checked }))} />迁移成功后删除旧条目</label></div>}
         </fieldset>
-        {error && <div className="error-banner" role="alert"><WarningCircle size={20} weight="fill" />{error}</div>}
+        <ErrorBanner message={error} />
       </div>
       <footer className="wizard-footer"><button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={19} />上一步</button><button type="button" className="primary-button" onClick={onNext}>下一步<ArrowRight size={19} /></button></footer>
     </section>
@@ -933,7 +935,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
             <div className="saved-credential"><ShieldCheck size={29} weight="duotone" /><span><strong>{form.credentialMode === "keep" ? "凭据已安全保存" : "凭据将在保存时写入"}</strong><small>{form.credentialMode === "keep" ? "浏览器无法读取旧 key" : "当前草稿尚未写入 Pi 配置"}</small></span></div>
             {isExistingProvider && (
               <button type="button" className="duplicate-provider-button" onClick={onDuplicate} title="以当前配置为模板新建：模型与兼容设置照搬，凭据需要另填">
-                <Copy size={18} />复制
+                <Copy size={18} />复制供应商
               </button>
             )}
             {canDeleteProvider && (
@@ -995,36 +997,7 @@ function ProviderDeleteDialog({ provider, state, deleting, requestError, conflic
   const replacementProvider = alternatives.find((item) => item.id === replacementProviderId);
   const canDelete = !isCurrentDefault || Boolean(replacementProvider && replacementModelId);
 
-  useEffect(() => {
-    const previousFocus = document.activeElement;
-    cancelRef.current?.focus();
-    return () => previousFocus?.focus?.();
-  }, []);
-
-  useEffect(() => {
-    const onKeyDown = (event) => {
-      if (event.key === "Escape" && !deleting) {
-        onClose();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const focusable = [...(dialogRef.current?.querySelectorAll(
-        "button:not(:disabled), input:not(:disabled), select:not(:disabled)",
-      ) || [])];
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [deleting, onClose]);
+  useDialog({ ref: dialogRef, initialFocusRef: cancelRef, onClose, locked: deleting });
 
   const changeReplacementProvider = (providerId) => {
     const next = alternatives.find((item) => item.id === providerId);
@@ -1301,7 +1274,7 @@ function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBa
             <h2>默认模型</h2><p>Pi 启动新会话时优先使用这里的 provider/model。</p>
             <label><span>默认供应商</span><select value={draft.defaultProvider} onChange={(event) => changeProvider(event.target.value)}>{selectableProviders.map((provider) => <option key={provider.id} value={provider.id}>{titleFromId(provider.id)} · {provider.id}{provider.models.length === 0 ? "（无模型）" : ""}</option>)}</select></label>
             <label><span>默认模型</span><select value={draft.defaultModel} disabled={availableModels.length === 0} onChange={(event) => setDraft((current) => ({ ...current, defaultModel: event.target.value }))}>{availableModels.map((model) => <option key={model.id} value={model.id}>{model.name || model.id}</option>)}</select>{availableModels.length === 0 && <small>该供应商还没有模型。先为它添加模型，才能设为默认。</small>}</label>
-            <label><span>默认思考强度</span><select value={draft.defaultThinkingLevel} onChange={(event) => setDraft((current) => ({ ...current, defaultThinkingLevel: event.target.value }))}>{["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((level) => <option key={level} value={level}>{level}</option>)}</select></label>
+            <label><span>默认思考强度</span><select className="mono" value={draft.defaultThinkingLevel} onChange={(event) => setDraft((current) => ({ ...current, defaultThinkingLevel: event.target.value }))}>{["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((level) => <option key={level} value={level}>{level}</option>)}</select></label>
           </section>
           <section className="settings-card">
             <h2>会话行为</h2><p>这些选项由 Pi 官方 settings.json 支持。</p>
@@ -1574,9 +1547,14 @@ export function App() {
     setDeleteProviderError("");
   }, []);
 
+  // The same rules `saveProvider` applies, asked here so the answer arrives
+  // on the step that owns the field rather than after a round trip.
   const validateCredentials = () => {
-    if (!form.providerId.trim()) return "请输入供应商 ID。";
+    const providerId = form.providerId.trim();
+    if (!providerId) return "请输入供应商 ID。";
+    if (!PROVIDER_ID_PATTERN.test(providerId)) return "供应商 ID 只能使用小写字母、数字、点、下划线和连字符，且以字母或数字开头。";
     if (!form.baseUrl.trim()) return "请输入 API 地址。";
+    try { normalizeUrl(form.baseUrl); } catch (problem) { return problem.message; }
     if (form.credentialMode === "new" && !form.apiKey.trim()) return "请输入 API Key。";
     if (form.credentialMode === "migrate" && !form.migrateFrom) return "请选择要迁移的已有凭据。";
     return "";
@@ -1797,7 +1775,7 @@ export function App() {
   const switchTarget = (next) => {
     if (next === target) return;
     setTarget(next);
-    setView("wizard");
+    if (view !== "prompts" && view !== "settings") setView("wizard");
     setError("");
     setSaveResult(null);
     setCodexSaveResult(null);
@@ -1838,11 +1816,13 @@ export function App() {
     if (!codexForm.name.trim()) return "请填写供应商名称。";
     if (codexForm.upstream === "bridge") {
       if (!codexForm.bridgeUpstreamUrl.trim()) return "请输入上游 API 地址。";
+      try { normalizeUrl(codexForm.bridgeUpstreamUrl); } catch (problem) { return problem.message; }
       const savedBridge = codexProvider(codexForm.providerId.trim())?.bridge;
       if (!codexForm.bridgeApiKey.trim() && !savedBridge?.credentialConfigured) return "请输入上游 API Key。";
       return "";
     }
     if (!codexForm.baseUrl.trim()) return "请输入 API 地址。";
+    try { normalizeUrl(codexForm.baseUrl); } catch (problem) { return problem.message; }
     if (codexForm.requiresAuth && codexForm.credentialMode === "new" && !codexForm.apiKey.trim()) return "请输入 API Key。";
     if (codexForm.requiresAuth && codexForm.credentialMode === "migrate" && !codexForm.migrateFrom) return "请选择要复制的已有凭据。";
     return "";
@@ -2173,6 +2153,7 @@ export function App() {
       <Sidebar
         state={state}
         target={target}
+        loading={loading}
         onTarget={switchTarget}
         selectedId={target === "codex" ? codexSelectedId : selectedId}
         onSelect={target === "codex" ? selectCodexProvider : selectProvider}
@@ -2233,13 +2214,14 @@ export function App() {
                 onDuplicate={duplicateCodexProvider}
                 onStartBridge={() => bridgeAction("start")}
                 onStopBridge={() => bridgeAction("stop")}
+                selectedId={codexSelectedId}
                 onDeleteProvider={() => setCodexDeleteTargetId(codexSelectedId)}
                 canDeleteProvider={Boolean(codexProvider(codexSelectedId))}
                 isActive={Boolean(codexProvider(codexForm.providerId.trim())?.isActive)}
               />
             </>
           )
-        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} />}</>}
+        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} overwrites={selectedId !== form.providerId.trim() && state.providers.some((provider) => provider.id === form.providerId.trim())} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} />}</>}
       </section>
       {codexDeleteTargetId && codexProvider(codexDeleteTargetId) && (
         <CodexDeleteDialog
