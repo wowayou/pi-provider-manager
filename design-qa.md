@@ -403,3 +403,14 @@ final result: passed
 - **Not run in this pass, and so not claimed:** the optional interactive smoke test — `/model` inside a running Pi.
 
 final result: passed
+
+## Codex 0.154.0 Compatibility Triage — Evidence
+
+- Evidence date: `2026-09-12`. Manager `0.3.9`. Baseline moved from Codex `0.151.0` to `0.154.0`.
+- **What moved upstream.** The `0.152.0`–`0.154.0` release notes name no change to `[model_providers.*]`, `wire_api`, credential resolution, reasoning-effort values, or profile handling — the window is MCP, session, approval, and Windows-daemon work. `codex-rs/model-provider-info/src/lib.rs` differs by exactly one added constant (`AMAZON_BEDROCK_GPT_6_ASTRA_MODEL_ID`).
+- **Four invariants hold unchanged on the real `0.154.0` binary.** `wire_api` accepts `"responses"` and refuses `"chat"` with the same specific removal error (`is no longer supported` naming `model_providers.custom.wire_api`, not a generic parse failure). A provider table without `name` still fails `config.load` for the whole config. `model_reasoning_effort = "persistent"` and an invented `"turbo"` both load. A legacy `[profiles.custom]` table still parses — `codex doctor` says ok — while `codex exec --profile custom` still refuses with the legacy-table error naming the table.
+- **The fifth exposed an error in this project's own record, not in `0.154.0`.** An unrecognised key inside `[model_providers.<id>]` loads fine on `0.154.0` — and, as a control, the identical driver run against the installed `0.151.0` accepts it too, so nothing moved upstream. The invariant had been recorded as "one unrecognised key fails the entire table"; the struct carries `#[schemars(deny_unknown_fields)]`, which shapes the generated JSON schema only, and the serde TOML parser has no deny attribute. `docs/compatibility.md` invariant 2 now states what the parser actually does. The manager's written output is unchanged: it never emitted a key outside the documented set, and staying inside it remains the rule — deliberately conservative now, rather than parser-forced.
+- **`npm run test:codex-real` on `0.154.0`: 5 pass, 0 fail, 0 skipped.** The release was installed into a throwaway prefix and put on `PATH` for the run, so the machine's own Codex stays `0.151.0`; the suite is green on both.
+- **Not run in this pass, and so not claimed:** the interactive TUI on `0.154.0` — `/model`, `/thinking` and the plan-mode control were not exercised.
+
+final result: passed

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Validated against Codex `0.154.0`. The five invariants the compatibility policy names were re-run against the real binary: `wire_api` still accepts only `"responses"`, with `"chat"` answered by the specific removal error rather than a generic one; a provider table without `name` still stops the whole config; `persistent` and model-defined reasoning efforts still load; and a legacy `[profiles.*]` table still parses while `--profile` rejects it. `npm run test:codex-real` is green on `0.154.0` with nothing skipped.
+- Corrected what the compatibility policy says about unknown keys in a provider table. It claimed one unrecognised key fails the entire `[model_providers.<id>]` table; measured against the real `0.151.0` and `0.154.0` binaries, an unknown key has always been silently ignored — the struct's `deny_unknown_fields` is schemars-only and shapes the generated JSON schema, not the TOML parse. The manager's written output is unchanged: it never emitted a key outside the documented set, and staying inside it remains the rule.
 - Validated against Pi `0.85.1`. The three managed files' schema did not move: `providers.md` is unchanged, `settings.md` only rewords four descriptions, and `models.md` adds one model-level compatibility flag this manager does not own (`supportsMidConvoEffort`) — a hand-written one survives every save, proven at the real API boundary rather than only in the merge code. `0.84.4` and `0.85.1` read a config this manager wrote identically: `--list-models` printed the same row, character for character.
 - Bumped the `browserslist` lockfile from 4.28.5 to 4.28.8, along with its data packages (`caniuse-lite`, `electron-to-chromium`, `baseline-browser-mapping`). Dependabot, no code change.
 
