@@ -39,7 +39,7 @@ import {
 } from "@phosphor-icons/react";
 import { changedPersistedModel, selectedNamedModel } from "./model-draft.mjs";
 import { PromptsScreen } from "./prompts-view.jsx";
-import { BulkModal, Spinner, createRadioKeyHandler, readApiResponse, titleFromId, useScrollEdges } from "./ui-kit.jsx";
+import { BulkModal, ErrorBanner, Spinner, createRadioKeyHandler, readApiResponse, titleFromId, useScrollEdges } from "./ui-kit.jsx";
 import {
   CodexDeleteDialog,
   CodexSettingsScreen,
@@ -794,7 +794,7 @@ function ModelRow({ model, isDefault, isLiveDefault, onChange, onDefault, onArmR
   );
 }
 
-function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify, onDeleteProvider, canDeleteProvider, isExistingProvider, isCurrentDefault, liveDefaultModelId }) {
+function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDeleteProvider, canDeleteProvider, isExistingProvider, isCurrentDefault, liveDefaultModelId }) {
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [scrolled, setScrolled] = useState(false);
@@ -960,7 +960,7 @@ function ModelsStep({ form, setForm, error, saving, onBack, onSave, onNotify, on
             {form.models.map((model) => <label key={model.rowId}><span className="mono">{model.id || "未命名模型"}</span><select value={model.api} onChange={(event) => updateModel(model.rowId, { ...model, api: event.target.value })}><option value="inherit">继承网关默认协议</option>{API_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label>)}
           </div>
         </details>
-        {error && <div className="error-banner" role="alert"><WarningCircle size={20} weight="fill" />{error}</div>}
+        <ErrorBanner message={error} conflict={conflict} />
       </div>
       <footer className="wizard-footer">
         <button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={19} />上一步</button>
@@ -1141,7 +1141,7 @@ function SuccessScreen({ result, onCopy, onReturn, onAdd }) {
   );
 }
 
-function SettingsScreen({ state, saving, error, demoMode, onSave, onBack }) {
+function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBack }) {
   const saved = useMemo(() => ({
     defaultProvider: state.settings.defaultProvider || state.providers[0]?.id || "",
     defaultModel: state.settings.defaultModel || "",
@@ -1433,7 +1433,7 @@ function SettingsScreen({ state, saving, error, demoMode, onSave, onBack }) {
             )}
           </section>
         </div>
-        {error && <div className="error-banner" role="alert"><WarningCircle size={20} weight="fill" />{error}</div>}
+        <ErrorBanner message={error} conflict={conflict} />
       </div>
       <footer className="settings-footer">
         <span className="dirty-note" aria-live="polite">
@@ -1459,6 +1459,10 @@ export function App() {
   const [view, setView] = useState("wizard");
   const [form, setForm] = useState(() => demoMode ? providerToForm(DEMO_STATE.providers[0], DEMO_STATE) : blankForm());
   const [error, setError] = useState("");
+  // Set alongside a 409 request error and cleared at the entry of every save:
+  // it is what lets the persistent banner carry the 重新读取 action after the
+  // toast that also offers it has expired.
+  const [conflict, setConflict] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const [saveResult, setSaveResult] = useState(null);
@@ -1478,6 +1482,7 @@ export function App() {
     toastTimer.current = setTimeout(() => setToast(null), action ? 7000 : 3200);
   }, []);
   const reportRequestError = useCallback((requestError, setMessage) => {
+    setConflict(requestError.status === 409);
     setMessage(requestError.message);
     if (requestError.status === 409) {
       showToast(requestError.message, "error", {
@@ -1557,6 +1562,7 @@ export function App() {
   };
 
   const save = async (setDefault) => {
+    setConflict(false);
     const message = validateCredentials();
     if (message) { setError(message); setStep(2); return; }
     if (!form.models.some((model) => model.id.trim())) { setError("至少填写一个模型 ID。"); return; }
@@ -1667,6 +1673,7 @@ export function App() {
   };
 
   const saveSettings = async (draft) => {
+    setConflict(false);
     setSaving(true);
     setError("");
     try {
@@ -1835,6 +1842,7 @@ export function App() {
   };
 
   const saveCodex = async (setActive) => {
+    setConflict(false);
     const message = validateCodexCredentials();
     if (message) { setError(message); setCodexStep(2); return; }
     const named = codexForm.models.filter((model) => model.id.trim());
@@ -1844,6 +1852,51 @@ export function App() {
     setSaving(true);
     setError("");
     try {
+      if (demoMode) {
+        // Demo has no server behind the codex endpoints: the Pi save path has
+        // faked its happy path since V1.1, and without this mirror the Codex
+        // workspace could never leave the wizard — the posted draft revision
+        // is the fixture's "", which the real API refuses with 409.
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const requiresAuth = codexForm.upstream !== "bridge" && codexForm.requiresAuth;
+        const saved = {
+          id: codexForm.providerId.trim(),
+          name: codexForm.name.trim() || titleFromId(codexForm.providerId.trim()),
+          baseUrl: codexForm.baseUrl.trim(),
+          requiresAuth,
+          models: named.map((model) => ({ id: model.id.trim(), reasoningEffort: model.reasoningEffort })),
+          defaultModelId: selected.id.trim(),
+          credentialConfigured: !requiresAuth || codexForm.credentialMode !== "new" || Boolean(codexForm.apiKey.trim()),
+          adopted: false,
+          isActive: Boolean(setActive) || codex.activeProviderId === codexForm.providerId.trim(),
+        };
+        const demoCodex = {
+          ...codex,
+          activeProviderId: setActive ? saved.id : codex.activeProviderId,
+          providers: [
+            ...codex.providers
+              .filter((provider) => provider.id !== saved.id)
+              .map((provider) => (setActive ? { ...provider, isActive: false } : provider)),
+            saved,
+          ],
+        };
+        const demoState = { ...state, codex: demoCodex };
+        setState(demoState);
+        setCodexSelectedId(saved.id);
+        setCodexForm(codexProviderToForm(saved, demoCodex));
+        setCodexSaveResult({
+          providerId: saved.id,
+          name: saved.name,
+          modelCount: named.length,
+          defaultModelId: selected.id.trim(),
+          activated: saved.isActive,
+          requiresAuth,
+          command: "codex",
+          otherModels: named.map((model) => model.id.trim()).filter((id) => id !== selected.id.trim()),
+        });
+        setView("success");
+        return;
+      }
       const response = await fetch("/api/codex/providers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1963,9 +2016,16 @@ export function App() {
   };
 
   const saveCodexSettings = async (draft) => {
+    setConflict(false);
     setSaving(true);
     setError("");
     try {
+      if (demoMode) {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        setState({ ...state, codex: { ...codex, settings: { ...codex.settings, ...draft } } });
+        showToast("Codex 设置已写入 config.toml；对新开的会话生效");
+        return;
+      }
       const response = await fetch("/api/codex/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2046,7 +2106,7 @@ export function App() {
               读取 Codex 配置失败：{codex.error || "未知错误"}（{codex.dir}）
             </div>
           ) : view === "settings" ? (
-            <CodexSettingsScreen state={state} saving={saving} error={error} onSave={saveCodexSettings} onBack={() => setView("wizard")} />
+            <CodexSettingsScreen state={state} saving={saving} error={error} conflict={conflict} onSave={saveCodexSettings} onBack={() => setView("wizard")} />
           ) : view === "success" && codexSaveResult ? (
             <CodexSuccessScreen result={codexSaveResult} onCopy={copyCommand} onReturn={returnToSavedCodexProvider} onAdd={startNewCodex} />
           ) : (
@@ -2058,6 +2118,7 @@ export function App() {
                 setForm={setCodexForm}
                 codex={codex}
                 codexVersion={state.compatibility?.codexVersion}
+                conflict={conflict}
                 error={error}
                 saving={saving}
                 onNext={codexStep === 1 ? () => setCodexStep(2) : goToCodexModels}
@@ -2072,7 +2133,7 @@ export function App() {
               />
             </>
           )
-        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} demoMode={demoMode} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDeleteProvider={openDeleteProvider} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} />}</>}
+        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDeleteProvider={openDeleteProvider} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} />}</>}
       </section>
       {codexDeleteTargetId && codexProvider(codexDeleteTargetId) && (
         <CodexDeleteDialog

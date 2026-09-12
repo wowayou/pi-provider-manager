@@ -30,7 +30,7 @@ import {
 import { CODEX_REASONING_EFFORTS, CODEX_VERBOSITIES, adoptableEffort, effortOptions, idSlug } from "../lib/codex-shared.mjs";
 import { TomlDocument } from "../lib/toml-document.mjs";
 import { isLoopbackHostname } from "../lib/validation.mjs";
-import { BulkModal, Spinner, createRadioKeyHandler, titleFromId } from "./ui-kit.jsx";
+import { BulkModal, ErrorBanner, Spinner, createRadioKeyHandler, titleFromId } from "./ui-kit.jsx";
 
 
 const UPSTREAM_OPTIONS = [
@@ -309,7 +309,7 @@ function BridgeControl({ codex, providerId, onStart, onStop, onNotify }) {
   );
 }
 
-function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onNotify, onStartBridge, onStopBridge }) {
+function CodexCredentialsStep({ form, setForm, codex, error, conflict, onBack, onNext, onNotify, onStartBridge, onStopBridge }) {
   const [snippet, setSnippet] = useState("");
   const [showSnippet, setShowSnippet] = useState(false);
   const sources = codex.providers.filter((item) => item.id !== form.providerId && item.credentialConfigured);
@@ -480,7 +480,7 @@ function CodexCredentialsStep({ form, setForm, codex, error, onBack, onNext, onN
             </div>
           )}
         </fieldset>
-        {error && <div className="error-banner" role="alert"><WarningCircle size={20} weight="fill" />{error}</div>}
+        <ErrorBanner message={error} conflict={conflict} />
       </div>
       <footer className="wizard-footer"><button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={19} />上一步</button><button type="button" className="primary-button" onClick={onNext}>下一步<ArrowRight size={19} /></button></footer>
     </section>
@@ -549,7 +549,7 @@ function CodexModelRow({ model, isDefault, isLiveModel, onChange, onDefault, onA
   );
 }
 
-function CodexModelsStep({ form, setForm, codex, error, saving, onBack, onSave, onNotify, onDeleteProvider, canDeleteProvider, isActive }) {
+function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack, onSave, onNotify, onDeleteProvider, canDeleteProvider, isActive }) {
   const adopted = codex.providers.find((provider) => provider.id === form.providerId.trim())?.adopted;
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState("");
@@ -687,7 +687,7 @@ function CodexModelsStep({ form, setForm, codex, error, saving, onBack, onSave, 
               <code> would become two flex items and break the sentence. */}
           <span>切换供应商只对<strong>新开的</strong> codex 会话生效；正在运行的会话不受影响，也不要指望 <code className="mono">codex resume</code> 能跨供应商续聊。</span>
         </div>
-        {error && <div className="error-banner" role="alert"><WarningCircle size={20} weight="fill" />{error}</div>}
+        <ErrorBanner message={error} conflict={conflict} />
       </div>
       <footer className="wizard-footer">
         <button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={19} />上一步</button>
@@ -837,7 +837,7 @@ export function CodexSuccessScreen({ result, onCopy, onReturn, onAdd }) {
   );
 }
 
-export function CodexSettingsScreen({ state, saving, error, onSave, onBack }) {
+export function CodexSettingsScreen({ state, saving, error, conflict, onSave, onBack }) {
   const codex = state.codex || {};
   const providers = codex.providers || [];
   const saved = useMemo(() => ({
@@ -951,7 +951,7 @@ export function CodexSettingsScreen({ state, saving, error, onSave, onBack }) {
             </label>
           </div>
         </details>
-        {error && <div className="error-banner" role="alert"><WarningCircle size={20} weight="fill" />{error}</div>}
+        <ErrorBanner message={error} conflict={conflict} />
       </div>
       <footer className="settings-footer">
         <span className="dirty-note" aria-live="polite">
