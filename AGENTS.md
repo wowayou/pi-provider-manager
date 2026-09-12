@@ -58,6 +58,9 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - Blue link styling means an informational disclosure and nothing else. Anything that writes to the form is a button, and anything that overwrites values the user may have typed carries an undo action in its toast.
 - A field must not accept keystrokes its parser will reject. Mark invalid drafts with `aria-invalid` while typing rather than reverting silently on blur, and bound numeric input on both ends so a typo cannot become a plausible-looking value.
 - Treat a key that is absent from the config file as unwritten, not as saved. Filling a default in the UI and then reporting it as already persisted leaves the user unable to write it.
+- A wizard step refuses what the server will refuse before the user leaves it. The provider ID pattern and `normalizeUrl` live in `lib/validation.mjs` and are the same code on both ends, so the credentials step asks them on 下一步 and marks a bad ID with `aria-invalid` while typing; a server round trip that bounces the user back two steps is not a validation UI. An ID that already names another provider is stated beside the field, because the field cannot refuse it — saving really does replace that provider.
+- Leaving an edited prompt document — another document, another file, 新建 — goes through the toast's action, not the first click. The edit is the only copy of that text.
+- Every dialog uses `useDialog` from `ui-kit.jsx`: Escape closes, Tab stays inside, focus returns to the opener, and `locked` holds it up while a request is in flight so a stray key cannot discard the error it is about to report.
 
 
 ## Codex conventions
@@ -158,6 +161,27 @@ and is invisible on inspection; it showed up only once a real cross-origin
 request was actually sent. The same applies to header handling: `fetch()`
 silently refuses to set `Host`, so rebinding checks need a raw `http.request`.
 
+**A sandboxed terminal can stop the suite without failing it.** Every browser case
+spawns a server and a browser and then tears both down, and in an agent or CI
+shell holding a pty without job control that teardown delivers `SIGTTIN` to the
+runner. Its default action is to stop the process, so the run ends after the
+first case with a truncated summary and exit 149, and every later `server.mjs` is
+stopped before it binds or writes one line — which arrives as `ECONNREFUSED` and
+reads as a broken product rather than a stopped test. A whole session was spent
+re-running commands that were never rejected. Run detached from the controlling
+terminal, `setsid --wait node --test …` with stdin from `/dev/null`, and trust the
+reported counts rather than the tail of the output: a run that stopped early
+looks exactly like a short one that passed.
+
+**A test names every directory the server reads.** `/api/state` resolves a Pi
+directory and a Codex directory on every read, so a case that sets only
+`PI_CODING_AGENT_DIR` runs against whoever's `~/.codex` is on the machine — which
+puts their gateway IDs and base URLs into this suite's failure output and makes
+the result depend on one developer's private config. Five browser cases did that
+until 2026-09-12. They now pass `isolatedCodexDir(agentDir)` even though they
+never open the Codex side, because the reason to name it is isolation, not
+coverage.
+
 **Every release states the Pi version it was validated against.** The number
 lives once, as `piValidatedVersion` in `package.json`; the server reads it and
 Settings shows it beside the Pi version detected on the machine, saying plainly
@@ -182,9 +206,20 @@ are documented in `docs/compatibility.md`.
 
 **Open items.**
 
-- CVE identifiers were requested for both advisories and accepted with HTTP 202,
-  but not yet assigned. When they arrive, add them to the advisories and to the
-  `v0.1.4` release notes.
+- Neither advisory carries a CVE. Both were published on 2026-08-18
+  (`GHSA-wqcr-r9hp-xrcx`, `GHSA-78m8-7gh8-qr33`); checked on 2026-09-12, 25
+  days later, `cve_id` is still `null` and `identifiers` lists only the GHSA
+  itself. An earlier handoff recorded the request as "accepted with HTTP 202",
+  but the advisory API exposes no "requested" state, so nothing readable today
+  confirms the request sits in GitHub's CNA queue rather than never having
+  registered; from outside, the two look the same. GitHub documents no
+  turnaround and no escalation path. The one lever is a GitHub Support ticket
+  asking whether the two requests are queued — a prompt, not a decision, and
+  it is the only thing that rules out the "never registered" case. Do not
+  request the same vulnerabilities from MITRE directly: a second ID for one
+  defect is worse than waiting. Nothing depends on the CVE — the fix shipped
+  in `v0.1.4` and Dependabot alerts on the GHSA. When an ID arrives, add it to
+  the advisory and to the `v0.1.4` release notes.
 - The `local-history` branch holds pre-publication history and may exist in an
   older checkout. It must never be pushed; the GitHub remote must not contain it.
 - The publication checklist is complete. The project is intentionally in focused

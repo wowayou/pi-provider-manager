@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  CaretDown,
   Check,
   CheckCircle,
   Copy,
@@ -30,7 +31,7 @@ import {
 import { CODEX_REASONING_EFFORTS, CODEX_VERBOSITIES, adoptableEffort, effortOptions, idSlug } from "../lib/codex-shared.mjs";
 import { TomlDocument } from "../lib/toml-document.mjs";
 import { isLoopbackHostname } from "../lib/validation.mjs";
-import { BulkModal, ErrorBanner, Spinner, createRadioKeyHandler, titleFromId } from "./ui-kit.jsx";
+import { BulkModal, ErrorBanner, Spinner, createRadioKeyHandler, titleFromId, useDialog } from "./ui-kit.jsx";
 
 
 const UPSTREAM_OPTIONS = [
@@ -149,7 +150,7 @@ export function CodexStepper({ step, onStep }) {
     [3, "确认模型", "选择模型与推理强度"],
   ];
   return (
-    <div className="stepper" aria-label="配置步骤">
+    <nav className="stepper" aria-label="配置步骤">
       {items.map(([number, title, subtitle], index) => (
         <div className="step-wrap" key={number}>
           <button
@@ -166,7 +167,7 @@ export function CodexStepper({ step, onStep }) {
           {index < items.length - 1 && <span className={`step-line ${number < step ? "is-complete" : ""}`} />}
         </div>
       ))}
-    </div>
+    </nav>
   );
 }
 
@@ -188,22 +189,21 @@ function UpstreamStep({ form, setForm, codexVersion, onNext }) {
       <div className="step-scroll">
         <div className="section-heading">
           <div><h1>这个上游怎么接？</h1><p>Codex 只会说 Responses API，所以这里选的是上游的形态，而不是协议。</p></div>
-          <button type="button" className="help-link" aria-expanded={showHint} onClick={() => setShowHint((value) => !value)}>
+          <button type="button" className="help-link" aria-expanded={showHint} aria-controls="upstream-hint" onClick={() => setShowHint((value) => !value)}>
             <Question size={19} />怎么判断？
           </button>
         </div>
         {showHint && (
-          <div className="hint-panel">
+          <div className="hint-panel" id="upstream-hint">
             <p>看供应商文档给的接口路径：</p>
             <ul>
               <li><code>/v1/responses</code> → 选「上游支持 Responses」，直连即可</li>
               <li>只有 <code>/v1/chat/completions</code> → 选「上游只有 chat/completions」</li>
             </ul>
             <p>
-              第二种需要你自己跑一个翻译桥，例如 <code>litellm</code>（在 <code>config.yaml</code> 里给模型加
-              {" "}<code>use_chat_completions_api: true</code>）、<code>codex-relay</code> 或
-              {" "}<code>CLIProxyAPI</code>。桥负责保管上游的 key，
-              Codex 只连本机。README 的「Codex 桥接」一节有 WSL 下的最小可跑步骤。
+              第二种由本管理器写好一个本地 <code>litellm</code> 桥的配置并代管它的进程：桥保管上游的 key，
+              Codex 只连本机。在无法确认进程归属的平台上，管理器会改为给出启动命令，由你自己运行。
+              README 的「Codex 桥接」一节有 WSL 下的最小可跑步骤。
             </p>
           </div>
         )}
@@ -309,11 +309,14 @@ function BridgeControl({ codex, providerId, onStart, onStop, onNotify }) {
   );
 }
 
-function CodexCredentialsStep({ form, setForm, codex, error, conflict, onBack, onNext, onNotify, onStartBridge, onStopBridge }) {
+function CodexCredentialsStep({ form, setForm, codex, selectedId, error, conflict, onBack, onNext, onNotify, onStartBridge, onStopBridge }) {
   const [snippet, setSnippet] = useState("");
   const [showSnippet, setShowSnippet] = useState(false);
   const sources = codex.providers.filter((item) => item.id !== form.providerId && item.credentialConfigured);
   const existing = codex.providers.find((item) => item.id === form.providerId);
+  // An ID that names a provider other than the one this draft was opened
+  // from: saving replaces that provider, which the field should say.
+  const overwrites = Boolean(existing) && selectedId !== form.providerId.trim();
   const isBridge = form.upstream === "bridge";
   const isLocal = !isBridge && isLocalAddress(form.baseUrl);
 
@@ -356,12 +359,12 @@ function CodexCredentialsStep({ form, setForm, codex, error, conflict, onBack, o
                 : "key 由本管理器保管，生效时写入 Codex 的 auth.json；保存后不会再显示。"}
             </p>
           </div>
-          <button type="button" className="help-link" aria-expanded={showSnippet} onClick={() => setShowSnippet((value) => !value)}>
+          <button type="button" className="help-link" aria-expanded={showSnippet} aria-controls="snippet-panel" onClick={() => setShowSnippet((value) => !value)}>
             <ListPlus size={19} />粘贴厂商给的 config.toml
           </button>
         </div>
         {showSnippet && (
-          <div className="hint-panel">
+          <div className="hint-panel" id="snippet-panel">
             <p>把供应商文档里的那段 TOML 贴进来，会自动填好下面的字段。</p>
             <textarea
               className="snippet-input mono"
@@ -381,6 +384,7 @@ function CodexCredentialsStep({ form, setForm, codex, error, conflict, onBack, o
           <label>
             <span>供应商 ID</span><small>本管理器内部标识</small>
             <input className="mono" value={form.providerId} onChange={(event) => setForm((current) => ({ ...current, providerId: idSlug(event.target.value) }))} placeholder="packy" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
+            {overwrites && <span className="field-warning"><WarningCircle size={15} weight="fill" />已有同名供应商，保存会替换它的地址、模型列表和 key。</span>}
           </label>
           <label>
             <span>显示名称</span><small>写入 config.toml 的 name 字段</small>
@@ -518,7 +522,7 @@ function CodexModelRow({ model, isDefault, isLiveModel, onChange, onDefault, onA
       </label>
       <label>
         <span className="sr-only">推理强度</span>
-        <select value={model.reasoningEffort} onChange={(event) => onChange({ ...model, reasoningEffort: event.target.value })}>
+        <select className="mono" value={model.reasoningEffort} onChange={(event) => onChange({ ...model, reasoningEffort: event.target.value })}>
           {effortOptions(model.reasoningEffort).map((effort) => <option key={effort} value={effort}>{effort}</option>)}
         </select>
       </label>
@@ -619,6 +623,9 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
   };
 
   const namedModels = form.models.filter((model) => model.id.trim()).length;
+  // The step-one choice, not only the saved record: before the first save
+  // there is no record, and the summary still has to describe the draft.
+  const isBridge = form.upstream === "bridge" || Boolean(codexProviderOf(codex, form)?.bridge);
   return (
     <section className="step-content models-step">
       <div className="step-scroll">
@@ -626,11 +633,13 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
           <div><h1>确认模型与推理强度</h1><p>默认模型会写进 <code>config.toml</code>；其余模型用 <code>codex -m &lt;model&gt;</code> 开会话时指定。</p></div>
         </div>
         <div className="gateway-summary">
-          <span className="summary-icon">{isLocalAddress(form.baseUrl) ? <Plugs size={34} weight="duotone" /> : <PlugsConnected size={34} weight="duotone" />}</span>
+          <span className="summary-icon">{isBridge || isLocalAddress(form.baseUrl) ? <Plugs size={34} weight="duotone" /> : <PlugsConnected size={34} weight="duotone" />}</span>
           <div>
             <strong>{form.name || titleFromId(form.providerId || "new-provider")}</strong>
-            <span className="protocol-badge">{codexProviderOf(codex, form)?.bridge ? "托管桥" : isLocalAddress(form.baseUrl) ? "本机地址" : "Responses 直连"}</span>
-            <p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p>
+            <span className="protocol-badge">{isBridge ? "托管桥" : isLocalAddress(form.baseUrl) ? "本机地址" : "Responses 直连"}</span>
+            {isBridge
+              ? <p title={form.bridgeUpstreamUrl || undefined}>上游地址　<code>{form.bridgeUpstreamUrl || "尚未填写"}</code></p>
+              : <p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p>}
             {/* Adoption is derived on the read path, so say it out loud rather
                 than letting an entry appear from nowhere. */}
             {adopted && <p className="adopted-note"><Info size={17} weight="duotone" />已从现有 config.toml 接管，保存后才会记入本管理器。</p>}
@@ -648,12 +657,12 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
             <div className="saved-credential">
               <ShieldCheck size={29} weight="duotone" />
               <span>
-                <strong>{!form.requiresAuth ? "无需凭据" : form.credentialMode === "keep" ? "凭据已安全保存" : "凭据将在保存时写入"}</strong>
-                <small>{!form.requiresAuth ? "Codex 不会带 Authorization" : form.credentialMode === "keep" ? "浏览器无法读取旧 key" : "当前草稿尚未写入 Codex 配置"}</small>
+                <strong>{isBridge ? "上游 key 交给本地桥" : !form.requiresAuth ? "无需凭据" : form.credentialMode === "keep" ? "凭据已安全保存" : "凭据将在保存时写入"}</strong>
+                <small>{isBridge ? "不写入 Codex 的配置" : !form.requiresAuth ? "Codex 不会带 Authorization" : form.credentialMode === "keep" ? "浏览器无法读取旧 key" : "当前草稿尚未写入 Codex 配置"}</small>
               </span>
             </div>
             {canDeleteProvider && (
-              <button type="button" className="duplicate-provider-button" onClick={onDuplicate} title="以当前配置为模板新建：模型与推理强度照搬，凭据需要另填"><Copy size={18} />复制</button>
+              <button type="button" className="duplicate-provider-button" onClick={onDuplicate} title="以当前配置为模板新建：模型与推理强度照搬，凭据需要另填"><Copy size={18} />复制供应商</button>
             )}
             {canDeleteProvider && (
               <button type="button" className="delete-provider-button" onClick={onDeleteProvider}><Trash size={18} />删除供应商</button>
@@ -718,21 +727,17 @@ export function CodexDeleteDialog({ provider, codex, deleting, requestError, con
   const alternatives = codex.providers.filter((item) => item.id !== provider.id);
   const [replacementProviderId, setReplacementProviderId] = useState(alternatives[0]?.id || "");
   const cancelRef = useRef(null);
+  const dialogRef = useRef(null);
   const isActive = provider.isActive;
   const blocked = isActive && alternatives.length === 0;
-  useEffect(() => { cancelRef.current?.focus(); }, []);
-  useEffect(() => {
-    const onKeyDown = (event) => { if (event.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  useDialog({ ref: dialogRef, initialFocusRef: cancelRef, onClose, locked: deleting });
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="bulk-modal" role="dialog" aria-modal="true" aria-labelledby="codex-delete-title">
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !deleting) onClose(); }}>
+      <section ref={dialogRef} className="bulk-modal" role="dialog" aria-modal="true" aria-labelledby="codex-delete-title" aria-describedby="codex-delete-description">
         <div className="modal-heading">
           <div>
             <h2 id="codex-delete-title">删除 Codex 供应商 <code>{provider.id}</code>？</h2>
-            <p>会移除它的地址、模型列表和保存的 key。Codex 的 config.toml 只保留当前生效的那一个供应商表。</p>
+            <p id="codex-delete-description">会移除它的地址、模型列表和保存的 key。Codex 的 config.toml 只保留当前生效的那一个供应商表。</p>
           </div>
         </div>
         {isActive && (
@@ -753,7 +758,7 @@ export function CodexDeleteDialog({ provider, codex, deleting, requestError, con
         )}
         <ErrorBanner message={requestError} conflict={conflict} />
         <div className="modal-actions">
-          <button type="button" ref={cancelRef} className="secondary-button" onClick={onClose}>取消</button>
+          <button type="button" ref={cancelRef} className="secondary-button" disabled={deleting} onClick={onClose}>取消</button>
           <button
             type="button"
             className="primary-button is-destructive"
@@ -890,19 +895,19 @@ export function CodexSettingsScreen({ state, saving, error, conflict, onSave, on
             <h2>推理与输出</h2><p>这些选项由 Codex 官方 config.toml 支持。</p>
             <label>
               <span>推理强度 <code className="mono">model_reasoning_effort</code></span>
-              <select value={draft.reasoningEffort} onChange={(event) => setDraft((current) => ({ ...current, reasoningEffort: event.target.value }))}>
+              <select className="mono" value={draft.reasoningEffort} onChange={(event) => setDraft((current) => ({ ...current, reasoningEffort: event.target.value }))}>
                 {effortOptions(draft.reasoningEffort).map((effort) => <option key={effort} value={effort}>{effort}</option>)}
               </select>
             </label>
             <label>
               <span>Plan 模式推理强度 <code className="mono">plan_mode_reasoning_effort</code></span>
-              <select value={draft.planModeReasoningEffort} onChange={(event) => setDraft((current) => ({ ...current, planModeReasoningEffort: event.target.value }))}>
+              <select className="mono" value={draft.planModeReasoningEffort} onChange={(event) => setDraft((current) => ({ ...current, planModeReasoningEffort: event.target.value }))}>
                 {effortOptions(draft.planModeReasoningEffort).map((effort) => <option key={effort} value={effort}>{effort}</option>)}
               </select>
             </label>
             <label>
               <span>输出详尽度 <code className="mono">model_verbosity</code></span>
-              <select value={draft.verbosity} onChange={(event) => setDraft((current) => ({ ...current, verbosity: event.target.value }))}>
+              <select className="mono" value={draft.verbosity} onChange={(event) => setDraft((current) => ({ ...current, verbosity: event.target.value }))}>
                 {CODEX_VERBOSITIES.map((value) => <option key={value} value={value}>{value}</option>)}
               </select>
             </label>
@@ -937,7 +942,7 @@ export function CodexSettingsScreen({ state, saving, error, conflict, onSave, on
           </section>
         </div>
         <details className="advanced-panel">
-          <summary><span><SlidersHorizontal size={21} />高级设置 <small>通常无需修改</small></span></summary>
+          <summary><span><SlidersHorizontal size={21} />高级设置 <small>通常无需修改</small></span><CaretDown size={19} /></summary>
           <div className="advanced-content">
             <label>
               <span>供应商表名 <code className="mono">model_providers.&lt;id&gt;</code></span>

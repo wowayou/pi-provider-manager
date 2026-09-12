@@ -5,7 +5,7 @@
 // Codex shows one, and neither case is special-cased. Same shape as the
 // provider list — a library of named documents, exactly one of them live.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   CheckCircle,
@@ -16,7 +16,7 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 
-import { ErrorBanner, Spinner } from "./ui-kit.jsx";
+import { ErrorBanner, Spinner, createRadioKeyHandler } from "./ui-kit.jsx";
 
 const NEW_DOCUMENT = "";
 
@@ -38,6 +38,7 @@ export function PromptsScreen({ target, state, saving, error, conflict, onSave, 
   const [draft, setDraft] = useState({ name: "", text: "" });
   const [armedDelete, setArmedDelete] = useState("");
   const [replacementId, setReplacementId] = useState("");
+  const slotRefs = useRef([]);
 
   // Follow the file into view: whatever is live is the thing someone opening
   // this screen wants to look at first.
@@ -53,6 +54,10 @@ export function PromptsScreen({ target, state, saving, error, conflict, onSave, 
     return (
       <section className="settings-page">
         <div className="settings-scroll">
+          <div className="settings-title">
+            <div><p>{target === "codex" ? "Codex" : "Pi"} 全局提示词</p><h1>提示词</h1></div>
+            <button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={18} />返回</button>
+          </div>
           <p className="list-empty">这个目标没有可管理的提示词文件。</p>
         </div>
       </section>
@@ -67,21 +72,52 @@ export function PromptsScreen({ target, state, saving, error, conflict, onSave, 
     : Boolean(selected) && (draft.name !== selected.name || draft.text !== selected.text);
   const size = byteLength(draft.text);
   const overLimit = size > (library.limits?.maxBytes || Infinity);
+  const deletableLive = isLive && documents.length > 1;
+  const deleteBlocked = isLive && documents.length <= 1;
+  const slotKeyDown = createRadioKeyHandler({
+    refs: slotRefs,
+    values: slots.map((entry) => entry.id),
+    selectedIndex: Math.max(0, slots.findIndex((entry) => entry.id === slot?.id)),
+    onSelect: (id) => { if (slot && id !== slot.id) guardEdits(() => setSlotId(id)); },
+  });
+
+  // Leaving an edited document throws the edit away, so leaving is offered
+  // through the toast's action rather than done on the first click.
+  function guardEdits(proceed) {
+    if (!edited) { proceed(); return; }
+    onNotify("当前提示词有未保存的修改", "error", { label: "放弃修改并切换", onAction: proceed });
+  }
 
   function pick(document) {
-    setSelectedId(document.id);
-    setDraft({ name: document.name, text: document.text });
-    setArmedDelete("");
+    if (document.id === selectedId) return;
+    guardEdits(() => {
+      setSelectedId(document.id);
+      setDraft({ name: document.name, text: document.text });
+      setArmedDelete("");
+    });
   }
 
   function startNew() {
-    setSelectedId(NEW_DOCUMENT);
-    setDraft({ name: "", text: "" });
-    setArmedDelete("");
+    guardEdits(() => {
+      setSelectedId(NEW_DOCUMENT);
+      setDraft({ name: "", text: "" });
+      setArmedDelete("");
+    });
+  }
+
+  function pickSlot(id) {
+    if (id === slot.id) return;
+    guardEdits(() => setSlotId(id));
   }
 
   function requestDelete() {
     if (!selected) return;
+    if (deleteBlocked) {
+      // Stays clickable: the control explains the invariant and offers the
+      // shortest way past it, instead of going grey with no reason attached.
+      onNotify("这是这个文件里唯一的一份，而且正在生效；先新建一份再删除它。", "error", { label: "新建提示词", onAction: startNew });
+      return;
+    }
     if (armedDelete !== selected.id) {
       setArmedDelete(selected.id);
       // Deleting what is in the file needs somewhere for the file to land, so
@@ -93,8 +129,6 @@ export function PromptsScreen({ target, state, saving, error, conflict, onSave, 
     setArmedDelete("");
   }
 
-  const deletableLive = isLive && documents.length > 1;
-  const deleteBlocked = isLive && documents.length <= 1;
 
   return (
     <section className="settings-page">
@@ -109,15 +143,17 @@ export function PromptsScreen({ target, state, saving, error, conflict, onSave, 
         </div>
 
         {slots.length > 1 && (
-          <div className="prompt-slots" role="tablist" aria-label="提示词文件">
-            {slots.map((entry) => (
+          <div className="prompt-slots" role="tablist" aria-label="提示词文件" onKeyDown={slotKeyDown}>
+            {slots.map((entry, index) => (
               <button
                 key={entry.id}
                 type="button"
                 role="tab"
+                ref={(node) => { slotRefs.current[index] = node; }}
                 aria-selected={entry.id === slot.id}
+                tabIndex={entry.id === slot.id ? 0 : -1}
                 className={`prompt-slot ${entry.id === slot.id ? "is-active" : ""}`}
-                onClick={() => setSlotId(entry.id)}
+                onClick={() => pickSlot(entry.id)}
               >
                 <code className="mono">{entry.file}</code>
                 <small>{entry.present ? `${entry.documents.length} 份 · 已写入` : "尚未写入"}</small>
@@ -152,6 +188,7 @@ export function PromptsScreen({ target, state, saving, error, conflict, onSave, 
                 key={document.id}
                 type="button"
                 className={`prompt-item ${document.id === selectedId ? "is-selected" : ""}`}
+                aria-current={document.id === selectedId ? "true" : undefined}
                 onClick={() => pick(document)}
               >
                 <FileText size={18} />
@@ -190,9 +227,7 @@ export function PromptsScreen({ target, state, saving, error, conflict, onSave, 
 
             {armedDelete === selectedId && selected && (
               <div className="prompt-danger">
-                {deleteBlocked ? (
-                  <span>这是这个文件里唯一的一份，而且正在生效。先新建一份再删除它。</span>
-                ) : deletableLive ? (
+                {deletableLive ? (
                   <label>
                     <span>它正在生效，删除后改用：</span>
                     <select value={replacementId} onChange={(event) => setReplacementId(event.target.value)}>
@@ -212,18 +247,22 @@ export function PromptsScreen({ target, state, saving, error, conflict, onSave, 
                 <button
                   type="button"
                   className={`prompt-delete ${armedDelete === selectedId ? "is-armed" : ""}`}
-                  disabled={saving || deleteBlocked}
+                  disabled={saving}
+                  aria-disabled={deleteBlocked || saving}
+                  title={deleteBlocked ? "唯一且正在生效的一份不能删除；先新建一份" : undefined}
                   onClick={requestDelete}
                 >
                   <Trash size={18} />{armedDelete === selectedId ? "确认删除" : "删除"}
                 </button>
               )}
-              <span className="prompt-status">
+              <span className={`prompt-status ${!isNew && !isLive && edited ? "is-warning" : ""}`}>
                 {isNew
                   ? "保存后会立即写入文件"
                   : isLive
                     ? <><CheckCircle size={17} weight="fill" />正在生效</>
-                    : "保存后不会改动文件，除非点「启用」"}
+                    : edited
+                      ? <><WarningCircle size={17} weight="fill" />有未保存的修改，保存后才能启用</>
+                      : "保存后不会改动文件，除非点「启用」"}
               </span>
               {selected && !isNew && !isLive && (
                 <button

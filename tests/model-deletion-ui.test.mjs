@@ -176,6 +176,14 @@ class CdpClient {
   }
 }
 
+// The server resolves a Codex directory on every /api/state, so a test that never
+// opens the Codex side still has to name one. Left unset it reads the developer's
+// real ~/.codex: their gateway IDs and base URLs end up in this suite's failure
+// output, and the run depends on one machine's private config. A path inside the Pi
+// fixture directory is isolated, absent the way it is for anyone without Codex
+// installed, and disappears when the fixture does.
+const isolatedCodexDir = (agentDir) => path.join(agentDir, "codex");
+
 function writeFixture(agentDir) {
   const model = (id) => ({
     id,
@@ -241,6 +249,7 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
       env: {
         ...process.env,
         PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
         PI_PROVIDER_MANAGER_SERVE_UI: "1",
         PI_PROVIDER_MANAGER_PORT: String(appPort),
       },
@@ -737,6 +746,7 @@ test("复制供应商 starts a fresh draft with the models and an empty credenti
       env: {
         ...process.env,
         PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
         PI_PROVIDER_MANAGER_SERVE_UI: "1",
         PI_PROVIDER_MANAGER_PORT: String(appPort),
       },
@@ -1481,6 +1491,7 @@ test("every piece of text meets WCAG AA contrast in both themes", { timeout: 90_
       env: {
         ...process.env,
         PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
         PI_PROVIDER_MANAGER_SERVE_UI: "1",
         PI_PROVIDER_MANAGER_PORT: String(appPort),
       },
@@ -1846,6 +1857,7 @@ test("every control is big enough to hit", { timeout: 60_000 }, async () => {
       env: {
         ...process.env,
         PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
         PI_PROVIDER_MANAGER_SERVE_UI: "1",
         PI_PROVIDER_MANAGER_PORT: String(appPort),
       },
@@ -2039,6 +2051,7 @@ test("the compatibility card says when the checkout has moved ahead of the proce
       env: {
         ...process.env,
         PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
         PI_PROVIDER_MANAGER_SERVE_UI: "1",
         PI_PROVIDER_MANAGER_PORT: String(appPort),
       },

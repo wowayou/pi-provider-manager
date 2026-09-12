@@ -599,8 +599,8 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .model-action-cell .icon-button { margin-top: 4px; }
 .icon-button { width: 34px; height: 34px; border: 0; border-radius: 7px; background: transparent; display: grid; place-items: center; color: var(--ink-3); transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
 .icon-button:hover:not(:disabled) { background: var(--red-soft); color: var(--red); }
-.icon-button.is-confirming { background: var(--danger-solid); color: #fff; }
-.icon-button.is-confirming:hover { background: var(--danger-solid-hover); color: #fff; }
+.icon-button.is-confirming { background: var(--danger-solid); color: var(--on-brand); }
+.icon-button.is-confirming:hover { background: var(--danger-solid-hover); color: var(--on-brand); }
 .model-action-cell .icon-button { border: 1px solid var(--danger-border); background: var(--danger-bg); color: var(--red); }
 .model-action-cell .icon-button:hover:not(:disabled), .model-action-cell .icon-button.is-confirming { border-color: var(--danger-solid); background: var(--danger-solid); color: var(--on-brand); }
 .model-action-cell .icon-button[aria-disabled="true"] { border-style: dashed; }
@@ -795,6 +795,10 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
 .snippet-input:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; box-shadow: var(--ring); }
 
 .form-grid-wide { grid-column: 1 / -1; }
+/* A fact about the value that the field cannot refuse — an ID that already
+   names a provider — said beside the field rather than after the save. */
+.field-warning { display: flex; align-items: flex-start; gap: 6px; color: var(--warn-text); font-size: 12px; font-weight: 500; line-height: 1.5; }
+.field-warning svg { flex: none; margin-top: 1px; color: var(--warn-icon); }
 
 .profile-chip { margin-left: 8px; }
 .success-caveat { display: flex; align-items: flex-start; gap: 9px; max-width: 640px; margin: 18px auto 0; color: var(--muted); font-size: 13px; line-height: 1.6; text-align: left; }
@@ -983,9 +987,12 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
 .prompt-delete { min-height: 36px; border: 1px solid var(--danger-border); border-radius: 8px; background: var(--danger-bg); color: var(--danger-text); padding: 0 12px; display: inline-flex; align-items: center; gap: 7px; font-weight: 700; transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease); }
 .prompt-delete:hover:not(:disabled), .prompt-delete.is-armed { border-color: var(--danger-solid); background: var(--danger-solid); color: var(--on-brand); }
 .prompt-delete:disabled { opacity: .5; }
+.prompt-delete[aria-disabled="true"] { border-style: dashed; }
 .prompt-actions { display: flex; align-items: center; gap: 10px; margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--divider); flex-wrap: wrap; }
 .prompt-status { display: flex; align-items: center; gap: 6px; margin-right: auto; color: var(--muted); font-size: 12.5px; }
 .prompt-status svg { color: var(--green); }
+.prompt-status.is-warning { color: var(--warn-text); }
+.prompt-status.is-warning svg { color: var(--warn-icon); }
 
 @media (max-width: 900px) {
   .prompt-layout { grid-template-columns: minmax(0, 1fr); }
