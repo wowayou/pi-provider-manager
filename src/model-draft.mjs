@@ -20,11 +20,21 @@ export function suggestCopyId(sourceId, takenIds) {
   }
 }
 
+// Row keys only have to be unique for the life of the draft. Browsers have
+// WebCrypto's randomUUID; Node 18, where the unit tests run, has no global
+// crypto, so it falls back to a timestamp-and-random key.
+function freshRowId() {
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return `row-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 // Everything but the credential carries over: the stored key never returns to
 // the browser, so a copy is born asking for a new one — which is the workflow
 // a duplicate exists for (same models, different gateway and key).
 export function duplicatePiForm(form, takenIds) {
-  const models = form.models.map((model) => ({ ...model, rowId: crypto.randomUUID() }));
+  const models = form.models.map((model) => ({ ...model, rowId: freshRowId() }));
   const sourceDefault = form.models.find((model) => model.rowId === form.defaultRowId);
   return {
     ...form,
@@ -37,7 +47,7 @@ export function duplicatePiForm(form, takenIds) {
 }
 
 export function duplicateCodexForm(form, takenIds) {
-  const models = form.models.map((model) => ({ ...model, rowId: crypto.randomUUID() }));
+  const models = form.models.map((model) => ({ ...model, rowId: freshRowId() }));
   const sourceDefault = form.models.find((model) => model.rowId === form.defaultRowId);
   return {
     ...form,
