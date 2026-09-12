@@ -37,7 +37,7 @@ import {
   WarningCircle,
   X,
 } from "@phosphor-icons/react";
-import { changedPersistedModel, selectedNamedModel } from "./model-draft.mjs";
+import { changedPersistedModel, duplicateCodexForm, duplicatePiForm, selectedNamedModel } from "./model-draft.mjs";
 import { PromptsScreen } from "./prompts-view.jsx";
 import { BulkModal, ErrorBanner, Spinner, createRadioKeyHandler, readApiResponse, titleFromId, useScrollEdges } from "./ui-kit.jsx";
 import {
@@ -794,7 +794,7 @@ function ModelRow({ model, isDefault, isLiveDefault, onChange, onDefault, onArmR
   );
 }
 
-function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDeleteProvider, canDeleteProvider, isExistingProvider, isCurrentDefault, liveDefaultModelId }) {
+function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, canDeleteProvider, isExistingProvider, isCurrentDefault, liveDefaultModelId }) {
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [scrolled, setScrolled] = useState(false);
@@ -931,6 +931,11 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
           <div><strong>{titleFromId(form.providerId || "new-provider")}</strong><span className="protocol-badge">{currentApi.title}</span><p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p></div>
           <div className="gateway-side">
             <div className="saved-credential"><ShieldCheck size={29} weight="duotone" /><span><strong>{form.credentialMode === "keep" ? "凭据已安全保存" : "凭据将在保存时写入"}</strong><small>{form.credentialMode === "keep" ? "浏览器无法读取旧 key" : "当前草稿尚未写入 Pi 配置"}</small></span></div>
+            {isExistingProvider && (
+              <button type="button" className="duplicate-provider-button" onClick={onDuplicate} title="以当前配置为模板新建：模型与兼容设置照搬，凭据需要另填">
+                <Copy size={18} />复制
+              </button>
+            )}
             {canDeleteProvider && (
               <button type="button" className="delete-provider-button" onClick={onDeleteProvider}>
                 <Trash size={18} />删除供应商
@@ -1526,6 +1531,29 @@ export function App() {
     setError("");
   };
 
+  // A duplicate carries the models and compatibility settings into a fresh
+  // draft; the credential never does, because the stored key cannot return to
+  // the browser — the user lands on the credentials step to type the new one.
+  const duplicateProvider = () => {
+    if (!state.providers.some((provider) => provider.id === form.providerId.trim())) return;
+    setForm(duplicatePiForm(form, state.providers.map((provider) => provider.id)));
+    setSelectedId("");
+    setStep(2);
+    setView("wizard");
+    setError("");
+    showToast("已复制模型与兼容设置；改好 ID 和网关地址，填入新 key 后保存");
+  };
+
+  const duplicateCodexProvider = () => {
+    if (!codex.providers.some((provider) => provider.id === codexForm.providerId.trim())) return;
+    setCodexForm(duplicateCodexForm(codexForm, codex.providers.map((provider) => provider.id)));
+    setCodexSelectedId("");
+    setCodexStep(2);
+    setView("wizard");
+    setError("");
+    showToast("已复制模型与推理强度；改好 ID 和网关地址，填入新 key 后保存");
+  };
+
   const selectProvider = (provider) => {
     setForm(providerToForm(provider, state));
     setSelectedId(provider.id);
@@ -1953,6 +1981,54 @@ export function App() {
     setSaving(true);
     setError("");
     try {
+      if (demoMode) {
+        // Demo mirrors the library's own semantics on the fixture: upsert with
+        // a unique slug, activate, and delete-with-replacement for the live one.
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        const lib = state.prompts?.[target];
+        const slot = lib?.slots.find((entry) => entry.id === payload.slot);
+        if (!slot) return false;
+        const documents = slot.documents.map((document) => ({ ...document }));
+        let activeId = slot.activeId;
+        if (route === "/api/prompts") {
+          const name = String(payload.name || "").trim();
+          if (!name) { setError("请填写提示词名称。"); return false; }
+          let id = String(payload.id || "");
+          if (!documents.some((document) => document.id === id)) {
+            const base = (id || name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "prompt";
+            id = base;
+            for (let n = 2; documents.some((document) => document.id === id); n += 1) id = `${base}-${n}`;
+            documents.push({ id, name, text: "", adopted: false, isActive: false });
+          }
+          const entry = documents.find((document) => document.id === id);
+          entry.name = name;
+          entry.text = typeof payload.text === "string" ? payload.text : "";
+          if (payload.activate !== false || activeId === id) activeId = id;
+        } else if (route === "/api/prompts/activate") {
+          if (!documents.some((document) => document.id === payload.id)) { setError("要启用的提示词不存在。"); return false; }
+          activeId = payload.id;
+        } else if (route === "/api/prompts/delete") {
+          const isActive = activeId === payload.id;
+          if (isActive && (!documents.some((document) => document.id === payload.replacementId) || payload.replacementId === payload.id)) {
+            setError("这条提示词正在生效，请指定一条替代它的提示词。");
+            return false;
+          }
+          const kept = documents.filter((document) => document.id !== payload.id);
+          documents.length = 0;
+          documents.push(...kept);
+          if (isActive) activeId = payload.replacementId;
+        }
+        documents.forEach((document) => { document.isActive = document.id === activeId; });
+        const nextSlot = { ...slot, documents, activeId, present: documents.length > 0 };
+        setState({
+          ...state,
+          prompts: {
+            ...state.prompts,
+            [target]: { ...lib, slots: lib.slots.map((entry) => (entry.id === slot.id ? nextSlot : entry)) },
+          },
+        });
+        return true;
+      }
       const response = await fetch(route, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1984,12 +2060,38 @@ export function App() {
     setDeletingProvider(true);
     setDeleteProviderError("");
     try {
-      const response = await fetch("/api/codex/providers/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, revision: codex.revision }),
-      });
-      const data = await readApiResponse(response, "删除失败");
+      let data;
+      if (demoMode) {
+        // Same demo parity as the Codex save: the fixture's empty revision
+        // would be refused by the real endpoint, so the happy plan is faked
+        // with the same semantics — the active slot moves to the replacement.
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        const isActive = codex.activeProviderId === payload.providerId;
+        const providers = codex.providers
+          .filter((provider) => provider.id !== payload.providerId)
+          .map((provider) => (isActive && payload.replacementProviderId
+            ? { ...provider, isActive: provider.id === payload.replacementProviderId }
+            : provider));
+        data = {
+          state: {
+            ...state,
+            codex: {
+              ...codex,
+              providers,
+              activeProviderId: isActive
+                ? (payload.replacementProviderId || providers[0]?.id || "")
+                : codex.activeProviderId,
+            },
+          },
+        };
+      } else {
+        const response = await fetch("/api/codex/providers/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...payload, revision: codex.revision }),
+        });
+        data = await readApiResponse(response, "删除失败");
+      }
       setState(data.state);
       setCodexDeleteTargetId("");
       setCodexSaveResult(null);
@@ -2125,6 +2227,7 @@ export function App() {
                 onBack={() => setCodexStep(codexStep - 1)}
                 onSave={saveCodex}
                 onNotify={showToast}
+                onDuplicate={duplicateCodexProvider}
                 onStartBridge={() => bridgeAction("start")}
                 onStopBridge={() => bridgeAction("stop")}
                 onDeleteProvider={() => setCodexDeleteTargetId(codexSelectedId)}
@@ -2133,7 +2236,7 @@ export function App() {
               />
             </>
           )
-        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDeleteProvider={openDeleteProvider} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} />}</>}
+        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} />}</>}
       </section>
       {codexDeleteTargetId && codexProvider(codexDeleteTargetId) && (
         <CodexDeleteDialog

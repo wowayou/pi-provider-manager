@@ -660,6 +660,8 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     await cdp.evaluate(`document.querySelector('.settings-footer .primary-button').click()`);
     await cdp.waitFor(`document.querySelector('.toast.is-error .toast-action') && document.querySelector('.error-banner').textContent.includes('其他程序或标签页')`);
     assert.equal(await cdp.evaluate(`document.querySelector('.toast-action').textContent`), "重新读取");
+    // The banner outlives the toast, so it carries the same action itself.
+    assert.equal(await cdp.evaluate(`Boolean(document.querySelector('.banner-reload'))`), true);
     const afterConflict = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
     assert.equal(afterConflict.externalEditorField, "keep-external-change");
     assert.equal(Object.hasOwn(afterConflict, "transport"), false);
@@ -700,6 +702,117 @@ wire_api = "responses"
 [tui]
 notifications = true
 `;
+
+test("复制供应商 starts a fresh draft with the models and an empty credential", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-copy-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-copy-"));
+  writeFixture(agentDir);
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server;
+  let chrome;
+  let cdp;
+  let serverOutput = "";
+  let chromeOutput = "";
+
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_SERVE_UI: "1",
+        PI_PROVIDER_MANAGER_PORT: String(appPort),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; });
+    server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${appPort}/api/state`);
+
+    chrome = spawn(chromePath, [
+      "--headless",
+      "--no-sandbox",
+      "--disable-gpu",
+      `--remote-debugging-port=${debugPort}`,
+      `--user-data-dir=${profileDir}`,
+      "about:blank",
+    ], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    chrome.stdout.on("data", (chunk) => { chromeOutput += chunk; });
+    chrome.stderr.on("data", (chunk) => { chromeOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
+
+    const target = await fetch(
+      `http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(`http://127.0.0.1:${appPort}`)}`,
+      { method: "PUT" },
+    ).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl);
+    await cdp.send("Page.enable");
+    await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
+    // The default provider (review-router) opens straight into its editor.
+    await cdp.waitFor(`document.querySelector('.duplicate-provider-button') && document.querySelectorAll('.model-row').length === 3`);
+    await cdp.waitFor(`document.querySelector('.duplicate-provider-button')`);
+    const before = await cdp.evaluate(`({
+      rows: document.querySelectorAll('.model-row').length,
+      baseUrl: document.querySelector('.gateway-summary code')?.textContent || "",
+    })`);
+    assert.equal(before.rows, 3);
+
+    await cdp.evaluate(`document.querySelector('.duplicate-provider-button').click()`);
+    await cdp.waitFor(`document.querySelector('.form-grid input')`);
+    const draft = await cdp.evaluate(`({
+      providerId: document.querySelector('.form-grid input').value,
+      baseUrl: document.querySelectorAll('.form-grid input')[1].value,
+      // The copy's id is not in authProviders yet, so the "保留现有 key" tab is
+      // absent: the first tab is 输入新 key, and it is the active one.
+      tabs: [...document.querySelectorAll('.credential-tabs button')].map((button) => ({ text: button.textContent, active: button.classList.contains('is-active') })),
+      keyField: Boolean(document.querySelector('.key-field input')),
+    })`);
+    assert.equal(draft.providerId, "review-router-copy");
+    assert.equal(draft.baseUrl, before.baseUrl);
+    assert.deepEqual(draft.tabs, [{ text: "输入新 key", active: true }, { text: "从已有凭据迁移", active: false }]);
+    assert.equal(draft.keyField, true);
+
+    await cdp.evaluate(`document.querySelector('.key-field input').focus()`);
+    await cdp.send("Input.insertText", { text: "dummy-copy-key" });
+    await cdp.evaluate(`[...document.querySelectorAll('.wizard-footer button')].find((button) => button.textContent.includes("下一步")).click()`);
+    await cdp.waitFor(`document.querySelectorAll('.model-row').length === 3`);
+    const copiedIds = await cdp.evaluate(`[...document.querySelectorAll('.model-row .model-name-cell input')].map((input) => input.value)`);
+    assert.deepEqual(copiedIds, ["anthropic/claude-opus", "openai/gpt-router", "google/gemini-router"]);
+
+    await cdp.evaluate(`[...document.querySelectorAll('.wizard-footer button')].find((button) => button.textContent.includes("保存并设为默认")).click()`);
+    await cdp.waitFor(`document.querySelector('.success-page')`);
+
+    const state = await fetch(`http://127.0.0.1:${appPort}/api/state`).then((response) => response.json());
+    const copyProvider = state.providers.find((provider) => provider.id === "review-router-copy");
+    assert.equal(copyProvider.models.length, 3);
+    assert.equal(copyProvider.baseUrl, before.baseUrl);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8")).providers["review-router-copy"].models.length, 3);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8")).providers["review-router-copy"].api, "openai-completions");
+    assert.equal(JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"))["review-router-copy"].key, "dummy-copy-key");
+    // The source provider is untouched, and stays the count it started with.
+    assert.equal(state.providers.find((provider) => provider.id === "review-router").models.length, 3);
+    assert.equal(cdp.errors.length, 0);
+  } catch (error) {
+    error.message += `\nServer output:\n${serverOutput}\nChrome output:\n${chromeOutput}`;
+    throw error;
+  } finally {
+    if (cdp) {
+      await Promise.race([
+        cdp.send("Browser.close").catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+      cdp.close();
+    }
+    await stopProcess(chrome, true);
+    await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
 
 test("production UI drives the Codex workspace", { timeout: 90_000 }, async () => {
   requireFreshBuiltUi();
