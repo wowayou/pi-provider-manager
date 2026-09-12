@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Validated against Pi `0.85.1`. The three managed files' schema did not move: `providers.md` is unchanged, `settings.md` only rewords four descriptions, and `models.md` adds one model-level compatibility flag this manager does not own (`supportsMidConvoEffort`) — a hand-written one survives every save, proven at the real API boundary rather than only in the merge code. `0.84.4` and `0.85.1` read a config this manager wrote identically: `--list-models` printed the same row, character for character.
 - Bumped the `browserslist` lockfile from 4.28.5 to 4.28.8, along with its data packages (`caniuse-lite`, `electron-to-chromium`, `baseline-browser-mapping`). Dependabot, no code change.
 
 ## 0.3.9 - 2026-09-03
