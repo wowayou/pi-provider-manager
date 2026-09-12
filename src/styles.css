@@ -526,6 +526,13 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .error-banner { margin-top: 16px; border: 1px solid var(--danger-border); background: var(--danger-bg); color: var(--danger-text); border-radius: 9px; padding: 11px 13px; display: flex; align-items: center; gap: 8px; font-size: 13px; animation: panel-in var(--base) var(--ease); }
 .error-banner svg { flex: none; }
 .error-banner code { color: inherit; font-weight: 700; }
+.error-banner span { flex: 1 1 auto; }
+/* The 409 corrective action, promoted from the expiring toast into the banner
+   that persists. Outlined in the banner's own colour; the hover fill is the
+   same solid the danger buttons use. */
+.banner-reload { flex: none; border: 1px solid currentColor; border-radius: 7px; background: transparent; color: inherit; min-height: 30px; padding: 0 11px; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 13px; transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease); }
+.banner-reload:hover { background: var(--danger-solid); border-color: var(--danger-solid); color: var(--on-brand); }
+.banner-reload:active { transform: translateY(1px); }
 
 /* ---------- model catalog ---------- */
 .models-step .step-scroll { padding-top: 30px; }

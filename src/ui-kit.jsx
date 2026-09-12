@@ -3,7 +3,7 @@
 // each other.
 
 import { useEffect, useState } from "react";
-import { CircleNotch, X } from "@phosphor-icons/react";
+import { ArrowsClockwise, CircleNotch, WarningCircle, X } from "@phosphor-icons/react";
 
 // Marks which edges of a scroll container have content beyond them, so the
 // list can fade there. A list that clips mid-row with no cue reads as a
@@ -36,6 +36,24 @@ export function useScrollEdges(ref, signal) {
 
 export function Spinner({ size = 18 }) {
   return <CircleNotch className="spinner" size={size} weight="bold" aria-hidden="true" />;
+}
+
+// The shared request-error banner. A 409 also arrives as a toast whose action
+// reloads the page, but that toast expires after seven seconds — the banner is
+// the part that persists, so on a conflict it carries the same action itself.
+export function ErrorBanner({ message, conflict }) {
+  if (!message) return null;
+  return (
+    <div className="error-banner" role="alert">
+      <WarningCircle size={20} weight="fill" />
+      <span>{message}</span>
+      {conflict && (
+        <button type="button" className="banner-reload" onClick={() => window.location.reload()}>
+          <ArrowsClockwise size={14} />重新读取
+        </button>
+      )}
+    </div>
+  );
 }
 
 export function titleFromId(id) {
