@@ -64,7 +64,7 @@ Only `server.mjs` writes Pi or Codex configuration, in the first two paths. The 
 | `worker/index.js` | static asset and app-route fallback for Sites packaging | `/api` implementation or Pi config access |
 | `scripts/check-pi-update.mjs` | compare the declared compatibility baseline with the latest stable Pi release and maintain one reminder issue | application startup, builds, Pi installation, automatic baseline changes |
 | `tests/` | API/security boundary, Sites packaging, and update-monitor behavior | live provider credentials or private fixtures |
-| `design-qa.md`, `qa/` | accepted visual and interaction evidence | current runtime state |
+| `design-qa.md`, `qa/` | accepted visual and interaction evidence, the current compatibility triage in full, and a one-row-per-run verification history whose superseded detail lives in git history | current runtime state |
 
 ## Configuration ownership
 

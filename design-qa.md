@@ -1,7 +1,8 @@
 # Design QA
 
 - Evidence date: `2026-08-18`
-- Evidence scope: historical acceptance and compatibility results, not live repository or machine state
+- Evidence scope: accepted design evidence and compatibility-triage results, not live repository or machine state
+- Structure: bounded. Current baseline evidence is replaced in place by each triage; what it supersedes joins the verification history as one row. The full dated text of superseded sections lives in git history, and the CHANGELOG carries what changed and why.
 - Product version: `0.1.8`
 - Source visual truth: `design-reference.png` plus user acceptance screenshots for the settings, long-model-list, and post-save problems
 - Model editor screenshot: `qa/pi-provider-manager-v11-models.png`
@@ -11,6 +12,8 @@
 - Dark theme evidence: `qa/pi-provider-manager-v11-models-dark.png`, `-settings-dark.png`, `-success-dark.png`, `-responsive-900-dark.png`
 - Primary viewport: `1487 x 1058 CSS px`, device scale factor `1`
 - State: demo mode with generic paths and fake credentials only
+
+## Design Acceptance — V1.1
 
 **Findings**
 
@@ -87,7 +90,6 @@
 
 - Add licensed provider marks when available.
 - Add CSV/CC-Switch import only after a redacted fixture defines the source schema.
-
 ## Interaction and UI Detail Pass
 
 Scope: interaction and visual detail only. Product structure, flows, backend contracts, and copy semantics are unchanged.
@@ -219,177 +221,7 @@ Both now have server-side tests, so the gap is closed by CI rather than by remem
 
 final result: passed
 
-## Model Deletion Protection Follow-up
-
-- Evidence date: `2026-08-19`
-- Evidence shape: production build served by `server.mjs` with `PI_PROVIDER_MANAGER_SERVE_UI=1` and an isolated `PI_CODING_AGENT_DIR`; six fake models, a non-routable URL, and a dummy credential only.
-- Persisted model IDs rendered read-only and rejected attempted keyboard replacement; a newly added row remained editable.
-- A pure draft guard rejected both clearing and renaming persisted IDs, and default selection returned no model instead of falling back when the selected row was blank or missing.
-- Arming the live default named its fallback and compatibility-field loss; arming an ordinary persisted row named its compatibility-field loss. Both messages rendered model IDs in the monospace stack.
-- All six rows stayed exactly `85px` high while armed and unarmed. The model ID, context, output, image, and reasoning controls had identical top coordinates within every row; arming caused zero geometry shift.
-- Confirmed deletion followed by 撤销 restored the original index and selected default. Browser console/page errors: zero.
-- At `420 x 900`, page-level horizontal overflow was zero, the toast fit inside the viewport, and it did not intersect the save action.
-- The same production-shaped flow is automated by `npm run test:ui` in a dedicated Node 22 browser job, and `ci-passed` depends on that job as well as the Node test matrix.
-
-## Provider Deletion Follow-up
-
-- Evidence date: `2026-08-19`.
-- Evidence shape: production build served by `server.mjs` with `PI_PROVIDER_MANAGER_SERVE_UI=1`, two fake providers, non-routable URLs, dummy credentials, and an isolated `PI_CODING_AGENT_DIR`.
-- The visible “删除供应商” command fit inside the active internal scroll viewport at both `1440 x 900` and `420 x 900`; page-level horizontal and vertical overflow remained zero.
-- The confirmation dialog named the provider and model count, gave Cancel initial focus, trapped keyboard focus, closed on Escape, and fit fully inside both viewports after its entry animation.
-- Deleting the current default exposed native replacement-provider and replacement-model selects; the server separately rejected missing, unknown, and mismatched replacements.
-- Credential removal was the default. Selecting “保留凭据” removed the provider from `models.json` and navigation while keeping its secret entry in `auth.json` and `authProviders`; the credential never appeared in a browser response.
-- Server regression covers validation-without-writes, unknown-field preservation, auth-only public state, strict boolean retention, ordinary deletion, and default replacement. The production-browser regression covers desktop/mobile discovery and the retained-credential path with zero console errors.
-
-## Codex CLI Support — Real-Binary Evidence
-
-- Evidence date: `2026-08-21`.
-- Evidence shape: WSL2 (Ubuntu-24.04) with **Codex `codex-cli 0.149.0`** actually installed, production build served by `server.mjs` via `bin/pi-provider-manager-ui`, against an isolated `CODEX_HOME` seeded from the owner's real `~/.codex`. The development machine has no Codex CLI, so this is the only run that exercises a real binary.
-- **Codex accepted the generated configuration.** `codex` started and reported `model: gpt-5.6-sol high`, confirming the four fields written into `[model_providers.custom]` (`name`, `base_url`, `wire_api`, `requires_openai_auth`) pass the table's `deny_unknown_fields`, that `wire_api = "responses"` is accepted, and that `model_reasoning_effort` is applied.
-- **Adoption worked on a real file.** An existing provider was adopted and shown as live without the read path writing anything.
-- **Preservation held against real content.** `[projects."…"]` tables whose keys are quoted absolute paths containing slashes, dots, and CJK survived intact, as did `[tui.model_availability_nux]` and the legacy top-level keys `disable_response_storage` and `plan_mode_reasoning_effort`. That fixture is now a regression test in `tests/toml-document.test.mjs`.
-- **A project-local `.codex/config.toml` shadows nothing that matters.** Running Codex from a directory containing one produced `Ignored unsupported project-local config keys … model_provider, model_providers`. Those two keys are user-level only, which is exactly where this manager writes them; the warning concerns the working directory's own file, not `$CODEX_HOME/config.toml`.
-- **Two launcher defects surfaced only here.** `port_in_use` probed with bash's `/dev/tcp`, which has no connect timeout; under WSL2 mirrored networking a connect to an unbound loopback port never returns, so the launcher hung on its first candidate port with nothing printed. It now asks Node whether the port can be bound. Separately the launcher printed its URL only when told not to open a browser, so a blocked browser bridge left no port and no error on screen; the URL and both config directories are now printed unconditionally and the bridge is detached.
-- The same networking behaviour made "connection refused" unreachable for loopback probes on this machine, so the bridge check no longer reports refused and timed out as different outcomes.
-
-final result: passed
-
-## Pi 0.84.3 Compatibility Run
-
-- Evidence date: `2026-08-26`. Manager version `0.3.3`; baseline advanced from Pi `0.84.2` to `0.84.3`.
-- Evidence shape: Pi `0.84.3` installed into a throwaway `npm --prefix` tree so the machine's global `0.84.2` stayed in place and both versions could be run against the same directory. Configuration written by this manager's own API into an isolated `PI_CODING_AGENT_DIR`, with a non-routable gateway URL and a dummy key.
-- **Both versions read a manager-generated config identically.** `pi --list-models compat-gw` under `PI_OFFLINE=1` printed byte-identical rows on `0.84.2` and `0.84.3` — provider, model, `200K` context, `8.2K` max output, thinking yes, images no. That is the checklist step that decides whether Pi accepts what this manager writes.
-- **No config schema change.** `dist/config.d.ts` differs between the two releases only by a corrected comment and a new exported `findNodePackageDir`. The release's one breaking change is a TypeScript type rename (`GoogleThinkingLevel` → `GoogleApiThinkingLevel`), which is an SDK surface and not a file this manager reads or writes. `docs/providers.md` is unchanged.
-- **One real divergence found, and fixed here.** Pi `0.84.3` made its own reader tolerate a UTF-8 BOM (`dist/core/auth-storage.js` gained `stripBom`). Verified by adding a BOM to the manager-written `auth.json`: `0.84.3` read it, while Pi `0.84.2` **and this manager** both failed with `Unexpected token`. A file Pi accepts must not be a file this manager rejects — Notepad writes a BOM and Windows is supported — so `parseJsonBytes` and `readText` now strip one on read. Nothing writes one back, so the next save normalises the file. Regression in `tests/server.test.mjs`, mutation-checked.
-- **Pi stopped re-chmodding `auth.json`.** `auth-storage.js` dropped its `chmodSync(path, 0o600)` calls, deliberately: "the mode applies only on creation so administrator-managed modes and ACLs remain intact." This creates no gap here, because `lib/atomic-files.mjs` chmods `0600` after every write of its own rather than relying on Pi to do it — the same reasoning that fixed the bridge log in 0.3.2. This manager is now stricter about the mode than Pi is.
-- Unknown-field preservation, atomic multi-file writes with rollback, and the revision conflict path were exercised by `npm test` (108 pass, 0 skipped, with the BOM regression below) rather than by hand.
-- **CI executes the Windows launcher, and its first run found the check rather than the code.** The step started the launcher, which printed the URL and both config directories correctly, and then failed on the assertion: it compared the printed directory with the string it had passed. This runner's `TEMP` is the 8.3 short form `C:\Users\RUNNER~1\AppData\Local\Temp` — now logged by the step — while the launcher prints it resolved to `C:\Users\runneradmin\...`. The assertion matches the directory's leaf instead, and reads the process id before asserting anything, so a failure no longer leaks the server it started.
-- **Not run in this pass, and so not claimed:** the browser scenarios in the sections above were not repeated against `0.84.3` — the automated production-browser suite passed, but no manual pass was made — and no interactive `pi` session was started, so `/model` was not used to confirm the model appears in the picker. The `--list-models` result above is the schema evidence; the picker is a UI surface this release did not change.
-
-final result: passed
-
-## Stale Version Reporting — Evidence
-
-- Evidence date: `2026-08-26`. Manager version `0.3.4`.
-- Reproduced on the development machine rather than from a report: a manager started on `2026-08-25 17:23` from this checkout was still serving `Pi 0.84.2`, `已验证兼容 Pi 0.84.2` and `管理器版本 0.3.2` while the machine had Pi `0.84.3` installed and the checkout had moved to `0.3.4`. Every number on the card was correct for the process and wrong for the machine, and nothing on screen said which of the two it was describing.
-- **Detection is live now, and free at the point of use.** A fresh instance on a spare port reported `piVersion 0.84.3` and `codexVersion 0.149.0` against the same machine. After the cache window elapsed, three consecutive `/api/state` reads returned in `6ms`, `2ms` and `2ms` — the refresh runs behind the reader, which is what the launcher's one-second readiness probe requires.
-- **The stale-process case is asserted, not described.** `tests/server.test.mjs` starts a copied checkout, moves its manifest to `9.9.9` underneath the running process, and checks that `appVersion` stays put while `pendingAppVersion` names the version on disk — and that removing the manifest is not read as an upgrade.
-- **The rendered card is checked in a real browser, not only the payload.** A copied checkout is served, the settings card is opened, the copy's manifest is moved to `9.9.9` underneath the running server, and after a reload the card still reports the running version while naming both versions and the restart. Mutation-checked: suppressing `pendingAppVersion` in the response makes that test fail with "no upgrade note rendered".
-- **The PowerShell launcher was executed, not only parsed.** PowerShell 7.6.3 on this machine, against the WSL checkout: a fresh start on a spare port with throwaway config directories, then a second run that reported `version 0.3.4`, both directories as the running instance sees them, and `Stop-Process -Id 19204`. `Read-Field` is what makes that safe under `Set-StrictMode -Version Latest`, where a missing property is a terminating error.
-- **The Windows shim finding, measured.** That same Windows-side run reported `codex 0.144.5` where the previous code could only have said `unknown`, and a direct probe under Windows Node 22 shows why: `execFile("codex", ["--version"])` fails `ENOENT` with `shell: false` and returns `codex-cli 0.144.5` with `shell: true`. `tests/version-detect.test.mjs` also passes under Windows Node, not only WSL.
-- **A gap found only by running it.** PowerShell refuses this launcher outright from a WSL checkout: the default `RemoteSigned` policy treats `\\wsl.localhost\...` as a remote path and rejects the unsigned script with `is not digitally signed`, which names neither this project nor the way out. The script cannot report this — it never runs — so `docs/usage.zh-CN.md` now does, including that a process-scoped `-ExecutionPolicy Bypass` is a relaxation of a control rather than a setting.
-- `npm test`: 120 pass, 0 fail, 0 skipped, including the real-Codex suite.
-- **Not run in this pass, and so not claimed:** the manual browser scenarios from the earlier sections were not repeated by hand, and Pi is not installed on the Windows side of this machine, so the Windows `pi` detection path was exercised only as far as its "unknown" answer.
-
-final result: passed
-
-## Restart From The Panel — Evidence
-
-- Evidence date: `2026-08-26`. Manager version `0.3.5`.
-- **Both outcomes of the handover are exercised, not just the good one.** `tests/server.test.mjs` moves a copied checkout's manifest to `9.9.9` and restarts through the endpoint: a different process id answers on the port, reporting `9.9.9` with nothing left pending and the same config directory it was started with. The second test replaces the copy's `server.mjs` with a file that throws, restarts, and checks that the original process takes the port back, reports `新进程启动后立刻退出` on `/api/state`, and still accepts a further attempt. That failure test finishes in under a second because a replacement that has exited is not waited out.
-- **The button is driven in a real browser.** `tests/model-deletion-ui.test.mjs` marks the document, clicks the restart button, and waits for the mark to be gone — every selector on the page survives the reload, so waiting on one of those passes against the page still up and then races the reload. After the reload the card reports `9.9.9` with no upgrade note. The confirm path is covered in the same run: editing a select first makes the button ask before restarting, and cancelling leaves the process id unchanged.
-- **A hang found the stdio rule.** With the replacement inheriting this process's stdio unconditionally, the UI suite ran for seven minutes without finishing: the detached replacement held the write end of the test harness's pipe, so the runner waited for an end that would never come. Output is now inherited only when it is a regular file or a character device — a log file or a terminal, which is where the launcher points it and where a startup failure has to land.
-- **The archive was verified after 0.3.5 shipped.** The published `windows.zip` was extracted onto a Windows-local path and run the way the manual says — from inside the versioned directory. It started, served its own `server.mjs` (confirmed from the process command line rather than assumed), reported `app 0.3.5` and `codex 0.144.5`, and reported the reuse with version, both directories and `Stop-Process -Id <pid>` on the second run. Run once with the current directory still on the WSL checkout first, where the launcher correctly warned that the copy it was starting was not the checkout it was pointed at — rule 2 of the four-place discovery beating rule 3, which was the invocation being wrong rather than the launcher.
-- **The `Unblock-File` guidance was tested against a real download mark.** A `Zone.Identifier` stream with `ZoneId=3` was written onto a copy of the launcher: PowerShell refused it with `is not digitally signed`, and after `Unblock-File` the script ran and reported the missing checkout itself. This is the guidance the archive's `INSTALL.md` now leads with.
-- `npm test`: 123 pass, 0 fail, 0 skipped on this machine — the new PowerShell launcher test skips where no Windows PowerShell is reachable, and it does not skip here.
-- **Not run in this pass, and so not claimed:** the archive has not been downloaded through a browser, so the download mark above was written by hand rather than by a real download; and Pi is not installed on the Windows side of this machine, so Windows `pi` detection is exercised only as far as its `unknown` answer.
-
-final result: passed
-
-## Update From The Panel — Evidence
-
-- Evidence date: `2026-08-26`. Manager version `0.3.5`.
-- **The check was run against the real API once, by hand.** `POST /api/update/check` returned `latest 0.3.5`, `newer false` against the running `0.3.5`, named `pi-provider-manager-v0.3.5-linux-wsl.tar.gz` as this platform's asset, and described the install it was running in: a checkout on branch `update-from-the-panel` with no upstream yet and a dirty tree. `POST /api/update/apply` then refused with `409` and that same reason. One request, because a person made it.
-- **Everything else is covered without the network.** `tests/self-update.test.mjs` drives the lookup, the version ordering, all three refusal reasons, and both apply shapes against injected commands and responses: that `npm ci` runs only when the lockfile moved, that a failed step stops the sequence before the build, that an unchanged HEAD is reported rather than rebuilt, and that an archive is unpacked beside the install with the running copy byte-identical afterwards. `tests/server.test.mjs` checks that a page load has looked up nothing at all — an empty `update` in the state is the observable form of "startup makes no upstream request".
-- **Two refusals are asserted rather than described.** An existing destination directory is refused before anything is downloaded, and an archive missing `server.mjs` or `dist/client/index.html` is reported with the current install untouched and the half-unpacked directory cleared away, so the next attempt is not blocked by the path this one created.
-- **The browser sees the control and its promise.** `tests/model-deletion-ui.test.mjs` asserts the settings card carries the check button and that its hint names `api.github.com` and says the press is what makes the request — before any check has been made.
-- **The half-finished upgrade is refused, not just described.** `tests/server.test.mjs` serves a fixture whose bundle is newer than its sources, moves the source's mtime forward the way a pull does, and checks that `/api/state` reports it, that `POST /api/restart` answers `409` with the same reason, that the process id did not change, and that touching the bundle clears it without a restart. The rule lives in `lib/built-ui.mjs` and the UI suite's helper reads the same copy.
-- `npm test`: 138 pass, 0 fail, 0 skipped on this machine.
-- **The Windows extraction command form was run on Windows, if not the branch around it.** The exact `Expand-Archive -LiteralPath '…' -DestinationPath '…' -Force` string this code builds was executed on PowerShell against a path containing both a space and a single quote — the quote doubled the way the code doubles it — and unpacked both required entries. What that does not cover is the branch reaching it, which needs a manager running on Windows: from WSL the paths handed to it are `/mnt/...` and `/tmp/...`, which PowerShell does not read.
-- **Not run in this pass, and so not claimed:** no upgrade has been applied end to end against a release newer than the running one, because there is not one yet. The checkout path was exercised as far as its refusals and its injected-command sequence; the archive path only against a stand-in for `tar`.
-
-final result: passed
-
-## Upgrade End To End — Evidence
-
-- Evidence date: `2026-08-26`. Release `0.3.6`.
-- **The whole chain was run against the real release, in a real checkout.** A fresh clone was rewound to `3c52cea` — the commit before the release bump, so the code carries the update feature while `package.json` still says `0.3.5`, which is exactly what a checkout that has not pulled since the release looks like. `npm ci`, `npm run build`, then serve on a spare port with a throwaway config directory.
-- **Check.** `POST /api/update/check` against the real API returned `latest 0.3.6`, `newer true`, and described the install: a checkout on `main` tracking `origin/main`, clean, `canApply true`.
-- **Apply.** `POST /api/update/apply` ran all four steps and reported each: 拉取远端提交 (`1116ms`), 快进到远端版本 (`7ms`), 安装依赖 (`3675ms` — the release commit moved `package-lock.json`, which is what earns an `npm ci`), 构建界面 (`2799ms`). Afterwards the state read `appVersion 0.3.5`, `pendingAppVersion 0.3.6`, `bundleProblem ""` — the upgrade on disk, the process still serving the old one, and nothing stale because the build had run.
-- **Apply.** `POST /api/restart` handed the port from pid `1310787` to pid `1312006`, which reported `0.3.6` with nothing left pending. The served page then referenced `assets/index-QCIA26Mf.js`, the bundle the build had just produced — so the new server is behind the new page, which is the thing the stale-bundle guard exists to protect.
-- **The Windows archive branch ran, on Windows, against the real release.** Windows Node fetched the `v0.3.5` release, downloaded `pi-provider-manager-v0.3.5-windows.zip`, and unpacked it with `Expand-Archive` into a sibling of a stand-in older install: `server.mjs`, `dist/client/index.html` and `bin/pi-provider-manager.ps1` all present in the new directory, the stand-in install byte-identical afterwards, and the downloaded zip removed. This is the path the previous section recorded as never having run at all.
-- **What this supersedes.** The `Update From The Panel` section said no upgrade had been applied end to end against a newer release, because there was not one; and that the Windows extraction branch had not been run. Both are now run, and above.
-- **Not run in this pass, and so not claimed:** the archive upgrade was exercised through the library against a real release rather than through a manager actually installed from an archive, so the branch that decides `kind: "archive"` on a real archive install has still only been reached in tests. No failure of the apply sequence was staged against the real remote — a broken build and a broken replacement are covered by `tests/server.test.mjs` and `tests/self-update.test.mjs`, not by a staged bad release.
-
-final result: passed
-
-## The Last Two Unclaimed Paths — Evidence
-
-- Evidence date: `2026-08-26`. Release `0.3.6`.
-- **An archive install upgraded itself, end to end, through the endpoints.** `npm run package:release` staged `0.3.6`, a copy of that staging directory was relabelled `pi-provider-manager-v0.3.5` in its own `package.json` — an archive install one release behind, which is what it is — and served from `/tmp` with no `.git` anywhere above it. `POST /api/update/check` returned `kind: "archive"` with `这不是一个 git checkout，只能换一份新的发布归档。`, `latest 0.3.6`, `newer true`, and named `pi-provider-manager-v0.3.6-linux-wsl.tar.gz`. `POST /api/update/apply` downloaded that real asset and unpacked it to the sibling `pi-provider-manager-v0.3.6`: `server.mjs`, `dist/client/index.html` and both launchers present, `package.json` reading `0.3.6`, the `0.3.5` install still reading `0.3.5`, and no archive file left in the parent. Then the launcher the response named was run: it started and reported `app 0.3.6`. That is the branch the previous section recorded as reachable only in tests.
-- **A failure was staged against the real remote.** A clone was rewound to `3c52cea` and given a local commit, so a fast-forward is impossible. `POST /api/update/apply` fetched from the real remote, failed at 快进到远端版本, ran no build, left `applied` and `pendingAppVersion` empty, and left the checkout on its own commit — nothing stashed, nothing merged.
-- **That run found something worth fixing.** git's account of a blocked fast-forward is three lines of hints about `merge` and `rebase`, which is advice for a different situation. The step now leads with what is in the way — `本地有 2 个远端没有的提交，无法快进。先把它们推送或收起，再升级。` — and keeps git's own words underneath. The count is taken after the fetch, because before it a commit already pushed from elsewhere would read as local. Both branches are unit-tested, including that a failure with nothing local ahead is left exactly as git reported it.
-- **And confirmed a refusal on a real checkout by accident.** Copying the new library into the clone made its tree dirty, and the apply refused with `工作区有未提交的改动，拉取前请先提交或收起它们。` naming ` M lib/self-update.mjs` and ` M server.mjs` — the porcelain columns intact, which is why they are not trimmed.
-- **An archive install already on the latest release now refuses.** Downloading the release it is already running would leave a copy of itself in the next directory along. A checkout is deliberately not refused on the same test: commits land after a release bump, so it can be behind its upstream with the release number unchanged, and pulling those is still right. The rule is `applyRefusal` in `lib/self-update.mjs`, stated where it can be tested without a server or a network.
-- `npm test`: 141 pass, 0 fail, 0 skipped.
-- **Not run in this pass, and so not claimed:** the archive upgrade was exercised on Linux/WSL; its Windows twin has been run as far as the download and `Expand-Archive` (previous section) but not through the endpoints on a Windows-hosted manager. No archive install was upgraded twice in a row, so nothing has met an existing sibling directory outside the unit tests.
-
-final result: passed
-
-## Sidecar Verification On A Real Release — Evidence
-
-- Evidence date: `2026-08-29`. Release `0.3.7`.
-- **The check that could not be run before there was a release carrying sidecars was run.** `latestRelease` against the real API returned `v0.3.7` with four assets — both archives and both `.sha256` files. `downloadArchive`, using the module's own fetch rather than a stand-in, downloaded `pi-provider-manager-v0.3.7-linux-wsl.tar.gz`, verified it against the published sidecar, listed the entries, extracted into a staging directory and renamed it to the sibling `pi-provider-manager-v0.3.7` beside a stand-in `0.3.6` install: `server.mjs`, `dist/client/index.html` and `bin/pi-provider-manager-ui` all present, `package.json` reading `0.3.7`, the stand-in untouched, and no archive file left in the parent.
-- **Three refusals were staged against those same real assets.** One flipped byte in the middle of the archive gave `发布归档的 SHA-256 校验失败，未写入磁盘。`; removing the sidecar from the release gave `发布缺少 pi-provider-manager-v0.3.7-linux-wsl.tar.gz.sha256，无法验证下载完整性。`; rewriting the sidecar to name a different file gave `发布归档的 SHA-256 文件无效。` After each one the parent directory still held only the stand-in install — the refusals write nothing, which is the part that matters.
-- **The install that came out of it was started.** Its launcher run with `PI_PROVIDER_MANAGER_OPEN_BROWSER=0`, a throwaway config directory for each agent and port `43191` reported ready, and `/api/state` read `appVersion 0.3.7`, `pendingAppVersion ""`, `bundleProblem ""`, `piVersion 0.84.3` equal to the validated Pi version and `codexVersion 0.149.0` equal to the validated Codex version. Stopped afterwards, and the extraction and both config directories removed.
-- `npm test`: 145 pass, 0 fail, 0 skipped.
-- **Not run in this pass, and so not claimed:** the Windows half of the same path. `pi-provider-manager-v0.3.7-windows.zip.sha256` is published, but nothing on Windows read it, and the PowerShell branches that list and expand the zip have still only been reached in tests. The library was also called directly rather than through `POST /api/update/apply`, so the panel's route into this verification remains covered by `tests/server.test.mjs` and `tests/self-update.test.mjs` rather than by this run.
-
-final result: passed
-
-## Pi 0.84.4 Compatibility Triage — Evidence
-
-- Evidence date: `2026-08-29`. Manager `0.3.7`. Baseline deliberately left at Pi `0.84.3`.
-- **What actually moved upstream.** Of the three documents `docs/compatibility.md` step 1 names, only `settings.md` differs between `v0.84.3` and `v0.84.4` (`+12/-4`); `models.md` and `providers.md` are unchanged. It documents four keys this manager does not own: `modelThinkingLevels` — per-model startup thinking levels keyed by `"provider/modelId"` — plus `fullscreenCopyOnSelect` and the JSON-only `terminal.hyperlinks`, `terminal.images` and `terminal.trueColor`. No config path, provider field, model field, API identifier or thinking level changed, and the seven thinking levels stayed the seven this manager offers.
-- **The fixture carries those keys now, and the test is load-bearing.** `tests/server.test.mjs` wrote a `settings.json` holding one invented `futureSetting`; it now also holds `modelThinkingLevels`, `fullscreenCopyOnSelect` and a `terminal` table, and asserts each survives a `POST /api/settings`. Mutation-checked rather than assumed: replacing that handler's `readJson(SETTINGS_PATH)` with `{}` failed exactly one test of the 41 and nothing else, and the file was restored to byte-identical afterwards.
-- **The real page/API boundary ran on the built bundle.** `PI_PROVIDER_MANAGER_SERVE_UI=1 node server.mjs` against a temporary `PI_CODING_AGENT_DIR` served `/` as `text/html` with the `Content-Security-Policy` and `X-Content-Type-Options` headers intact, and `POST /api/providers` — carrying the revision read from `/api/state` — wrote a `compat-check` provider pointed at the non-routable `http://127.0.0.1:9/v1` with a dummy key. `models.json`, `settings.json` and `auth.json` came out with exactly the submitted shape. `npm run build` and `npm run test:sites` ran before it.
-- **Pi read that config back — on `0.84.3`, which is the control, not the evidence.** `PI_CODING_AGENT_DIR=<temporary> PI_OFFLINE=1 pi --list-models compat-check` listed `compat-model` with `200K` context, `8.2K` max output, thinking `yes`, images `no`. That is the release already validated, so it proves the fixture is well formed and says nothing yet about `0.84.4`.
-- `npm test`: 145 pass, 0 fail, 0 skipped — including the Chrome-driven UI suite against the built page and the real-binary Codex and LiteLLM suites.
-- **Not run in this pass, and so not claimed:** step 8 against Pi `0.84.4` itself. Reaching that release means fetching it, which this environment declined, so the baseline stays where it was — step 10 permits advancing `piValidatedVersion` only after every check passes, and this one has not. The prepared directory and the exact command are recorded in the compatibility issue. `design-qa.md`'s browser scenarios were also not walked by hand; the UI suite drives the real page for the model-deletion flow only.
-
-final result: passed except step 8, which is blocked rather than failed
-
-## Pi 0.84.4 — The Step That Was Blocked
-
-- Evidence date: `2026-08-31`. Manager `0.3.7`. Baseline moved to Pi `0.84.4`.
-- **Step 8 ran, on the release itself.** A `compat-check` provider was written again through the real API into a temporary directory — `http://127.0.0.1:9/v1`, dummy key, nothing routable — and `PI_OFFLINE=1 … @earendil-works/pi-coding-agent@0.84.4 --list-models compat-check` listed `compat-model` with `200K` context, `8.2K` max output, thinking `yes`, images `no`. The installed `0.84.3` was run against the same directory immediately afterwards and printed the same row, character for character. The release was run without being installed, so the machine's own Pi is still `0.84.3`.
-- **What this supersedes.** The previous section recorded step 8 as blocked rather than failed, and `piValidatedVersion` as deliberately held at `0.84.3`. Both are now closed: every checklist step has passed, and the baseline is `0.84.4`.
-- **Also confirmed nothing had moved again.** The latest stable `earendil-works/pi` release is still `0.84.4` (published `2026-08-28`), so this baseline is current rather than one behind on arrival.
-- **Not run in this pass, and so not claimed:** the optional interactive smoke test — `/model` inside a running Pi — and `design-qa.md`'s browser scenarios by hand. The `0.84.4` run was `--list-models` only.
-
-final result: passed
-
-## The Windows Half Of The Archive Verifier — Evidence
-
-- Evidence date: `2026-08-31`. Release `0.3.7`. Windows 11, Windows PowerShell `5.1.26100.8457`, Windows Node `v22.15.0`.
-- **The `win32` branch ran on Windows, against the published archive.** `lib/self-update.mjs` was copied to a Windows-local directory and driven by Windows Node, so `process.platform` was `win32` and the PowerShell branches were the ones that executed: `[IO.Compression.ZipFile]::OpenRead` to list the entries, the root-prefix and absolute-path checks over that listing, then `Expand-Archive` into a staging directory. `pi-provider-manager-v0.3.7-windows.zip` verified against its published `.sha256`, unpacked, and was renamed to the sibling `pi-provider-manager-v0.3.7` beside a stand-in `0.3.6` install — `server.mjs`, `dist\client\index.html` and `bin\pi-provider-manager.ps1` all present, `package.json` reading `0.3.7`, the stand-in untouched.
-- **Two refusals, same assets, on Windows.** One flipped byte gave `发布归档的 SHA-256 校验失败，未写入磁盘。`; the sidecar removed from the release gave `发布缺少 pi-provider-manager-v0.3.7-windows.zip.sha256，无法验证下载完整性。` The parent directory held only the stand-in afterwards in both cases.
-- **The bytes came from disk, and why.** Windows Node could not download from GitHub's object storage on this host: every attempt failed with `TypeError: fetch failed` caused by `read ECONNRESET` on the TLS socket, while the same download from WSL on the same machine succeeded. So both real assets were fetched beside the script and served to `downloadArchive` through `fetchBinary`. The archive and the sidecar are the published ones — the sidecar was separately confirmed to match the archive's actual SHA-256 — and the transport is the one part of that path which is not Windows-specific.
-- **What this supersedes.** Two earlier sections recorded the Windows sidecar and the PowerShell list/expand branches as reached only in tests. They have now been executed on Windows.
-- **Not run in this pass, and so not claimed:** the download itself on Windows, for the reason above, and the route through `POST /api/update/apply` from a manager actually hosted on Windows. Nothing was run twice in a row, so the existing-sibling refusal is still only covered by unit tests on that platform.
-
-final result: passed
-
-## Codex 0.151.0 Compatibility Triage — Evidence
-
-- Evidence date: `2026-08-31`. Manager `0.3.8`. Baseline moved from Codex `0.149.0` to `0.151.0`.
-- **The five invariants `docs/compatibility.md` names were checked at `rust-v0.151.0`, and four are unchanged.** `wire_api` still deserialises `"responses"` alone, with `"chat"` answered by a specific removal error rather than a generic one. `ModelProviderInfo` still carries `deny_unknown_fields`. A provider table without `name` still takes down the whole config — asserted against the real binary, not read from the struct, because `name` is `#[serde(default)]` there and the refusal happens elsewhere. `--profile` against a legacy `[profiles.*]` table still fails. Credential resolution was confirmed the same way that matters: a manager-configured gateway with `requires_openai_auth = true` and a key in `auth.json` was actually reached.
-- **The fifth changed, and this manager was wrong about it.** `ReasoningEffort` gained `persistent`, and carries a `Custom(String)` variant for an effort a model defines that the client does not know. This manager offered eight values and rewrote anything else to `medium` — so a hand-written `model_reasoning_effort = "persistent"` was displayed as `medium` and silently became `medium` on the next save. Confirmed with `codex doctor --json` that both `"persistent"` and an invented `"turbo"` load fine on `0.151.0` **and** on `0.149.0`, so this was a live defect rather than a new-release consequence.
-- **`npm run test:codex-real` on `0.151.0`: 5 pass, 0 fail, 0 skipped.** The release was installed into a throwaway prefix and put on `PATH` for the run, so the machine's own Codex is still `0.149.0`; the suite is green on both.
-- `npm test`: 147 pass, 0 fail, 0 skipped.
-- **Not run in this pass, and so not claimed:** the interactive TUI. Everything here went through `codex doctor`, `codex exec` and the endpoints, so `/model`, `/thinking` and the plan-mode control were not exercised on `0.151.0`. Nor was a model-defined effort obtained from a real model — `"turbo"` is an invented stand-in for the `Custom(String)` shape, which is what the parser accepts, not proof that any model emits one.
-
-final result: passed
+## Current Baseline Evidence
 
 ## Pi 0.85.1 Compatibility Triage — Evidence
 
@@ -414,3 +246,36 @@ final result: passed
 - **Not run in this pass, and so not claimed:** the interactive TUI on `0.154.0` — `/model`, `/thinking` and the plan-mode control were not exercised.
 
 final result: passed
+
+## Standing Caveats — Not Claimed To Date
+
+- The interactive smoke tests have never run: `/model` inside a running Pi and Codex's interactive TUI. Every Pi validation went through `--list-models`; every Codex check through `codex doctor` and `codex exec`.
+- A model-defined `Custom(String)` reasoning effort has never been obtained from a real model — the invented `"turbo"` is a stand-in for the shape the parser accepts, not proof that a model emits one.
+- A manager actually hosted on Windows has never driven `POST /api/update/apply`. The Windows archive branches ran on Windows as a library against the published assets, with the bytes served from disk, because Windows Node cannot reach GitHub's object storage on that host.
+- No archive install has ever upgraded twice in a row, so the existing-sibling refusal has only ever been met in unit tests.
+- Pi has never been installed on the Windows side of the development machine, so Windows `pi` detection has only ever answered `unknown`.
+- The archive's Windows download mark was written by hand, not produced by a real browser download.
+- The manual browser scenarios in the design sections were walked by hand on 2026-08-18; since then the real page is driven by the automated production-browser suite, plus a light smoke on 2026-09-12.
+
+## Verification History
+
+One row per superseded evidence section; the full dated text of each lives in git history.
+
+| Date | Manager | What was exercised | Result |
+|---|---|---|---|
+| 2026-08-19 | 0.1.x | Model deletion protection: persisted IDs read-only, armed-delete geometry stable at 85px, 撤销, 420px viewport | passed |
+| 2026-08-19 | 0.1.x | Provider deletion: named dialog, Cancel focus, credential retention default, replacement validation server-side | passed |
+| 2026-08-21 | 0.2.x | Codex `0.149.0` real binary: generated config loaded, adoption, byte-exact preservation, project-local config shadows nothing, two launcher defects found | passed |
+| 2026-08-26 | 0.3.3 | Pi `0.84.3` vs `0.84.2`: byte-identical rows; BOM tolerance found and fixed on the manager side; auth.json chmod note | passed |
+| 2026-08-26 | 0.3.4 | Stale version reporting: live detection, manifest-move assertions in payload and rendered card, PowerShell launcher reuse, Windows `.cmd` shim | passed |
+| 2026-08-26 | 0.3.5 | Restart handover: both outcomes; stdio-hang rule found by a hang; archive run on Windows; `Unblock-File` guidance against a real mark | passed |
+| 2026-08-26 | 0.3.5 | Update check/apply: real-API check by hand, all three refusal reasons, stale-bundle guard, browser assertions on the control's promise | passed |
+| 2026-08-26 | 0.3.6 | Upgrade end to end on a real checkout; Windows archive branch against the real `v0.3.5` release | passed |
+| 2026-08-26 | 0.3.6 | Archive install self-upgraded through the endpoints; blocked fast-forward staged against the real remote | passed |
+| 2026-08-29 | 0.3.7 | Sidecar verification on the real `v0.3.7` release; three refusals each left nothing on disk | passed |
+| 2026-08-29 | 0.3.7 | Pi `0.84.4` triage: fixture extended with the four new settings keys; step 8 blocked (fetch refused), baseline held | blocked |
+| 2026-08-31 | 0.3.7 | Pi `0.84.4` step 8 on the release itself; byte-identical row against the `0.84.3` control | passed |
+| 2026-08-31 | 0.3.7 | Windows archive verifier on Windows: `OpenRead`/`Expand-Archive` on the published zip, two refusals, bytes from disk (`ECONNRESET`) | passed |
+| 2026-08-31 | 0.3.8 | Codex `0.151.0` triage: four invariants unchanged; the reasoning-effort rewrite defect found and fixed | passed |
+
+final result: all historical sections passed except the one recorded as blocked, which its successor section closed
