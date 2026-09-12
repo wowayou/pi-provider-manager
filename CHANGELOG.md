@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.10 - 2026-09-12
 
 - `design-qa.md` now stays bounded. Every compatibility run used to append a section, so the file grew by one block per release; it now keeps the current Pi and Codex triage in full, carries every superseded run as one row in a verification history, and gathers the checks that have never been exercised into a standing caveats list — so what is *not* claimed survives the compression. The full dated text of superseded sections lives in git history, and the CHANGELOG keeps the narrative of what changed and why.
 - Validated against Codex `0.154.0`. The five invariants the compatibility policy names were re-run against the real binary: `wire_api` still accepts only `"responses"`, with `"chat"` answered by the specific removal error rather than a generic one; a provider table without `name` still stops the whole config; `persistent` and model-defined reasoning efforts still load; and a legacy `[profiles.*]` table still parses while `--profile` rejects it. `npm run test:codex-real` is green on `0.154.0` with nothing skipped.
