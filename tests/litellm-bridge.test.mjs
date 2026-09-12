@@ -293,11 +293,16 @@ test("reports not running when nothing was ever started", () => {
   }
 });
 
-test("a missing binary is recorded, not thrown at the process", async () => {
+test("a missing binary is recorded, not thrown at the process", async (t) => {
   // spawn reports ENOENT asynchronously. An unlistened "error" event on a
   // ChildProcess is re-thrown as an uncaught exception, which would take the
   // whole manager down the moment someone clicked start without LiteLLM
   // installed.
+  //
+  // start() only gets as far as spawning where ownership can be proven from
+  // procfs; elsewhere it refuses before that, which is the behaviour the
+  // "refuses to supervise" test above covers.
+  if (process.platform !== "linux") return t.skip("procfs only");
   const dir = sandbox();
   process.env.PI_PROVIDER_MANAGER_LITELLM = path.join(dir, "does-not-exist");
   try {
@@ -377,10 +382,14 @@ test("the manual command names the key rather than carrying it", async () => {
   }
 });
 
-test("finds LiteLLM where PEP 668 forces people to install it", () => {
+test("finds LiteLLM where PEP 668 forces people to install it", (t) => {
   // Debian and Ubuntu refuse a system-wide pip install, so LiteLLM lands in a
   // virtualenv or under pipx and off PATH. Requiring an environment variable
   // for the normal case would make the bridge feel broken out of the box.
+  //
+  // The second half turns the pipx entry unexecutable to prove it stops being a
+  // usable answer, which chmod cannot express on Windows.
+  if (process.platform === "win32") return t.skip("POSIX executable bit");
   const home = sandbox();
   try {
     assert.equal(findLitellm(home), "litellm", "with nothing installed it defers to PATH");

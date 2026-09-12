@@ -19,7 +19,20 @@ function findChrome() {
     ? fs.readdirSync(playwrightRoot).flatMap((directory) => [
         path.join(playwrightRoot, directory, "chrome-headless-shell-linux64", "chrome-headless-shell"),
         path.join(playwrightRoot, directory, "chrome-linux", "chrome"),
+        path.join(playwrightRoot, directory, "chrome-headless-shell-win64", "chrome-headless-shell.exe"),
+        path.join(playwrightRoot, directory, "chrome-win", "chrome.exe"),
       ])
+    : [];
+  // The install locations are per-platform, and a suite that can only find
+  // Chrome on Linux fails eight tests at once on a Windows checkout — which
+  // reads as eight defects rather than as one missing path.
+  const windowsCandidates = process.platform === "win32"
+    ? [process.env.PROGRAMFILES, process.env["PROGRAMFILES(X86)"], process.env.LOCALAPPDATA]
+        .filter(Boolean)
+        .flatMap((root) => [
+          path.join(root, "Google", "Chrome", "Application", "chrome.exe"),
+          path.join(root, "Microsoft", "Edge", "Application", "msedge.exe"),
+        ])
     : [];
   const candidates = [
     process.env.CHROME_BIN,
@@ -27,6 +40,8 @@ function findChrome() {
     "/usr/bin/google-chrome-stable",
     "/usr/bin/chromium",
     "/usr/bin/chromium-browser",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    ...windowsCandidates,
     ...playwrightCandidates,
   ].filter(Boolean);
   const executable = candidates.find((candidate) => fs.existsSync(candidate));
@@ -2156,6 +2171,13 @@ test("the compatibility card says when the checkout has moved ahead of the proce
     } catch {}
     if (replacedPid > 0) {
       try { process.kill(replacedPid, "SIGTERM"); } catch {}
+      // SIGTERM only asks. projectDir is that process's working directory, and
+      // Windows refuses to remove one of those while it still exists, so the
+      // exit has to be waited out rather than assumed.
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        try { process.kill(replacedPid, 0); } catch { break; }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
     }
     fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
