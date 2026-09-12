@@ -67,9 +67,19 @@ test("a duplicated Pi draft carries the models but never the credential", () => 
   assert.equal(copy.models[1].maximumThinking, "medium");
   assert.equal(copy.defaultRowId, copy.models[1].rowId);
   assert.deepEqual(copy.compat, { supportsStrictTools: true });
+  // Nothing in a copy exists on disk yet, so no row may claim a storage
+  // identity: carrying persistedId over would lock the IDs as read-only and
+  // make the identity-drift check refuse the draft.
+  assert.deepEqual(copy.models.map((model) => model.persistedId), ["", ""]);
+  assert.equal(changedPersistedModel(copy.models), null);
+  // Reusing an existing credential must not move it away from the source,
+  // which is still configured and still needs its key.
+  assert.equal(copy.moveCredential, false);
   // The source draft must be untouched: rows are copied, not aliased.
   assert.equal(form.models[0].rowId, "r1");
   assert.equal(form.defaultRowId, "r2");
+  assert.equal(form.models[0].persistedId, "claude-3-5-sonnet");
+  assert.equal(form.moveCredential, true);
 });
 
 test("a duplicated Codex draft keeps the bridge address but not the bridge key", () => {

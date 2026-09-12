@@ -16,7 +16,7 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 
-import { Spinner } from "./ui-kit.jsx";
+import { ErrorBanner, Spinner } from "./ui-kit.jsx";
 
 const NEW_DOCUMENT = "";
 
@@ -24,7 +24,7 @@ function byteLength(text) {
   return new TextEncoder().encode(text).length;
 }
 
-export function PromptsScreen({ target, state, saving, error, onSave, onActivate, onDelete, onNotify, onBack }) {
+export function PromptsScreen({ target, state, saving, error, conflict, onSave, onActivate, onDelete, onNotify, onBack }) {
   const library = state.prompts?.[target] || { slots: [], limits: {} };
   const slots = library.slots || [];
   const [slotId, setSlotId] = useState(slots[0]?.id || "");
@@ -186,7 +186,7 @@ export function PromptsScreen({ target, state, saving, error, onSave, onActivate
               />
             </label>
 
-            {error && <p className="compat-note is-warning"><WarningCircle size={20} weight="fill" />{error}</p>}
+            <ErrorBanner message={error} conflict={conflict} />
 
             {armedDelete === selectedId && selected && (
               <div className="prompt-danger">

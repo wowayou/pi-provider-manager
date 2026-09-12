@@ -34,13 +34,19 @@ function freshRowId() {
 // the browser, so a copy is born asking for a new one — which is the workflow
 // a duplicate exists for (same models, different gateway and key).
 export function duplicatePiForm(form, takenIds) {
-  const models = form.models.map((model) => ({ ...model, rowId: freshRowId() }));
+  // persistedId is storage identity, and a copy has none: every row is new to
+  // disk. Carrying it over would mark the copy's IDs read-only and make the
+  // identity-drift check refuse a draft that has drifted from nothing.
+  const models = form.models.map((model) => ({ ...model, rowId: freshRowId(), persistedId: "" }));
   const sourceDefault = form.models.find((model) => model.rowId === form.defaultRowId);
   return {
     ...form,
     providerId: suggestCopyId(form.providerId, takenIds),
     credentialMode: "new",
     apiKey: "",
+    // Reusing an existing credential must not move it: the source provider is
+    // still there and still needs its key.
+    moveCredential: false,
     models,
     defaultRowId: (models.find((model) => model.id === sourceDefault?.id) || models[0]).rowId,
   };

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- 供应商可以复制了。绝大多数新供应商与已有的那个只差 base URL 和 key，而向导每次都得从空表重走一遍，模型清单和兼容开关也得重新填。模型列表页新增「复制」：模型行、上下文与最大输出、协议覆盖、兼容开关、思考强度全部照搬，落在凭据那一步等你改地址和填 key。ID 自动取一个没被占用的名字（`<源>-copy`，被占了就 `-copy-2` 往上数）。凭据**故意不复制** —— 已保存的 key 不回传浏览器，复制品从「输入新 key」开始，这正是复制存在的场景。Codex 侧同样：桥的上游地址属于配置，跟着走；桥持有的上游 key 属于机密，不跟着走。
+- 复制出来的模型行不再被当成已存盘的行。`persistedId` 是存储身份，而复制品在磁盘上还不存在任何一行；把它带过去会让复制品的模型 ID 变成只读，还会让身份漂移检查拒绝一份根本没有漂移的草稿 —— 也就是说复制一个已有供应商后，保存会被自己的保护规则挡住。同样地，复制时「迁移成功后删除旧条目」强制关掉：源供应商还在，它还要用自己的 key。
+- 409 的纠正动作不再随提示消失。冲突既报在 toast 里也报在错误横幅上，而 toast 七秒后就没了，剩下一条说不清怎么办的横幅。「重新读取」按钮现在也在横幅里，覆盖 Pi 与 Codex 的模型页、设置页、提示词页，以及两个删除供应商对话框。
+- 提示词页的报错改用共用横幅。它原来渲染成一行普通说明文字，既没有 `role="alert"`，也拿不到 409 的纠正动作，是全应用唯一一处写路径报错走另一套外观的地方。
+- demo 模式补齐剩下的写路径。`?demo=1` 下提示词的保存 / 启用 / 删除，以及 Codex 的删除供应商，之前都会打到真实接口并因为 fixture 的空 revision 拿到 409 —— 而截图和 QA 恰好只从这个入口进来。现在这两条路径按服务端自己的语义在 fixture 上假执行，包括「删除生效中的那份必须指定替代」。
+- 每条写路径都在入口清掉冲突标记。删除供应商（Pi 与 Codex）和提示词的三条路径没有清，于是上一次 409 留下的「重新读取」会挂在下一次无关的报错旁边。
+- 四个测试不再在 Windows 上因为清理而失败。它们把服务器的 `cwd` 设在临时目录里，而 `child.kill()` 只是发出信号就返回了 —— Windows 不允许删除一个活进程的工作目录，于是 `fs.rmSync` 抛 `EBUSY`，断言全过了的测试仍然记为失败。这让整套测试在 Windows 上永远到不了全绿，也就掩盖了真正的失败。清理改为等进程退出（含重启测试里那个接管端口的替代进程），并对残留句柄重试。测试代码，不影响产物。
+- 测试套件现在能在 Windows 上跑到全绿，修的是测试自己的两处平台假设。四个重启 / 升级测试起的服务进程以临时目录为工作目录，而 `child.kill()` 只是发个信号就返回，Windows 不允许删除一个存活进程的工作目录 —— 于是这四个测试在断言全部通过之后，栽在 `finally` 里的 `EBUSY` 上。新的 `stopAndClean` 等进程真正退出再删，残留句柄重试。另外两个 LiteLLM 桥测试断言的是 POSIX 才成立的事实（启动能走到 spawn；`chmod 0o644` 会让文件不可执行），按本文件已有的写法在 Windows 上跳过，Linux 矩阵照跑。
+- `src/model-draft.mjs` 在 Node 18 上也能导入。行键原来直接用全局 `crypto.randomUUID()`，而全局 `crypto` 要 Node 19 才有，CI 矩阵里最低的那一档因此报 `crypto is not defined`。浏览器仍走 WebCrypto，Node 落到时间戳加随机数 —— 行键只需要在草稿的生命周期内唯一。
+
 ## 0.3.10 - 2026-09-12
 
 - `design-qa.md` now stays bounded. Every compatibility run used to append a section, so the file grew by one block per release; it now keeps the current Pi and Codex triage in full, carries every superseded run as one row in a verification history, and gathers the checks that have never been exercised into a standing caveats list — so what is *not* claimed survives the compression. The full dated text of superseded sections lives in git history, and the CHANGELOG keeps the narrative of what changed and why.

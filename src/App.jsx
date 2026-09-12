@@ -983,7 +983,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
   );
 }
 
-function ProviderDeleteDialog({ provider, state, deleting, requestError, onClose, onConfirm }) {
+function ProviderDeleteDialog({ provider, state, deleting, requestError, conflict, onClose, onConfirm }) {
   const alternatives = state.providers.filter((item) => item.id !== provider.id && item.models.length > 0);
   const [keepCredential, setKeepCredential] = useState(false);
   const [replacementProviderId, setReplacementProviderId] = useState(alternatives[0]?.id || "");
@@ -1084,7 +1084,7 @@ function ProviderDeleteDialog({ provider, state, deleting, requestError, onClose
             ? "供应商和模型会被永久删除，已保存的凭据会保留。"
             : "供应商、全部模型和已保存的凭据会被永久删除。"}
         </p>
-        {(localError || requestError) && <div className="error-banner" role="alert"><WarningCircle size={20} weight="fill" />{localError || requestError}</div>}
+        <ErrorBanner message={localError || requestError} conflict={conflict && !localError} />
 
         <div className="modal-actions">
           <button ref={cancelRef} type="button" className="secondary-button" disabled={deleting} onClick={onClose}>取消</button>
@@ -1725,6 +1725,7 @@ export function App() {
   const deleteProvider = async (payload) => {
     setDeletingProvider(true);
     setDeleteProviderError("");
+    setConflict(false);
     try {
       const deletedProvider = state.providers.find((provider) => provider.id === payload.providerId);
       let nextState;
@@ -1980,6 +1981,7 @@ export function App() {
   const promptRequest = async (route, payload) => {
     setSaving(true);
     setError("");
+    setConflict(false);
     try {
       if (demoMode) {
         // Demo mirrors the library's own semantics on the fixture: upsert with
@@ -2195,6 +2197,7 @@ export function App() {
             state={state}
             saving={saving}
             error={error}
+            conflict={conflict}
             onSave={savePrompt}
             onActivate={activatePrompt}
             onDelete={deletePrompt}
@@ -2244,6 +2247,7 @@ export function App() {
           codex={codex}
           deleting={deletingProvider}
           requestError={deleteProviderError}
+          conflict={conflict}
           onClose={() => { setCodexDeleteTargetId(""); setDeleteProviderError(""); }}
           onConfirm={deleteCodexProvider}
         />
@@ -2254,6 +2258,7 @@ export function App() {
           state={state}
           deleting={deletingProvider}
           requestError={deleteProviderError}
+          conflict={conflict}
           onClose={closeDeleteProvider}
           onConfirm={deleteProvider}
         />

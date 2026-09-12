@@ -309,3 +309,79 @@ final result: passed
 - **复制供应商 (both targets).** A saved provider's summary gains a 复制 button beside 删除供应商: neutral palette on purpose — a copy is a safe act and must not read as a danger. The draft lands on the credentials step with a free `<id>-copy` ID (counting `-copy-2`, `-copy-3`, … past collisions), the source's gateway address, protocol, models with fresh row keys, compatibility flags and reasoning efforts. The stored key never returns to the browser, so a copy is born asking for a new one — exactly the workflow a duplicate exists for. A bridged source carries the bridge's upstream address but not the bridge's held key.
 - **Verified:** unit tests over the pure draft logic (free-ID suggestion, credential stripping, row-key freshness, default-row remapping, source-draft immutability); one browser test drives the whole Pi flow against the production server — 复制 → free ID prefilled, source address kept, new-key tab active, three model rows copied → key typed → saved → `models.json` and `auth.json` on disk carry the copy with the right protocol, and the source provider is untouched. Demo prompt save/activate/delete and the staged-409 banner button were driven by hand in the served page.
 - `npm test`: 152 pass, 0 fail, 0 skipped (148 prior + three draft-logic unit tests + the new duplicate-flow browser test).
+
+## Fourth Round — Review, Hazard Fixes, Documentation Alignment
+
+- Evidence date: `2026-09-12`. Manager `0.3.10` (post-release). Owner-directed
+  review of the third round before publishing it: find latent hazards, fix them,
+  bring the documentation back in line, converge, then push.
+- **A duplicate carried storage identity it does not have.** `duplicatePiForm`
+  spread each source row, which brought `persistedId` — the field that marks a
+  model as already on disk — into a draft where nothing is on disk yet. The copy
+  therefore rendered its model IDs read-only, refusing the one edit a duplicate
+  is most likely to need, and `changedPersistedModel` was ready to refuse the
+  save for drifting from an identity the copy never had. Every row of a copy is
+  now new to disk, which is what it is.
+- **A duplicate could have moved the source's credential out from under it.**
+  `moveCredential` also carried over, and it defaults to true. Reusing an
+  existing credential in the copy would then delete the entry the source
+  provider is still using — the source is still there, and still needs its key.
+  A copy never moves a credential.
+- **Three surfaces set the conflict flag and offered nothing to do about it.**
+  The previous round put 重新读取 in the shared banner on the four save screens
+  and stopped there. The prompts screen rendered a 409 as a plain warning note;
+  both provider-delete dialogs rendered it as a bare banner. All three now use
+  `ErrorBanner` with the flag, so the corrective action is in reach wherever a
+  409 can be seen. The Pi dialog suppresses it while the message is the dialog's
+  own local validation, which no reload fixes.
+- **Three write paths never cleared the flag at entry**, against the convention
+  the previous round itself wrote down: `promptRequest`, `deleteProvider`, and
+  `deleteCodexProvider`. A resolved conflict left a stale 重新读取 button beside
+  the next, unrelated error.
+- **Documentation had fallen behind three merged pull requests.** #84, #85 and
+  #86 were on `main` with no `CHANGELOG` entry — the repository's own convention
+  is to record work under `Unreleased` as it lands — and 复制供应商 shipped
+  undocumented in both READMEs and the usage guide. All four are now aligned, and
+  the two AGENTS.md conventions this round found holes in say what they actually
+  require: which fields a copy must drop, and that every surface showing a
+  request error uses the shared banner.
+- Note on the environment, not the product: this round's first `npm test` failed
+  before any test ran, with rollup unable to load
+  `@rollup/rollup-win32-x64-msvc`. The installed tree was incomplete and one
+  `node_modules/.bin` entry was an unreadable stale directory entry that neither
+  `rm` nor `del` could remove; moving it outside `node_modules` and reinstalling
+  cleared it. No source involved.
+- **The suite could not reach green on Windows, for two reasons that were the
+  tests' own and not the product's.** Four restart/upgrade tests spawn a server
+  whose working directory is the temp directory they then delete; `child.kill()`
+  only asks, and Windows refuses to remove a live process's working directory, so
+  all four failed with `EBUSY` in their `finally` block *after* every assertion
+  had passed. The correlation was exact — the four failures were the four tests
+  spawning with `cwd: projectDir`. A shared `stopAndClean` now waits for the exit
+  event before removing, and retries a lingering handle. Two LiteLLM bridge tests
+  assert POSIX-only facts: that starting a bridge reaches spawn at all, which the
+  product deliberately refuses where process ownership cannot be proven, and that
+  `chmod 0o644` makes a file unusable, which on Windows it does not. Both now skip
+  on Windows in the idiom this file already used eleven times; both still run on
+  the Linux CI matrix, which is what the skipped-count rule is about.
+- **The browser suite could not run on Windows at all, and said so as eight
+  failures.** `findChrome()` offered four Linux paths and two Linux Playwright
+  layouts, so on a machine with Chrome installed in `Program Files` every one of
+  the eight tests failed identically on discovery. Earlier rounds had passed
+  `CHROME_BIN` by hand, which is exactly how a gap like this stays invisible. The
+  three standard Windows install roots and the Playwright `-win64` layout are now
+  in the list; with that alone seven of the eight passed, and the eighth was the
+  same `EBUSY` teardown as above — the upgrade test signals the replacement
+  manager and removes its working directory without waiting for the exit.
+- All of these were pre-existing rather than introduced here: each was confirmed
+  by stashing this round's changes, re-running, and getting the identical
+  failures.
+- `npm test` after the fixes: **152 pass, 0 fail**, across every group — 45 server,
+  48 Codex, 11 prompts, 4 sites, 8 Pi-update, 1 release, 1 launcher, 8 UI, 4
+  real-Codex. Skips are all environmental and each one is a platform fact rather
+  than an untested claim: the launcher's seven need Windows PowerShell reachable
+  from this shell, the Codex group's fourteen need procfs or POSIX file modes, and
+  `test:codex-real`'s one needs LiteLLM installed — the bridge is the one thing
+  this Windows host could not have supervised anyway. The four real-Codex checks
+  that do not depend on LiteLLM ran against the installed binary and passed,
+  including `codex exec` reaching a stand-in gateway with the stored credential.

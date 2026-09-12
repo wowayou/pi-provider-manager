@@ -714,7 +714,7 @@ export function CodexWizard(props) {
   return <CodexModelsStep {...props} />;
 }
 
-export function CodexDeleteDialog({ provider, codex, deleting, requestError, onClose, onConfirm }) {
+export function CodexDeleteDialog({ provider, codex, deleting, requestError, conflict, onClose, onConfirm }) {
   const alternatives = codex.providers.filter((item) => item.id !== provider.id);
   const [replacementProviderId, setReplacementProviderId] = useState(alternatives[0]?.id || "");
   const cancelRef = useRef(null);
@@ -751,7 +751,7 @@ export function CodexDeleteDialog({ provider, codex, deleting, requestError, onC
             </label>
           )
         )}
-        {requestError && <div className="error-banner" role="alert"><WarningCircle size={20} weight="fill" />{requestError}</div>}
+        <ErrorBanner message={requestError} conflict={conflict} />
         <div className="modal-actions">
           <button type="button" ref={cancelRef} className="secondary-button" onClick={onClose}>取消</button>
           <button

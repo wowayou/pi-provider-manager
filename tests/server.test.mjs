@@ -78,6 +78,41 @@ async function waitForServer(url) {
   throw new Error("Test server did not start.");
 }
 
+// Removing a directory that is a live process's working directory fails on
+// Windows with EBUSY, and kill() only asks — it returns long before the process
+// is gone. The four tests that spawn a server with cwd inside a temp directory
+// have to wait for the exit before they can clean up.
+async function stopAndClean(child, dirs, extraPids = []) {
+  if (child && child.exitCode === null && child.signalCode === null) {
+    const exited = new Promise((resolve) => child.once("exit", resolve));
+    child.kill();
+    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5_000))]);
+  }
+  // A restart hands the directory to a process this suite never spawned, so it
+  // can only be signalled by pid and then waited out by probing.
+  for (const pid of extraPids) {
+    if (!(pid > 0)) continue;
+    try { process.kill(pid, "SIGTERM"); } catch { continue; }
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      try { process.kill(pid, 0); } catch { break; }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  for (const dir of dirs) {
+    // A handle can outlive the process by a few milliseconds, so a single
+    // EBUSY is retried rather than failing a test whose assertions all passed.
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+        break;
+      } catch (error) {
+        if (attempt === 19) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+  }
+}
+
 async function currentRevision(baseUrl) {
   const response = await fetch(`${baseUrl}/api/state`, { cache: "no-store" });
   assert.equal(response.status, 200);
@@ -805,9 +840,7 @@ test("reports a checkout that has moved ahead of the running process", async () 
     assert.equal(removed.compatibility.appVersion, manifest.version);
     assert.equal(removed.compatibility.pendingAppVersion, "");
   } finally {
-    child.kill();
-    fs.rmSync(projectDir, { recursive: true, force: true });
-    fs.rmSync(agentDir, { recursive: true, force: true });
+    await stopAndClean(child, [projectDir, agentDir]);
   }
 });
 
@@ -871,12 +904,7 @@ test("a restart hands the port to a manager started from the files on disk", asy
     assert.equal(after.restartError, "");
     assert.equal(after.agentDir, agentDir, "the replacement kept the directories it was given");
   } finally {
-    child.kill();
-    if (replacementPid > 0) {
-      try { process.kill(replacementPid, "SIGTERM"); } catch {}
-    }
-    fs.rmSync(projectDir, { recursive: true, force: true });
-    fs.rmSync(agentDir, { recursive: true, force: true });
+    await stopAndClean(child, [projectDir, agentDir], [replacementPid]);
   }
 });
 
@@ -930,9 +958,7 @@ test("a replacement that cannot start leaves the old manager serving, and says w
     // Not stuck: a second attempt is accepted rather than refused as in-flight.
     assert.equal((await postJson(baseUrl, "/api/restart", {}, null)).status, 202);
   } finally {
-    child.kill();
-    fs.rmSync(projectDir, { recursive: true, force: true });
-    fs.rmSync(agentDir, { recursive: true, force: true });
+    await stopAndClean(child, [projectDir, agentDir]);
   }
 });
 
@@ -1042,8 +1068,6 @@ test("a bundle older than its sources blocks the restart, and says which", async
     fs.utimesSync(path.join(projectDir, "dist", "client", "index.html"), built + 180, built + 180);
     assert.equal((await (await fetch(`${baseUrl}/api/state`)).json()).compatibility.bundleProblem, "");
   } finally {
-    child.kill();
-    fs.rmSync(projectDir, { recursive: true, force: true });
-    fs.rmSync(agentDir, { recursive: true, force: true });
+    await stopAndClean(child, [projectDir, agentDir]);
   }
 });
