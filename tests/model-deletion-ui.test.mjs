@@ -1746,13 +1746,22 @@ test("every piece of text meets WCAG AA contrast in both themes", { timeout: 90_
 
       // The reload returns to the previously selected provider, which can
       // differ after the dialog path above. Keep both theme measurements on
-      // the same three-model page so the count comparison tests theme parity,
+      // the same three-model page so the page signature tests theme parity,
       // not navigation state.
       await cdp.evaluate(`document.querySelectorAll('.provider-item')[0].click()`);
       await cdp.waitFor(`document.querySelector('.models-step') && document.querySelectorAll('.model-row').length === 3 && !document.querySelector('.error-banner')`);
     };
 
+    const pageSignature = () => cdp.evaluate(`({
+      selectedProvider: document.querySelector('.provider-item.is-selected')?.textContent.trim() || "",
+      modelIds: [...document.querySelectorAll('.model-name-cell input')].map((input) => input.value),
+      visibleView: [...document.querySelectorAll('.step-content, .settings-page, .success-page')]
+        .find((node) => getComputedStyle(node).display !== 'none')?.className || "",
+      hasBeginnerTip: Boolean(document.querySelector('.beginner-tip')),
+    })`);
+
     const lightCount = await audit("light");
+    const lightSignature = await pageSignature();
     assert.equal(await cdp.evaluate(`document.documentElement.dataset.theme || 'light'`), "light");
     const lightHovers = await auditHovered("light");
     await auditTransients("light");
@@ -1763,14 +1772,17 @@ test("every piece of text meets WCAG AA contrast in both themes", { timeout: 90_
       .find((node) => node.getAttribute('aria-label') === '深色').click()`);
     await cdp.waitFor(`document.documentElement.dataset.theme === 'dark'`);
     const darkCount = await audit("dark");
+    const darkSignature = await pageSignature();
     const darkHovers = await auditHovered("dark");
     await auditTransients("dark");
 
-    // Both themes must have been measured against comparable pages; a collapsed
-    // dark render would otherwise pass on a much smaller sample.
-    assert.ok(
-      Math.abs(lightCount - darkCount) <= 5,
-      `both themes should render the same page, examined ${lightCount} light and ${darkCount} dark`,
+    // Browser-reported text geometry can differ between color-scheme values for
+    // native controls. Compare the rendered page structure instead, while the
+    // per-theme audit above still checks every measurable text node.
+    assert.deepEqual(
+      darkSignature,
+      lightSignature,
+      `both themes should render the same page (examined ${lightCount} light and ${darkCount} dark)`,
     );
     assert.ok(
       Math.abs(lightHovers - darkHovers) <= 5,
