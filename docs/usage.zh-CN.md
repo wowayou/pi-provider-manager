@@ -437,7 +437,9 @@ PI_CODING_AGENT_DIR=/tmp/pi-try CODEX_HOME=/tmp/codex-try \
 | `Port N is already used by another application.` | 你指定的端口被别的程序占了。换一个，或者别指定让它自动选 |
 | `No free port found in 43127-43146.` | 20 个端口全被占。用 `PI_PROVIDER_MANAGER_PORT` 指一个 |
 | `Pi Provider Manager failed to start.` | 服务起不来。它会打印一条可以直接粘贴的手动启动命令，前台跑一遍就能看到真正的报错；日志在 `$PI_CODING_AGENT_DIR/pi-provider-manager-ui.log` |
+| `启动失败：无法监听 127.0.0.1:43127：端口已被占用（EADDRINUSE）` | 端口被别人占了。它会重试一秒再放弃，然后写入日志并退出（不会半死在那里）。换一个端口，或先停掉占用它的进程 |
 | 点「重启」之后浏览器报连不上 | 服务没了。先直接用启动器再起一个（`kill <pid>` 后重跑），然后看 `pi-provider-manager-restart.log`：里面会写明交接走到哪一步、新进程有没有起来 |
+| `重启没有成功：新进程接管端口后立刻退出（pid …），正在恢复原来的版本。` | 新进程起来了、也应答了，但随后就死了 —— 这正是以前会留下“连不上、也没任何提示”的那种情况。现在旧进程会把它收回来重新监听，所以**服务没断**，只是还在跑旧版本。日志里会先有 `replacement answered pid=…`，再有这一条 |
 | 打印了 `(reused the instance already running on this port)` | 端口上已经有一个了，这是**正常复用**。LiteLLM 会在每次读取时重新发现，刚装 LiteLLM 不需要重启本管理器；只有管理器代码升级才按它给的 `kill <pid> && <launcher>` 做 |
 
 ### Codex 相关

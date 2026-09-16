@@ -260,6 +260,10 @@ function readPendingAppVersion() {
 // reason for the next reader.
 let restarting = false;
 let restartError = "";
+// How long a replacement has to keep answering before this process gives up the
+// port for good. Long enough that a process dying on its first request or its
+// first background task is caught here, where it can still be undone.
+const REPLACEMENT_SETTLE_MS = 5_000;
 
 // Answered by a different process id, which is the only proof that matters: this
 // one has stopped listening, so anything replying on the port is the replacement.
@@ -297,6 +301,96 @@ function waitForReplacement(deadline, exited) {
     }
     attempt();
   });
+}
+
+// Answering once is not the same as having taken over. The handoff that leaves
+// nothing behind is the replacement that binds the port, replies to the probe,
+// and dies — by then this process has already exited, and the browser that lost
+// its page has nothing to read. So the port is only given up after the
+// replacement is still answering at the end of a settle window.
+//
+// Death is caught by the exit event rather than by the probe: this process
+// spawned the replacement, so its death is reported here directly, while a probe
+// can fail for reasons of its own on a loaded machine — and treating that as death
+// would abandon a healthy replacement. A probe that answers with a *different* pid
+// is not a false alarm, though: the port has changed hands again and the decision
+// is no longer this process's to make.
+function replacementSurvives(deadline, replacementPid, exited) {
+  return new Promise((resolve) => {
+    function retry() {
+      if (exited()) { resolve(false); return; }
+      if (Date.now() >= deadline) { resolve(true); return; }
+      setTimeout(check, 200).unref?.();
+    }
+    function check() {
+      if (exited()) { resolve(false); return; }
+      if (Date.now() >= deadline) { resolve(true); return; }
+      const request = http.get(
+        { host: HOST, port: PORT, path: "/api/state", headers: { host: `${HOST}:${PORT}` } },
+        (reply) => {
+          const chunks = [];
+          reply.on("data", (chunk) => chunks.push(chunk));
+          reply.on("end", () => {
+            let pid = null;
+            try {
+              pid = JSON.parse(Buffer.concat(chunks).toString("utf8")).compatibility?.servicePid;
+            } catch {
+              pid = null;
+            }
+            if (pid !== replacementPid) { resolve(false); return; }
+            retry();
+          });
+        },
+      );
+      request.on("error", retry);
+    }
+    check();
+  });
+}
+
+function describeError(error) {
+  return `${error?.code || ""} ${error?.message || error}`.trim();
+}
+
+// `server.listen` reports a failure as an 'error' event, and an event nobody
+// listens for is an uncaught exception: the process dies where it stands. That is
+// how a port that was busy at startup produced a refused connection and no
+// explanation, so every bind is awaited and answered instead.
+function listenOnce() {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      server.off("listening", onListening);
+      server.off("error", onError);
+    };
+    const onListening = () => { cleanup(); resolve(); };
+    const onError = (error) => { cleanup(); reject(error); };
+    server.once("listening", onListening);
+    server.once("error", onError);
+    server.listen(PORT, HOST);
+  });
+}
+
+// Retried to a deadline rather than once, because the two callers both race: the
+// launcher probes the port and then binds it, and the recovery path below has just
+// killed the process holding it, whose socket is not free the instant it dies.
+async function listenOrThrow(deadline) {
+  for (;;) {
+    try {
+      await listenOnce();
+      return;
+    } catch (error) {
+      if (Date.now() >= deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+}
+
+function listenFailureMessage(error) {
+  const where = `${HOST}:${PORT}`;
+  if (error?.code === "EADDRINUSE") {
+    return `无法监听 ${where}：端口已被占用（EADDRINUSE）。换一个端口，或先停掉占用它的进程`;
+  }
+  return `无法监听 ${where}：${error?.message || error}`;
 }
 
 // A regular file or a character device (a terminal, /dev/null) is still there for
@@ -341,24 +435,51 @@ async function applyRestart() {
   replacement.once("error", (error) => { exit = { code: null, signal: null, message: error.message }; });
 
   const replacementPid = await waitForReplacement(Date.now() + 20_000, () => exit);
+  // Logged the moment it answers, so the account distinguishes a replacement that
+  // never came up from one that came up and then left — the second is the failure
+  // this settle window exists for.
   if (replacementPid) {
-    // The handoff is complete as far as this process is concerned, but the log
-    // line is the last thing it will ever write: if the replacement dies now,
-    // the two entries above are the only account of what happened.
+    logRestart(`replacement answered pid=${replacementPid}; watching it for ${REPLACEMENT_SETTLE_MS}ms before giving up the port`);
+  }
+  const settled = replacementPid
+    ? await replacementSurvives(Date.now() + REPLACEMENT_SETTLE_MS, replacementPid, () => exit)
+    : false;
+  if (replacementPid && settled) {
+    // Now it has held the port for the whole settle window, and the log line below
+    // is the last thing this process will ever write.
     logRestart(`handoff complete replaced-by=${replacementPid} old=${process.pid}`);
     process.stdout.write(`Replaced by pid ${replacementPid}. Exiting ${process.pid}.\n`);
     process.exit(0);
   }
 
+  // Take the port back. The replacement is killed first and waited for, so that
+  // re-listening is not refused by the socket it still holds — a failure there
+  // would leave nothing on the port, which is the outcome this whole path exists
+  // to avoid.
   try {
     replacement.kill();
   } catch {}
-  restartError = exit
-    ? `重启没有成功：新进程启动后立刻退出（${exit.message || `code ${exit.code}${exit.signal ? ` / ${exit.signal}` : ""}`}），仍在运行原来的版本。请查看日志。`
-    : "重启没有成功：新进程没有在 20 秒内接管端口，仍在运行原来的版本。请查看日志后手动重启。";
+  const stoppedBy = Date.now() + 3_000;
+  while (!exit && Date.now() < stoppedBy) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  restartError = `重启没有成功：${
+    replacementPid
+      ? `新进程接管端口后立刻退出（pid ${replacementPid}）`
+      : exit
+        ? `新进程启动后立刻退出（${exit.message || `code ${exit.code}${exit.signal ? ` / ${exit.signal}` : ""}`}）`
+        : "新进程没有在 20 秒内接管端口"
+  }，正在恢复原来的版本。请查看日志。`;
   logRestart(`handoff failed: ${restartError}`);
   restarting = false;
-  server.listen(PORT, HOST);
+  try {
+    await listenOrThrow(Date.now() + 10_000);
+  } catch (error) {
+    const reason = listenFailureMessage(error);
+    logRestart(`could not reclaim the port: ${describeError(error)}`);
+    process.stderr.write(`重启失败，而且没能恢复原来的监听：${reason}。本地服务已停止，请重新运行启动器。\n`);
+    process.exit(1);
+  }
   process.stdout.write(`${restartError}\n`);
 }
 
@@ -1211,16 +1332,24 @@ const server = http.createServer(async (request, response) => {
 // detection can outlast that on a machine where it needs a login shell.
 await Promise.all([piVersion.ready(), codexVersion.ready()]);
 
-server.listen(PORT, HOST, () => {
-  process.stdout.write(`Pi Provider Manager API listening on http://${HOST}:${PORT}\n`);
-  process.stdout.write(`Pi agent directory: ${AGENT_DIR}\n`);
-  process.stdout.write(`Codex directory: ${CODEX_DIR}\n`);
-  if (SERVE_UI) process.stdout.write(`Serving built UI from ${CLIENT_DIR}\n`);
-  // Logged unconditionally, not only for a replacement: whether a process ever
-  // reached the point of listening is the question the next incident will ask,
-  // and a log that only records replacements cannot answer it for the first one.
-  logRestart(
-    `listening pid=${process.pid} port=${PORT} version=${APP_VERSION}`
-    + (REPLACED_PID ? ` replacing=${REPLACED_PID}` : ""),
-  );
-});
+try {
+  // A short retry: the launcher probes the port and then this binds it, so the
+  // race between the two is real, and losing it should not need a second start.
+  await listenOrThrow(Date.now() + 1_000);
+} catch (error) {
+  const reason = listenFailureMessage(error);
+  logRestart(`listen failed: ${describeError(error)}`);
+  process.stderr.write(`启动失败：${reason}。本地服务已停止。\n`);
+  process.exit(1);
+}
+process.stdout.write(`Pi Provider Manager API listening on http://${HOST}:${PORT}\n`);
+process.stdout.write(`Pi agent directory: ${AGENT_DIR}\n`);
+process.stdout.write(`Codex directory: ${CODEX_DIR}\n`);
+if (SERVE_UI) process.stdout.write(`Serving built UI from ${CLIENT_DIR}\n`);
+// Logged unconditionally, not only for a replacement: whether a process ever
+// reached the point of listening is the question the next incident will ask,
+// and a log that only records replacements cannot answer it for the first one.
+logRestart(
+  `listening pid=${process.pid} port=${PORT} version=${APP_VERSION}`
+  + (REPLACED_PID ? ` replacing=${REPLACED_PID}` : ""),
+);

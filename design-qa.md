@@ -523,3 +523,61 @@ final result: passed
   narrative instead of a refused connection.
 
 final result: passed
+
+## Handoff Convergence — Evidence
+
+- Evidence date: `2026-09-16`. Manager `0.3.13` (post-release). The second half of
+  the owner-reported incident, after the observability round: fix the handoff's
+  timing, and handle the flaky CI assertion found on the way.
+- **The handoff no longer accepts one reply as proof.** `applyRestart` exited the
+  moment a different pid answered `/api/state` and watched nothing afterwards, so a
+  replacement that bound the port, answered and then died left no service, no
+  `restartError` (a variable in the memory of the process that had just exited) and
+  nothing to read. The port is now surrendered only when the replacement is still
+  answering at the end of a five-second settle window. If it dies or is no longer
+  the process answering, the old manager kills it, waits for the socket and
+  reclaims the port.
+- **Death is taken from the exit event, not from the probe**, and that distinction
+  is deliberate: this process spawned the replacement, so its exit is reported
+  directly, while a probe can fail for reasons of its own on a loaded machine —
+  treating that as death would abandon a healthy replacement on a busy host. A
+  reply from a *different* pid is still treated as failure, because the port has
+  genuinely changed hands and the decision is no longer this process's to make.
+- **New test: a replacement that answers and then dies is taken back.** The copied
+  `server.mjs` is made to poll the port and exit 1.5s *after it binds* — timed off
+  the port rather than off startup, because version detection before `listen` can
+  take seconds and a fixed delay from module evaluation would kill the replacement
+  before it ever bound, which is the other failure the suite already covers. The
+  test asserts the recovering pid, the message, that the log says
+  `replacement answered pid=…` first, and that it does **not** claim `handoff
+  complete`.
+- **Confirmed against reverted code:** forcing `settled = Boolean(replacementPid)`
+  — the old answer-once behaviour — makes the new test fail on its deadline.
+- **A failed `server.listen` is reported, not fatal.** Node delivers it as an
+  `'error'` event and an unlistened event is an uncaught exception, so a busy port
+  at startup produced a dead process with nothing said. Binds are awaited, retried
+  to a deadline (the launcher probes the port and then the manager binds it; the
+  recovery path has just killed the process holding the socket), and answered with
+  the address and the code. The existing log test was updated accordingly: the
+  crash log now carries `EADDRINUSE` and `端口已被占用`, and the handoff log carries
+  `listen failed: EADDRINUSE` — where it previously recorded an uncaught exception,
+  which is exactly what this item removes.
+- **The flaky 420px assertion was measuring the toast.** `removeTopmost` asked
+  `elementFromPoint` whether anything covered the delete control, and it was read
+  *after* the test clicked that control and raised the armed-delete toast. The
+  answer therefore depended on the toast's height against the scroll position,
+  which moves with font metrics — on a page this round never touched, which is why
+  it failed once on CI and passed on re-run with byte-identical assets. It is now
+  measured in the resting layout, before the toast exists. Recorded honestly: the
+  transient overlap it was picking up is real (at 420px the toast can sit over a
+  control the user just armed and can still click), but this round does not claim
+  to have fixed it, and no attempt was made to reproduce it outside CI.
+- **Cost, measured:** the successful-handoff test went from 2.8s to 6.2s and the
+  browser suite from 33s to 41s, all of it the settle window. It is invisible to a
+  user — the replacement is the process serving during that window — and it is the
+  price of not handing over the port on a single reply.
+- Not claimed: the replacement that died in the reported incident is still not
+  explained. What changed is that its shape is now survivable, and its account is
+  written down.
+
+final result: passed
