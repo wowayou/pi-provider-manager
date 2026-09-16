@@ -929,12 +929,16 @@ test("production UI drives the Codex workspace", { timeout: 90_000 }, async () =
     await cdp.send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
     await cdp.waitFor(`document.querySelector('.target-switch')`);
 
-    // The Pi sidebar keeps the look it had before Codex existed: the badge cell
-    // is present so both targets share one grid, but it carries no text.
+    // Both targets answer "which one is Pi/Codex actually using" in the sidebar.
+    // On Pi that is settings.json's defaultProvider, and only that one row: the
+    // fixture's default is review-router, so single-router must stay unmarked.
     await cdp.waitFor(`document.querySelectorAll('.provider-item').length === 2`);
-    assert.equal(
-      await cdp.evaluate(`[...document.querySelectorAll('.provider-badge')].filter((node) => node.textContent.trim()).length`),
-      0,
+    assert.deepEqual(
+      await cdp.evaluate(`[...document.querySelectorAll('.provider-item')].map((row) => [
+        row.querySelector('.provider-copy strong').textContent,
+        row.querySelector('.provider-badge').textContent,
+      ])`),
+      [["Review Router", "默认"], ["Single Router", ""]],
     );
 
     const clickText = (selector, text) =>
@@ -957,6 +961,73 @@ test("production UI drives the Codex workspace", { timeout: 90_000 }, async () =
     assert.equal(adopted.model, "gpt-5.6-sol");
     // Rendering the adopted entry must not have written anything.
     assert.equal(fs.readFileSync(configPath, "utf8"), CODEX_FIXTURE);
+
+    // 复制供应商 is offered for a draft whose ID names a stored provider, which is
+    // exactly what the handler requires before it will copy anything. Renaming
+    // that ID to a fresh value used to leave the button standing where clicking
+    // it did nothing at all — the gate read the selection, the handler read the
+    // form. Pi has always gated this control on the fact its handler checks.
+    assert.equal(await cdp.evaluate(`Boolean(document.querySelector('.duplicate-provider-button'))`), true);
+    await clickText(".wizard-footer button", "上一步");
+    await cdp.waitFor(`document.querySelector('.form-grid input')`);
+    await cdp.evaluate(`(() => {
+      const input = document.querySelector('.form-grid input');
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, 'custom-renamed');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    // The adopted table needs a key of its own — this fixture ships no auth.json —
+    // and the step says so rather than letting 下一步 through.
+    await cdp.evaluate(`document.querySelector('.key-field input').focus()`);
+    await cdp.send("Input.insertText", { text: "dummy-rename-key" });
+    await clickText(".wizard-footer button", "下一步");
+    await cdp.waitFor(`document.querySelector('.model-row.is-codex')`);
+    assert.deepEqual(await cdp.evaluate(`({
+      duplicate: Boolean(document.querySelector('.duplicate-provider-button')),
+      // Deleting still applies: that flow acts on the stored provider this draft
+      // was opened from, and its dialog names it.
+      remove: Boolean(document.querySelector('.delete-provider-button')),
+    })`), { duplicate: false, remove: true });
+
+    // Removing the model config.toml points at is the one deletion with a
+    // consequence outside this draft, so arming names it — the same fact Pi
+    // states about settings.json. Only the active provider has a live model, so
+    // this is reachable only back under the stored ID.
+    await clickText(".wizard-footer button", "上一步");
+    await cdp.waitFor(`document.querySelector('.form-grid input')`);
+    await cdp.evaluate(`(() => {
+      const input = document.querySelector('.form-grid input');
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, 'custom');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await clickText(".wizard-footer button", "下一步");
+    await cdp.waitFor(`document.querySelector('.model-row.is-codex')`);
+    await clickText(".models-actions button", "添加模型");
+    await cdp.waitFor(`document.querySelectorAll('.model-row.is-codex').length === 2`);
+    await cdp.evaluate(`document.querySelector('.model-row.is-codex .icon-button').click()`);
+    await cdp.waitFor(`document.querySelector('.toast.is-error')`);
+    assert.match(
+      await cdp.evaluate(`document.querySelector('.toast').textContent`),
+      /需要先指定另一个已命名模型才能保存/,
+    );
+    // Arming removes nothing: the row is still there.
+    assert.equal(await cdp.evaluate(`document.querySelectorAll('.model-row.is-codex').length`), 2);
+    // Name the replacement row and arm again — the other half of the same branch,
+    // which names the model the default moves to rather than asking for one. Wait
+    // out the arm window first: a synthetic click does not focus the button, so
+    // `onBlur` never fires to reset it and a second click would delete the row.
+    await cdp.waitFor(
+      `!document.querySelector('.model-row.is-codex .icon-button').classList.contains('is-confirming')`,
+      8_000,
+    );
+    await cdp.evaluate(`(() => {
+      const input = document.querySelectorAll('.model-row.is-codex .model-name-cell input')[1];
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, 'gpt-5.6-mini');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await cdp.evaluate(`document.querySelector('.model-row.is-codex .icon-button').click()`);
+    await cdp.waitFor(`document.querySelector('.toast.is-error')?.textContent.includes('Codex 的默认模型改为')`);
+    assert.match(await cdp.evaluate(`document.querySelector('.toast').textContent`), /gpt-5\.6-mini/);
+    assert.equal(await cdp.evaluate(`document.querySelectorAll('.model-row.is-codex').length`), 2);
 
     // Add a second provider through the wizard.
     await cdp.evaluate(`document.querySelector('.add-provider').click()`);

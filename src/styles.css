@@ -561,7 +561,7 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .compact-button { min-height: 44px; padding-inline: 15px; }
 
 .models-table { max-height: 396px; border: 1px solid var(--line); border-radius: 11px; overflow: auto; background: var(--field); }
-.model-table-head, .model-row { display: grid; grid-template-columns: 24px minmax(170px, 1.5fr) minmax(130px, 1fr) minmax(130px, 1fr) minmax(110px, .8fr) minmax(145px, 1fr) 86px 52px; gap: 10px; }
+.model-table-head, .model-row { display: grid; grid-template-columns: minmax(170px, 1.5fr) minmax(130px, 1fr) minmax(130px, 1fr) minmax(110px, .8fr) minmax(145px, 1fr) 86px 52px; gap: 10px; }
 .model-table-head { min-height: 45px; position: sticky; top: 0; z-index: 2; align-items: center; background: var(--table-head); color: var(--ink-2); font-size: 13px; padding: 0 14px; border-bottom: 1px solid var(--line); transition: box-shadow var(--base) var(--ease); }
 .models-table.is-scrolled .model-table-head { box-shadow: var(--shadow-head); }
 .model-row { --model-row-surface: var(--field); position: relative; height: 85px; align-items: start; border-top: 1px solid var(--line); padding: 11px 14px; background: var(--model-row-surface); transition: background var(--fast) var(--ease), box-shadow var(--base) var(--ease); }
@@ -590,7 +590,6 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .persisted-id-lock { position: absolute; top: 0; right: 9px; height: 42px; display: grid; place-items: center; color: var(--ink-3); pointer-events: none; }
 .model-row-annotations { min-width: 0; height: 15px; display: flex; align-items: center; gap: 5px; overflow: hidden; }
 .model-row input, .model-row select { height: 42px; font-size: 13px; padding-inline: 10px; }
-.drag-handle { height: 42px; color: var(--icon-quiet); display: grid; place-items: center; }
 .default-radio { height: 42px; align-items: center; justify-content: center; }
 .default-radio input { width: 20px; height: 20px; }
 .default-radio input::before { width: 9px; height: 9px; }
@@ -839,7 +838,7 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
   .protocol-grid { grid-template-columns: repeat(2, 1fr); }
   .model-table-head { display: none; }
   .models-table { overflow-x: auto; }
-  .model-row { min-width: 938px; grid-template-columns: 22px 1.4fr 1fr 1fr 1fr 1fr 60px 52px; }
+  .model-row { min-width: 904px; grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr 60px 52px; }
   .workspace { padding-inline: 18px; }
   .advanced-content { grid-template-columns: 1fr; }
   .advanced-content label { grid-column: 1; }
@@ -885,8 +884,8 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
   .help-link { margin-top: 12px; white-space: normal; }
   .hint-panel { margin-top: 0; }
   .models-table { overflow-x: auto; }
-  .model-table-head, .model-row { min-width: 938px; }
-  /* Codex rows carry four columns, not eight, so they need far less room. */
+  .model-table-head, .model-row { min-width: 904px; }
+  /* Codex rows carry four columns, not seven, so they need far less room. */
   .model-table-head.is-codex, .model-row.is-codex { min-width: 480px; }
   .gateway-summary { grid-template-columns: 48px minmax(0, 1fr); }
   .gateway-side { grid-column: 2; flex-wrap: wrap; }
