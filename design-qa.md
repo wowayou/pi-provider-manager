@@ -581,3 +581,63 @@ final result: passed
   written down.
 
 final result: passed
+
+## The Incident Explained — Evidence
+
+- Evidence date: `2026-09-16`. Manager `0.3.14` (post-release). The failure the
+  previous two rounds were built around was reproduced with a stack trace while
+  verifying the 0.3.14 release on this machine's own instance.
+- **What the report actually was.** Restarting the running manager to apply
+  0.3.14 produced, in the handoff log:
+
+  ```
+  handoff requested old=2196664 version=0.3.13
+  spawned replacement pid=2212967 old=2196664
+  listening pid=2212967 port=43127 version=0.3.14 replacing=2196664
+  uncaught exception: Error: write EIO
+      at Socket._write ... at stream.write (server.mjs:118) at server.mjs:1345
+  ```
+
+  The manager's stdout is a pty whose master had gone: the launcher's WSL branch
+  starts it on a hidden console, and that console dies with the session that opened
+  it. The replacement bound the port, logged its startup lines, and then died on its
+  **first output write** — a write error arrives as an `'error'` event on the
+  stream, and an unhandled stream error is an uncaught exception. That is the whole
+  of the original incident: nothing on the port, nothing written down, an answer to
+  the readiness probe followed by death. Earlier in this session a pty experiment
+  aimed at this was inconclusive and was recorded as such; this is direct evidence,
+  and it arrived only because the previous round made the failure legible.
+- **Fix 1, load-bearing: output is not a lifeline.** When a log is named, the
+  manager attaches an `'error'` handler to both output streams, so a console that
+  goes away drops output instead of killing the process, and records it once in the
+  handoff log rather than once per failed write. Stream writes are also guarded
+  against a destroyed stream's synchronous throw.
+- **Fix 2, the source of it: a detached replacement is not handed a terminal.**
+  `outlivesUs` treated any character device as a destination that outlives this
+  process, and a pty is a character device — so the replacement inherited the very
+  console that had just died, and its first write was the fatal one. A TTY now
+  counts as already gone. Verified on a real pty: the manager's own stdout was
+  `/dev/pts/3` while its replacement's is `/dev/null`. `/dev/null`, files and the
+  existing pipe rule are unchanged.
+- **Coverage, and what it pins.** A new test spawns the manager with a log,
+  destroys the parent's read ends of its output, and then makes it report a failed
+  restart — the write a manager reaches for at exactly the wrong moment. The reader
+  going away is modelled with a destroyed pipe after measuring that it fails the
+  same way (`write EPIPE`, same unhandled `'error'` event). Confirmed against
+  reverted code: with the handler removed the manager dies and the test fails with
+  *"the manager died with its console instead of reporting the failure"*. The test
+  pins fix 1; **fix 2 has no automated coverage**, because a pty whose master closes
+  while the child lives is not reproducible here — `script(1)`'s child dies of
+  SIGHUP with its wrapper, measured — so fix 2 rests on the `/dev/pts/3` →
+  `/dev/null` observation above.
+- **A note on the release that shipped without this.** `v0.3.14` contains the
+  handoff log and the settle window, but not these two fixes: its restart can still
+  kill a manager whose console has gone, which is what happened during verification.
+  The settle window is what kept that from being a silent outage — the old process
+  reclaimed the port — and the handoff log is what named the cause. Both fixes are
+  on `main` and need a release of their own.
+- Not claimed: nothing about the user's machine is inferred from this. The
+  reproduction is on the same host, the same launcher branch and the same console
+  lifecycle, and the stack trace is the same error.
+
+final result: passed

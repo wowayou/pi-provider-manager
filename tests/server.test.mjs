@@ -1156,6 +1156,73 @@ test("a replacement that answers and then dies is taken back", async () => {
   }
 });
 
+// The launcher's WSL branch starts the manager on a console that dies with the
+// session that opened it, and the next write to it arrives as an 'error' event on
+// the stream — which, unhandled, is an uncaught exception. Measured on a real
+// instance: that is what killed a replacement milliseconds after it had bound the
+// port, and what left the reported incident with nothing on the port and nothing
+// written down. The reader going away is modelled with a destroyed pipe, which
+// fails the same way (`write EPIPE`, same unhandled 'error').
+test("a manager whose output reader goes away keeps serving", async () => {
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-output-"));
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-output-agent-"));
+  const serverPath = path.join(projectDir, "server.mjs");
+  fs.copyFileSync(path.join(projectRoot, "server.mjs"), serverPath);
+  fs.cpSync(path.join(projectRoot, "lib"), path.join(projectDir, "lib"), { recursive: true });
+  fs.copyFileSync(path.join(projectRoot, "package.json"), path.join(projectDir, "package.json"));
+
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const logPath = path.join(agentDir, "output.log");
+  const child = spawn(process.execPath, [serverPath], {
+    cwd: projectDir,
+    env: serverEnv({
+      PI_CODING_AGENT_DIR: agentDir,
+      PI_PROVIDER_MANAGER_PORT: String(port),
+      PI_PROVIDER_MANAGER_LOG: logPath,
+    }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+    const before = (await (await fetch(`${baseUrl}/api/state`)).json()).compatibility;
+
+    // The console goes away. Nothing is left to read what the manager writes.
+    child.stdout.destroy();
+    child.stderr.destroy();
+
+    // A replacement that cannot start, so the manager has a reason to write to
+    // its console — the failure path reports `restartError` on stdout.
+    fs.writeFileSync(serverPath, 'throw new Error("this upgrade is broken");\n');
+    assert.equal((await postJson(baseUrl, "/api/restart", {}, null)).status, 202);
+
+    const deadline = Date.now() + 30_000;
+    let recovered;
+    while (Date.now() < deadline) {
+      try {
+        const state = await (await fetch(`${baseUrl}/api/state`)).json();
+        if (state.restartError) {
+          recovered = state;
+          break;
+        }
+      } catch {
+        // The port is unowned while the handover is attempted.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    assert.ok(recovered, "the manager died with its console instead of reporting the failure");
+    assert.equal(recovered.compatibility.servicePid, before.servicePid);
+    assert.match(recovered.restartError, /新进程启动后立刻退出/);
+    // The failed write is recorded rather than fatal, and recorded once.
+    const handoff = fs.readFileSync(path.join(agentDir, "pi-provider-manager-restart.log"), "utf8");
+    assert.match(handoff, /output stream failed; further writes to it are dropped rather than fatal: EPIPE/);
+    assert.equal(handoff.match(/output stream failed/g).length, 1);
+  } finally {
+    await stopAndClean(child, [projectDir, agentDir]);
+  }
+});
+
 // The failure that matters is a replacement that cannot start — a bad upgrade, a
 // half-written file. Left unhandled it would take the working manager down with
 // it: nothing on the port, and no page left to say why.
