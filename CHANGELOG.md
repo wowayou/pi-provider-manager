@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+## 0.3.13 - 2026-09-16
+
+- Validated against Pi `0.85.1` and Codex `0.154.0`; the full suite ran with no skips, so the LiteLLM bridge and the real `codex exec` paths were exercised rather than sat out.
 - The Pi sidebar says which provider is live, the way the Codex sidebar already did. Codex marked its active provider 生效中 while Pi's rows carried an empty badge cell and said nothing, so the same question — which one am I actually using — was answered on one target and not the other. Pi's default provider is now marked 默认, read from `state.settings.defaultProvider` rather than the per-provider `isDefault` field so a local save cannot leave the badge disagreeing with the settings it describes. It is not called 生效中: Pi resolves a provider per model, so nothing about the other rows is switched off.
 - The 复制供应商 button on the Codex models step did nothing in one reachable state. It was gated on the *selection* (`canDeleteProvider`) while its handler refuses unless the *form's* provider ID names a stored provider, so opening a saved provider, renaming the ID at step two, and continuing left the button visible and inert. It now renders on the same fact the handler checks, which is how the Pi side has always gated it — and the browser test asserts both halves: present for a stored ID, gone for a renamed one, with 删除供应商 still offered because that flow acts on the stored provider its dialog names.
 - The Codex model row states the consequence of removing the model `config.toml` points at. Pi said so in the armed-delete tooltip and in the arm toast; Codex said only "再点一次确认删除", so the one deletion whose effect reaches outside the draft looked like any other. The tooltip, the accessible label, and the toast now name the live model and the row that would take the default if it goes.
