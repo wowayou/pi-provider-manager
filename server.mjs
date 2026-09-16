@@ -56,6 +56,80 @@ const AGENT_DIR_SOURCE = process.env.PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE || (
 const AUTH_PATH = path.join(AGENT_DIR, "auth.json");
 const MODELS_PATH = path.join(AGENT_DIR, "models.json");
 const SETTINGS_PATH = path.join(AGENT_DIR, "settings.json");
+// The handoff is the one operation that can take this process down, and its only
+// account used to be a `process.stdout` line. That line is not a reliable record:
+// the launcher's WSL branch discarded stdout entirely, and `outlivesUs` below
+// deliberately drops a pinned pipe when the parent was a harness. So a handoff
+// that failed *after* the replacement had already answered left nothing on the
+// port and no page to explain it — the failure this file exists to end. Written
+// next to the launcher's own log, bounded, and never able to break a start.
+const RESTART_LOG = path.join(AGENT_DIR, "pi-provider-manager-restart.log");
+const RESTART_LOG_LIMIT = 64 * 1024;
+// Set by `applyRestart` on the replacement's environment, so the log says which
+// process a start was replacing rather than leaving two pids to correlate.
+const REPLACED_PID = process.env.PI_PROVIDER_MANAGER_REPLACED_PID || "";
+function logRestart(message) {
+  try {
+    try {
+      if (fs.statSync(RESTART_LOG).size > RESTART_LOG_LIMIT) fs.writeFileSync(RESTART_LOG, "");
+    } catch {
+      // No file yet, or it cannot be read. Appending is still the next step.
+    }
+    fs.appendFileSync(RESTART_LOG, `${new Date().toISOString()} ${message}\n`);
+  } catch {
+    // A log that cannot be written must never be the reason a manager fails to
+    // start, or a handoff is refused.
+  }
+}
+// The launcher's WSL branch cannot redirect this process's streams for it: it
+// hands the command to `wsl.exe` through PowerShell's Start-Process, which refuses
+// one file for both streams and puts the child in a hidden console whose output
+// dies with it. So it names a log file, and this tees the manager's output into
+// it. Not by reopening fd 1: Node binds `process.stdout` to that console's handle
+// at startup, so a fresh descriptor at the same number is written to by nobody.
+// And not by trusting the streams alone: Node's uncaught-exception report goes
+// straight to the descriptor, past them, so the crash that leaves nothing on the
+// port is recorded by the handler below instead.
+const LOG_PATH = process.env.PI_PROVIDER_MANAGER_LOG || "";
+function teeOutputInto(file) {
+  let descriptor;
+  try {
+    try {
+      if (fs.statSync(file).size > RESTART_LOG_LIMIT) fs.writeFileSync(file, "");
+    } catch {
+      // No file yet, or unreadable. Opening it below is still the next step.
+    }
+    descriptor = fs.openSync(file, "a");
+  } catch (problem) {
+    logRestart(`could not open the output log: ${problem.code || problem.message}`);
+    return;
+  }
+  for (const stream of [process.stdout, process.stderr]) {
+    const original = stream.write.bind(stream);
+    stream.write = (chunk, encoding, callback) => {
+      try {
+        const bytes = typeof chunk === "string"
+          ? Buffer.from(chunk, typeof encoding === "string" ? encoding : "utf8")
+          : Buffer.from(chunk);
+        fs.writeSync(descriptor, bytes);
+      } catch {
+        // The console copy below is still worth making.
+      }
+      return original(chunk, encoding, callback);
+    };
+  }
+  process.on("uncaughtException", (error) => {
+    const report = error?.stack || String(error);
+    logRestart(`uncaught exception: ${report}`);
+    // Through the patched stream, so it reaches the log and whatever console this
+    // process still has. The exit code matches Node's default so a crash still
+    // looks like a crash to anything watching.
+    process.stderr.write(`${report}\n`);
+    process.exit(1);
+  });
+  logRestart(`teeing output into ${file}`);
+}
+if (LOG_PATH) teeOutputInto(LOG_PATH);
 const CODEX_DIR = path.resolve(
   process.env.PI_PROVIDER_MANAGER_CODEX_DIR || process.env.CODEX_HOME || path.join(os.homedir(), ".codex"),
 );
@@ -239,6 +313,7 @@ function outlivesUs(fd) {
 async function applyRestart() {
   restarting = true;
   restartError = "";
+  logRestart(`handoff requested old=${process.pid} version=${APP_VERSION}`);
   // Releases the listening socket at once; the keep-alive connections the browser
   // holds would otherwise keep this process alive after its replacement is up.
   server.close();
@@ -250,7 +325,7 @@ async function applyRestart() {
     // the launcher is not here to supply them a second time. The port is restated
     // rather than left to a default, so a defaulting rule that changes later
     // cannot move the replacement to another port.
-    env: { ...process.env, PI_PROVIDER_MANAGER_PORT: String(PORT) },
+    env: { ...process.env, PI_PROVIDER_MANAGER_PORT: String(PORT), PI_PROVIDER_MANAGER_REPLACED_PID: String(process.pid) },
     detached: true,
     // Inherited only where the destination outlives this process: the launcher
     // points its output at a log file and a developer's at a terminal, and that is
@@ -260,12 +335,17 @@ async function applyRestart() {
     stdio: ["ignore", outlivesUs(1), outlivesUs(2)],
   });
   replacement.unref();
+  logRestart(`spawned replacement pid=${replacement.pid} old=${process.pid}`);
   let exit = null;
   replacement.once("exit", (code, signal) => { exit = { code, signal }; });
   replacement.once("error", (error) => { exit = { code: null, signal: null, message: error.message }; });
 
   const replacementPid = await waitForReplacement(Date.now() + 20_000, () => exit);
   if (replacementPid) {
+    // The handoff is complete as far as this process is concerned, but the log
+    // line is the last thing it will ever write: if the replacement dies now,
+    // the two entries above are the only account of what happened.
+    logRestart(`handoff complete replaced-by=${replacementPid} old=${process.pid}`);
     process.stdout.write(`Replaced by pid ${replacementPid}. Exiting ${process.pid}.\n`);
     process.exit(0);
   }
@@ -276,6 +356,7 @@ async function applyRestart() {
   restartError = exit
     ? `重启没有成功：新进程启动后立刻退出（${exit.message || `code ${exit.code}${exit.signal ? ` / ${exit.signal}` : ""}`}），仍在运行原来的版本。请查看日志。`
     : "重启没有成功：新进程没有在 20 秒内接管端口，仍在运行原来的版本。请查看日志后手动重启。";
+  logRestart(`handoff failed: ${restartError}`);
   restarting = false;
   server.listen(PORT, HOST);
   process.stdout.write(`${restartError}\n`);
@@ -1135,4 +1216,11 @@ server.listen(PORT, HOST, () => {
   process.stdout.write(`Pi agent directory: ${AGENT_DIR}\n`);
   process.stdout.write(`Codex directory: ${CODEX_DIR}\n`);
   if (SERVE_UI) process.stdout.write(`Serving built UI from ${CLIENT_DIR}\n`);
+  // Logged unconditionally, not only for a replacement: whether a process ever
+  // reached the point of listening is the question the next incident will ask,
+  // and a log that only records replacements cannot answer it for the first one.
+  logRestart(
+    `listening pid=${process.pid} port=${PORT} version=${APP_VERSION}`
+    + (REPLACED_PID ? ` replacing=${REPLACED_PID}` : ""),
+  );
 });

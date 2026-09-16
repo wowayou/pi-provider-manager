@@ -131,6 +131,18 @@ test("starts, then says so rather than pretending to restart", { skip: process.p
     const pid = state.compatibility.servicePid;
     assert.ok(pid > 0, "the server reports its own process id");
 
+    // The manager's output reaches the log whichever branch started it. The WSL
+    // branch used to hand the process to a hidden console and lose every line, so
+    // a start that failed there left a refused connection and no message at all;
+    // it now names the file and the manager writes its own output to it.
+    const logPath = path.join(agentDir, "pi-provider-manager-ui.log");
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline && !(fs.existsSync(logPath) && /listening/.test(fs.readFileSync(logPath, "utf8")))) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.match(fs.readFileSync(logPath, "utf8"), /Pi Provider Manager API listening/);
+    assert.match(first.stdout, new RegExp(`Log:\\s+${logPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+
     const second = run(env);
     assert.equal(second.status, 0, second.stderr);
     assert.match(second.stdout, /reused the instance already running/);

@@ -463,3 +463,63 @@ final result: passed
   usage guide; the round recorded under `CHANGELOG.md`'s `Unreleased`.
 
 final result: passed
+
+## Restart Observability — Evidence
+
+- Evidence date: `2026-09-16`. Manager `0.3.13` (post-release). Owner-reported
+  incident: pressing 重启以应用 0.3.13 in Settings left the browser with
+  `ERR_CONNECTION_REFUSED` and no message anywhere — no port, no page, no log.
+- **What was established before any code changed.** The handoff itself works: a
+  controlled restart on an isolated port handed 43299 from pid 2140650 to
+  2140861, same port, both lines in the log, when the parent's streams were
+  files. The launcher on this machine takes its **WSL branch** (WSL_DISTRO_NAME is
+  set and `powershell.exe` is reachable), which starts the manager through
+  `Start-Process wsl.exe -WindowStyle Hidden` and, unlike the `nohup` branch, wrote
+  **no log at all** — `fd/1 -> /dev/pts/…`, a hidden console. So the failure had
+  nowhere to be written down, whatever its cause.
+- **The structural defect, stated without claiming a trigger:** `applyRestart`
+  calls `process.exit(0)` as soon as a *different* pid answers `/api/state`, and
+  never watches the replacement afterwards. A replacement that answers once and
+  then dies therefore leaves no service, no `restartError` (it is a variable in
+  the memory of the process that just exited), and — with the old output path —
+  no account. The precise reason that replacement died is **not** established, and
+  this round does not claim one; the round removes the blindness instead.
+- **This round is the observability half, chosen by the owner.** Two files, both
+  bounded at 64 KiB, neither able to prevent a start: `pi-provider-manager-ui.log`
+  receives the manager's own output in both launcher branches, and
+  `pi-provider-manager-restart.log` records every start and every handoff step
+  (`handoff requested` → `spawned replacement` → `handoff complete`/`handoff
+  failed`, plus `listening … replacing=<old pid>`).
+- **Two mechanisms that look like they should work, and do not** — recorded
+  because both were tried and measured here. Reopening fd 1 onto the log creates
+  the file and leaves it empty: Node binds `process.stdout` to the console's
+  handle at startup, so nothing writes to the fresh descriptor. (It *does* work
+  when the parent's stdout is a file, which is why the isolated probe passed and
+  the real WSL branch still produced a 0-byte log — the difference is the TTY.)
+  Intercepting the streams alone is also insufficient: Node's uncaught-exception
+  report writes past both of them. The shipped implementation tees
+  `process.stdout`/`process.stderr` **and** handles `uncaughtException`, writing
+  the stack to both logs before exiting 1.
+- **Launcher:** the WSL branch now passes `PI_PROVIDER_MANAGER_LOG` as a
+  single-token `env` element and prints the log path on a fresh start. It is
+  deliberately *not* `-RedirectStandardOutput`: `Start-Process` refuses one file
+  for both streams, and any `-ArgumentList` element containing spaces is silently
+  mangled — wrapping the command in `bash -c '<script>'` produced an empty log and
+  no server, with `set -e` swallowing the launcher's own failure so it exited
+  silently with no output at all.
+- **Verified end to end through the real WSL branch**, which is the path that
+  failed: `pi-provider-manager-ui.log` came back with the four startup lines, and
+  the handoff log with `teeing output into …` and `listening pid=… version=0.3.13`.
+  For the crash case the manager was made to fail the only way that matters here —
+  a second instance on a held port — and `EADDRINUSE` with its full stack landed in
+  both files, where previously there was nothing anywhere.
+- **Both new tests were run against deliberately reverted code and failed as
+  intended:** removing the launcher's `PI_PROVIDER_MANAGER_LOG` token and
+  disabling the server's tee each failed exactly the assertion meant to hold them.
+  The existing successful- and failed-handoff tests were extended to assert the
+  handoff log's contents rather than only `restartError` in memory.
+- Not claimed: the replacement that died in the reported incident would still have
+  died. What changes is that the next one leaves a stack trace and a handoff
+  narrative instead of a refused connection.
+
+final result: passed
