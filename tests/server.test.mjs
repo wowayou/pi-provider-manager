@@ -40,6 +40,7 @@ const INHERITED_OVERRIDES = [
   "PI_PROVIDER_MANAGER_API_PORT",
   "PI_PROVIDER_MANAGER_SERVE_UI",
   "PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE",
+  "PI_PROVIDER_MANAGER_CODEX_DIR",
   "PI_CODING_AGENT_DIR",
 ];
 
@@ -272,6 +273,115 @@ test("writes router-style providers without exposing credentials", async () => {
     assert.deepEqual(updatedSettings.modelThinkingLevels, { "any-router/anthropic/claude-opus": "high" });
     assert.equal(updatedSettings.fullscreenCopyOnSelect, false);
     assert.deepEqual(updatedSettings.terminal, { hyperlinks: "auto", trueColor: true });
+  } finally {
+    child.kill("SIGTERM");
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+test("keeps provider UA three-state semantics and never exposes model headers", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-user-agent-"));
+  const providerSecret = "provider-header-secret-not-a-secret";
+  const modelSecret = "model-header-secret-not-a-secret";
+  fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({
+    "ua-router": { type: "api_key", key: "ua-router-key-not-a-secret" },
+  }));
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
+    providers: {
+      "ua-router": {
+        baseUrl: "https://router.example/v1",
+        api: "openai-completions",
+        headers: { "User-Agent": "$UA_FROM_ENV", "X-Provider-Secret": providerSecret },
+        modelOverrides: {
+          "model/one": { headers: { "User-Agent": "!secret-command", "X-Override-Secret": "override-secret" } },
+        },
+        models: [{
+          id: "model/one",
+          name: "model/one",
+          reasoning: true,
+          input: ["text"],
+          contextWindow: 200000,
+          maxTokens: 16000,
+          headers: { "User-Agent": "!secret-command", "X-Model-Secret": modelSecret },
+          futureModelField: "keep-model",
+        }],
+      },
+    },
+  }));
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({
+    defaultProvider: "ua-router",
+    defaultModel: "model/one",
+  }));
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+    cwd: projectRoot,
+    env: serverEnv({
+      PI_CODING_AGENT_DIR: agentDir,
+      PI_PROVIDER_MANAGER_CODEX_DIR: path.join(agentDir, "codex"),
+      PI_PROVIDER_MANAGER_API_PORT: String(port),
+    }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const readFile = (name) => JSON.parse(fs.readFileSync(path.join(agentDir, name), "utf8"));
+  const submittedModel = {
+    id: "model/one",
+    name: "model/one",
+    contextWindow: 200000,
+    maxTokens: 16000,
+    supportsImages: false,
+    reasoning: true,
+    maximumThinking: "high",
+  };
+  const submit = (body) => postJson(baseUrl, "/api/providers", {
+    providerId: "ua-router",
+    baseUrl: "https://router.example/v1",
+    api: "openai-completions",
+    credential: { mode: "keep" },
+    models: [submittedModel],
+    setDefault: false,
+    ...body,
+  });
+
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+    const initialResponse = await fetch(`${baseUrl}/api/state`);
+    const initial = await initialResponse.json();
+    const initialText = JSON.stringify(initial);
+    assert.equal(initialText.includes(providerSecret), false);
+    assert.equal(initialText.includes(modelSecret), false);
+    assert.equal(initialText.includes("secret-command"), false);
+    assert.deepEqual(initial.providers[0].userAgent, { kind: "external" });
+    assert.equal(initial.providers[0].hasModelUserAgentOverride, true);
+    assert.equal("headers" in initial.providers[0].models[0], false);
+    assert.equal("futureModelField" in initial.providers[0].models[0], false);
+
+    const setResponse = await submit({ userAgent: "  manager/1.0  " });
+    assert.equal(setResponse.status, 200);
+    const setBody = await setResponse.json();
+    assert.deepEqual(setBody.state.providers[0].userAgent, { kind: "literal", value: "manager/1.0" });
+    assert.equal(JSON.stringify(setBody).includes(modelSecret), false);
+    const setHeaders = readFile("models.json").providers["ua-router"].headers;
+    assert.deepEqual(setHeaders, { "X-Provider-Secret": providerSecret, "User-Agent": "manager/1.0" });
+    assert.equal(readFile("models.json").providers["ua-router"].models[0].futureModelField, "keep-model");
+
+    const clearResponse = await submit({ userAgent: "" });
+    assert.equal(clearResponse.status, 200);
+    assert.deepEqual((await clearResponse.json()).state.providers[0].userAgent, { kind: "none" });
+    assert.deepEqual(readFile("models.json").providers["ua-router"].headers, { "X-Provider-Secret": providerSecret });
+
+    const externallyEdited = readFile("models.json");
+    externallyEdited.providers["ua-router"].headers["User-Agent"] = "$RETAIN_ME";
+    fs.writeFileSync(path.join(agentDir, "models.json"), `${JSON.stringify(externallyEdited, null, 2)}\n`);
+    const preservedResponse = await submit({});
+    assert.equal(preservedResponse.status, 200);
+    assert.equal(readFile("models.json").providers["ua-router"].headers["User-Agent"], "$RETAIN_ME");
+    assert.deepEqual((await preservedResponse.json()).state.providers[0].userAgent, { kind: "external" });
+
+    const beforeInvalid = fs.readFileSync(path.join(agentDir, "models.json"), "utf8");
+    const invalidResponse = await submit({ userAgent: "bad\nvalue" });
+    assert.equal(invalidResponse.status, 400);
+    assert.equal(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"), beforeInvalid);
   } finally {
     child.kill("SIGTERM");
     fs.rmSync(agentDir, { recursive: true, force: true });

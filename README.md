@@ -24,6 +24,7 @@ Codex has the opposite problem. Its configuration is small but unforgiving: one 
 
 - **Pi-native provider/model workflow** — model IDs, default thinking level, image capability, context/output limits, and per-model API overrides.
 - **Router-first catalog management** — one OpenRouter-like gateway can contain models from many upstream vendors.
+- **Provider-level compatibility UA** — the third step keeps an optional literal `User-Agent` override with explicit none/literal/external handling; model-level overrides are surfaced without exposing their headers.
 - **Secret-safe local boundary** — existing API keys are never returned to the browser; the backend binds to `127.0.0.1` only.
 - **Validated atomic writes** — updates to `models.json`, `auth.json`, and `settings.json` use validated temporary files and rollback on failure.
 - **Concurrent-edit protection** — every write carries an opaque revision; changes made by CC Switch, another tab, or a text editor cause a `409` instead of being overwritten by stale form data.

@@ -820,6 +820,28 @@ test("复制供应商 starts a fresh draft with the models and an empty credenti
     const copiedIds = await cdp.evaluate(`[...document.querySelectorAll('.model-row .model-name-cell input')].map((input) => input.value)`);
     assert.deepEqual(copiedIds, ["anthropic/claude-opus", "openai/gpt-router", "google/gemini-router"]);
 
+    await cdp.evaluate(`document.querySelector('.advanced-panel summary').click()`);
+    await cdp.waitFor(`document.querySelector('.advanced-panel[open] .user-agent-field input')`);
+    assert.deepEqual(await cdp.evaluate(`({
+      open: document.querySelector('.advanced-panel').open,
+      value: document.querySelector('.user-agent-field input').value,
+      placeholder: document.querySelector('.user-agent-field input').placeholder,
+    })`), { open: true, value: "", placeholder: "未设置供应商 UA 覆盖" });
+
+    await cdp.evaluate(`[...document.querySelectorAll('.user-agent-actions button')].find((button) => button.textContent.includes("Claude Code")).click()`);
+    await cdp.waitFor(`document.querySelector('.user-agent-field input').value.startsWith("claude-cli/") && document.querySelector('.toast-action')`);
+    await cdp.evaluate(`document.querySelector('.toast-action').click()`);
+    await cdp.waitFor(`document.querySelector('.user-agent-field input').value === ""`);
+
+    await cdp.evaluate(`document.querySelector('.user-agent-field input').focus()`);
+    await cdp.send("Input.insertText", { text: "$BAD" });
+    await cdp.evaluate(`[...document.querySelectorAll('.wizard-footer button')].find((button) => button.textContent.includes("保存并设为默认")).click()`);
+    await cdp.waitFor(`document.querySelector('.advanced-panel').open && document.querySelector('.user-agent-field input[aria-invalid="true"]') && document.querySelector('.field-error')`);
+    assert.match(await cdp.evaluate(`document.querySelector('.field-error').textContent`), /不能包含/);
+
+    await cdp.evaluate(`document.querySelector('.user-agent-actions button:last-child').click()`);
+    await cdp.waitFor(`document.querySelector('.user-agent-field input').value === ""`);
+
     await cdp.evaluate(`[...document.querySelectorAll('.wizard-footer button')].find((button) => button.textContent.includes("保存并设为默认")).click()`);
     await cdp.waitFor(`document.querySelector('.success-page')`);
 
@@ -829,6 +851,7 @@ test("复制供应商 starts a fresh draft with the models and an empty credenti
     assert.equal(copyProvider.baseUrl, before.baseUrl);
     assert.equal(JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8")).providers["review-router-copy"].models.length, 3);
     assert.equal(JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8")).providers["review-router-copy"].api, "openai-completions");
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8")).providers["review-router-copy"].headers, undefined);
     assert.equal(JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"))["review-router-copy"].key, "dummy-copy-key");
     // The source provider is untouched, and stays the count it started with.
     assert.equal(state.providers.find((provider) => provider.id === "review-router").models.length, 3);
@@ -2498,6 +2521,129 @@ test("leaving an edited prompt goes through the toast, not the first click", { t
     // None of that was a write: the guard exists to protect the editor, and the
     // file only changes through 保存.
     assert.equal(fs.readFileSync(agentsPath, "utf8"), liveText);
+    assert.deepEqual(cdp.errors, []);
+    assert.equal(serverOutput.includes("Error"), false, serverOutput);
+  } finally {
+    if (cdp) {
+      await Promise.race([
+        cdp.send("Browser.close").catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+      cdp.close();
+    }
+    await stopProcess(chrome, true);
+    await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("production UI keeps new-draft User-Agent intent and locates invalid whitespace", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-user-agent-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-user-agent-"));
+  writeFixture(agentDir);
+  const modelsPath = path.join(agentDir, "models.json");
+  const fixture = JSON.parse(fs.readFileSync(modelsPath, "utf8"));
+  fixture.providers["review-router"].headers = { "User-Agent": "old-client/1.0" };
+  fs.writeFileSync(modelsPath, JSON.stringify(fixture));
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server;
+  let chrome;
+  let cdp;
+  let serverOutput = "";
+
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
+        PI_PROVIDER_MANAGER_SERVE_UI: "1",
+        PI_PROVIDER_MANAGER_PORT: String(appPort),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; });
+    server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
+
+    chrome = spawn(chromePath, [
+      "--headless",
+      "--no-sandbox",
+      "--disable-gpu",
+      "--remote-debugging-port=" + debugPort,
+      "--user-data-dir=" + profileDir,
+      "about:blank",
+    ], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl("http://127.0.0.1:" + debugPort + "/json/version", 30_000);
+    const target = await fetch(
+      "http://127.0.0.1:" + debugPort + "/json/new?" + encodeURIComponent("http://127.0.0.1:" + appPort),
+      { method: "PUT" },
+    ).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl);
+    await cdp.send("Page.enable");
+    await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.send("Page.navigate", { url: "http://127.0.0.1:" + appPort });
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
+
+    const clickText = (selector, text) => cdp.evaluate(
+      "[...document.querySelectorAll(" + JSON.stringify(selector) + ")].find((node) => node.textContent.includes(" + JSON.stringify(text) + ")).click()",
+    );
+    const setNthInput = (index, value) => cdp.evaluate(
+      "(() => { const input = document.querySelectorAll('.form-grid input')[" + index + "];"
+      + "const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;"
+      + "setter.call(input, " + JSON.stringify(value) + "); input.dispatchEvent(new Event('input', { bubbles: true })); })()",
+    );
+    const setValue = (selector, value) => cdp.evaluate(
+      "(() => { const input = document.querySelector(" + JSON.stringify(selector) + ");"
+      + "const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;"
+      + "setter.call(input, " + JSON.stringify(value) + "); input.dispatchEvent(new Event('input', { bubbles: true })); })()",
+    );
+
+    // A fresh draft with an existing ID must explicitly clear the target's old
+    // literal UA; leaving the field absent would preserve it on disk.
+    await cdp.evaluate("document.querySelector('.add-provider').click()");
+    await cdp.waitFor("document.querySelector('.protocol-grid')");
+    await clickText(".wizard-footer .primary-button", "下一步");
+    await cdp.waitFor("document.querySelectorAll('.form-grid input').length === 2");
+    await setNthInput(0, "review-router");
+    await setNthInput(1, "https://replacement.example/v1");
+    await setValue("input[type=password]", "replacement-key-not-real");
+    await clickText(".wizard-footer .primary-button", "下一步");
+    await cdp.waitFor("document.querySelector('.models-table')");
+    assert.equal(await cdp.evaluate("document.querySelector('.user-agent-field input').value"), "");
+    await clickText(".wizard-footer .primary-button", "保存并设为默认");
+    await cdp.waitFor("document.querySelector('.success-page')");
+    const savedState = await (await fetch("http://127.0.0.1:" + appPort + "/api/state")).json();
+    const savedProvider = savedState.providers.find((provider) => provider.id === "review-router");
+    assert.deepEqual(savedProvider.userAgent, { kind: "none" });
+    const savedModels = JSON.parse(fs.readFileSync(modelsPath, "utf8"));
+    assert.equal(savedModels.providers["review-router"].headers, undefined);
+
+    // The same production page must locate a server-invalid value even after
+    // the advanced details have been collapsed before Save is pressed.
+    await cdp.evaluate(
+      "[...document.querySelectorAll('.provider-item')].find((node) => node.title.includes('review-router')).click()",
+    );
+    await cdp.waitFor("document.querySelector('.models-table')");
+    await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
+    await cdp.waitFor("document.querySelector('.user-agent-field input')");
+    await setValue(".user-agent-field input", " ".repeat(513));
+    await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
+    await cdp.waitFor("!document.querySelector('.advanced-panel').open");
+    await clickText(".wizard-footer .primary-button", "保存并设为默认");
+    await cdp.waitFor("document.querySelector('.advanced-panel[open] input[aria-invalid=\"true\"]')");
+    const invalid = await cdp.evaluate("({ open: document.querySelector('.advanced-panel').open, invalid: document.querySelector('.user-agent-field input').getAttribute('aria-invalid'), error: document.querySelector('.field-error').textContent, banner: document.querySelector('.error-banner').textContent })");
+    assert.deepEqual(invalid, {
+      open: true,
+      invalid: "true",
+      error: "供应商 UA 最多 512 字节。",
+      banner: "供应商 UA 最多 512 字节。",
+    });
     assert.deepEqual(cdp.errors, []);
     assert.equal(serverOutput.includes("Error"), false, serverOutput);
   } finally {

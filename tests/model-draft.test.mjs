@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { changedPersistedModel, duplicateCodexForm, duplicatePiForm, selectedNamedModel, suggestCopyId } from "../src/model-draft.mjs";
+import { changedPersistedModel, duplicateCodexForm, duplicatePiForm, selectedNamedModel, suggestCopyId, userAgentSaveIntent } from "../src/model-draft.mjs";
 
 test("persisted model identities cannot be renamed or cleared in a draft", () => {
   const unchanged = { rowId: "stored", persistedId: "anthropic/claude-opus", id: "anthropic/claude-opus" };
@@ -51,6 +51,10 @@ test("a duplicated Pi draft carries the models but never the credential", () => 
     defaultRowId: "r2",
     defaultThinkingLevel: "high",
     compat: { supportsStrictTools: true },
+    userAgent: "claude-cli/2.1.197 (external, cli)",
+    userAgentKind: "literal",
+    userAgentEdited: false,
+    hasModelUserAgentOverride: false,
   };
 
   const copy = duplicatePiForm(form, ["any-claude", "openai"]);
@@ -67,6 +71,9 @@ test("a duplicated Pi draft carries the models but never the credential", () => 
   assert.equal(copy.models[1].maximumThinking, "medium");
   assert.equal(copy.defaultRowId, copy.models[1].rowId);
   assert.deepEqual(copy.compat, { supportsStrictTools: true });
+  assert.equal(copy.userAgent, form.userAgent);
+  assert.equal(copy.userAgentKind, "literal");
+  assert.equal(copy.userAgentEdited, true);
   // Nothing in a copy exists on disk yet, so no row may claim a storage
   // identity: carrying persistedId over would lock the IDs as read-only and
   // make the identity-drift check refuse the draft.
@@ -80,6 +87,40 @@ test("a duplicated Pi draft carries the models but never the credential", () => 
   assert.equal(form.defaultRowId, "r2");
   assert.equal(form.models[0].persistedId, "claude-3-5-sonnet");
   assert.equal(form.moveCredential, true);
+});
+
+test("a duplicated Pi draft does not copy an external User-Agent expression", () => {
+  const copy = duplicatePiForm({
+    providerId: "router",
+    baseUrl: "https://router.example/v1",
+    api: "openai-responses",
+    credentialMode: "keep",
+    apiKey: "",
+    models: [{ rowId: "r1", persistedId: "model", id: "model" }],
+    defaultRowId: "r1",
+    userAgent: "",
+    userAgentKind: "external",
+    userAgentEdited: false,
+    hasModelUserAgentOverride: true,
+  }, []);
+
+  assert.equal(copy.userAgent, "");
+  assert.equal(copy.userAgentKind, "none");
+  assert.equal(copy.userAgentEdited, false);
+  assert.equal(copy.copiedExternalUserAgent, true);
+  assert.equal(copy.hasModelUserAgentOverride, true);
+});
+
+test("a changed provider ID re-evaluates untouched User-Agent write intent", () => {
+  const literal = { providerId: "renamed", userAgent: "client/1.0", userAgentKind: "literal", userAgentEdited: false };
+  assert.deepEqual(userAgentSaveIntent(literal, "source", false), { write: true, value: "client/1.0" });
+  const none = { providerId: "renamed", userAgent: "", userAgentKind: "none", userAgentEdited: false };
+  assert.deepEqual(userAgentSaveIntent(none, "source", false), { write: true, value: "" });
+  const external = { providerId: "renamed", userAgent: "", userAgentKind: "external", userAgentEdited: false };
+  assert.deepEqual(userAgentSaveIntent(external, "source", true), { write: false });
+  assert.deepEqual(userAgentSaveIntent(external, "source", false), { write: true, value: "" });
+  assert.deepEqual(userAgentSaveIntent({ ...literal, providerId: "source" }, "source", false), { write: false });
+  assert.deepEqual(userAgentSaveIntent({ providerId: "existing", userAgent: "", userAgentKind: "none", userAgentEdited: false }, "", true), { write: true, value: "" });
 });
 
 test("a duplicated Codex draft keeps the bridge address but not the bridge key", () => {
