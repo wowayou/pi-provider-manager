@@ -1066,10 +1066,93 @@ test("a manager that dies on startup says why in its own log", async () => {
       encoding: "utf8",
     });
     assert.notEqual(crash.status, 0, "binding a used port has to fail");
+    // A bind failure is a reported failure, not a crash: `server.listen` raises an
+    // 'error' event, and an unhandled one kills the process where it stands with
+    // nothing but a refused connection left behind.
     assert.match(fs.readFileSync(crashLog, "utf8"), /EADDRINUSE/);
-    assert.match(fs.readFileSync(restartLog, "utf8"), /uncaught exception: Error: listen EADDRINUSE/);
+    assert.match(fs.readFileSync(crashLog, "utf8"), /端口已被占用/);
+    assert.match(fs.readFileSync(restartLog, "utf8"), /listen failed: EADDRINUSE/);
   } finally {
     await stopAndClean(holder, [agentDir]);
+  }
+});
+
+// The handoff that had no witness. A replacement that binds the port, answers the
+// readiness probe and then dies left the old process already gone, nothing on the
+// port, and — because `restartError` is a variable in the memory of the process
+// that just exited — nothing anywhere. Answering once is not taking over, so the
+// port is only surrendered once the replacement is still answering at the end of a
+// settle window.
+test("a replacement that answers and then dies is taken back", async () => {
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-restart-late-"));
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-restart-late-agent-"));
+  const serverPath = path.join(projectDir, "server.mjs");
+  fs.copyFileSync(path.join(projectRoot, "server.mjs"), serverPath);
+  fs.cpSync(path.join(projectRoot, "lib"), path.join(projectDir, "lib"), { recursive: true });
+  fs.copyFileSync(path.join(projectRoot, "package.json"), path.join(projectDir, "package.json"));
+
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [serverPath], {
+    cwd: projectDir,
+    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_PORT: String(port) }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+    const before = (await (await fetch(`${baseUrl}/api/state`)).json()).compatibility;
+
+    // The half-written upgrade: the replacement starts, binds the port, answers,
+    // and only then dies on something that happens after it is up. Timed off the
+    // port rather than off startup, because the version detection before listen
+    // can take seconds — a fixed delay from module evaluation would kill it before
+    // it ever bound, which is the *other* failure, already covered below.
+    const original = fs.readFileSync(serverPath, "utf8");
+    fs.writeFileSync(serverPath, `${original}\n{
+  const port = Number(process.env.PI_PROVIDER_MANAGER_PORT);
+  const giveUpAt = Date.now() + 30_000;
+  const look = setInterval(() => {
+    const socket = net.connect(port, "127.0.0.1");
+    socket.on("connect", () => {
+      socket.destroy();
+      clearInterval(look);
+      setTimeout(() => process.exit(7), 1_500);
+    });
+    socket.on("error", () => { if (Date.now() > giveUpAt) clearInterval(look); });
+  }, 100);
+}\n`);
+
+    assert.equal((await postJson(baseUrl, "/api/restart", {}, null)).status, 202);
+
+    const deadline = Date.now() + 40_000;
+    let recovered;
+    while (Date.now() < deadline) {
+      try {
+        const state = await (await fetch(`${baseUrl}/api/state`)).json();
+        if (state.restartError) {
+          recovered = state;
+          break;
+        }
+      } catch {
+        // The port is unowned while the handover is attempted.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    assert.ok(recovered, "the old manager never came back");
+    // The same process is serving again: the replacement is gone, and the port was
+    // reclaimed rather than left unowned.
+    assert.equal(recovered.compatibility.servicePid, before.servicePid);
+    assert.match(recovered.restartError, /新进程接管端口后立刻退出/);
+    const handoff = fs.readFileSync(path.join(agentDir, "pi-provider-manager-restart.log"), "utf8");
+    // The account says it answered first, which is what makes this a different
+    // failure from a replacement that never came up.
+    assert.match(handoff, /replacement answered pid=\d+; watching it for \d+ms/);
+    assert.match(handoff, /handoff failed: 重启没有成功：新进程接管端口后立刻退出/);
+    // And it is not claiming a handoff that did not happen.
+    assert.equal(/handoff complete/.test(handoff), false);
+  } finally {
+    await stopAndClean(child, [projectDir, agentDir]);
   }
 });
 

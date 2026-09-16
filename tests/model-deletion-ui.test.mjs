@@ -612,9 +612,21 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
       scroll.scrollTop = target;
       await new Promise(requestAnimationFrame);
     })()`);
+    // Measured before the toast exists. This asks whether anything in the 420px
+    // layout covers the delete control, and the toast is a transient overlay this
+    // test itself raises — reading it afterwards made the answer depend on the
+    // toast's height against the scroll position, which moves with font metrics.
+    // That is exactly how it failed once on CI and passed on re-run with the page
+    // byte-identical, so the assertion was measuring the toast, not the control.
+    const removeTopmost = await cdp.evaluate(`(() => {
+      const button = document.querySelector('.model-row .icon-button');
+      const box = button.getBoundingClientRect();
+      const topmost = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return topmost?.closest('.icon-button') === button;
+    })()`);
     await cdp.evaluate(`document.querySelector('.model-row .icon-button').click()`);
     await cdp.waitFor(`document.querySelector('.toast')`);
-    const mobile = await cdp.evaluate(`(() => {
+    const mobile = { ...(await cdp.evaluate(`(() => {
       const toast = document.querySelector('.toast').getBoundingClientRect();
       const shell = document.querySelector('.app-shell').getBoundingClientRect();
       const sidebar = document.querySelector('.sidebar').getBoundingClientRect();
@@ -623,7 +635,6 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
       const footer = document.querySelector('.wizard-footer').getBoundingClientRect();
       const table = document.querySelector('.models-table').getBoundingClientRect();
       const remove = document.querySelector('.model-row .icon-button').getBoundingClientRect();
-      const topmost = document.elementFromPoint(remove.left + remove.width / 2, remove.top + remove.height / 2);
       return {
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
         verticalOverflow: document.documentElement.scrollHeight - document.documentElement.clientHeight,
@@ -632,12 +643,11 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
         providerRailVisible: document.querySelector('.provider-list').getBoundingClientRect().height >= 48,
         footerVisible: footer.top >= content.top && footer.bottom <= content.bottom + 1,
         removeVisible: remove.left >= table.left && remove.right <= table.right + 1,
-        removeTopmost: topmost?.closest('.icon-button') === document.querySelector('.model-row .icon-button'),
         toastLeft: toast.left,
         toastRight: toast.right,
         rowHeights: [...document.querySelectorAll('.model-row')].map((row) => row.getBoundingClientRect().height),
       };
-    })()`);
+    })()`)), removeTopmost };
     assert.equal(mobile.overflow, 0);
     assert.equal(mobile.verticalOverflow, 0);
     assert.equal(mobile.shellHeight, 900);
