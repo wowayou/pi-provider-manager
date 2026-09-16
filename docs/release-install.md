@@ -15,8 +15,12 @@ Chinese): both provider wizards step by step, the managed bridge, every environm
 variable, upgrade and uninstall, and a troubleshooting table indexed by the exact
 text on screen.
 
-The launcher opens the browser and stores its log under `~/.pi/agent`. Set
-`PI_CODING_AGENT_DIR` before launching to use another isolated Pi directory.
+The launcher opens the browser and stores its log under `~/.pi/agent`, in
+`pi-provider-manager-ui.log` (the manager's own output, including a startup
+failure's reason) and `pi-provider-manager-restart.log` (the handoff account:
+which process asked to restart, which replacement came up, and whether the
+handoff succeeded). Set `PI_CODING_AGENT_DIR` before launching to use another
+isolated Pi directory.
 
 ## Windows
 

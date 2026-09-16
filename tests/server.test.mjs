@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
@@ -1013,8 +1013,63 @@ test("a restart hands the port to a manager started from the files on disk", asy
     assert.equal(after.compatibility.pendingAppVersion, "");
     assert.equal(after.restartError, "");
     assert.equal(after.agentDir, agentDir, "the replacement kept the directories it was given");
+    // The handoff writes its own account to a file, because the only other one was
+    // a `process.stdout` line the launcher's WSL branch discarded entirely. This
+    // is the record that did not exist when a handoff left nothing on the port.
+    const handoff = fs.readFileSync(path.join(agentDir, "pi-provider-manager-restart.log"), "utf8");
+    assert.match(handoff, new RegExp(`handoff requested old=${before.servicePid} version=`));
+    assert.match(handoff, new RegExp(`spawned replacement pid=\\d+ old=${before.servicePid}`));
+    assert.match(handoff, new RegExp(`handoff complete replaced-by=${replacementPid} old=${before.servicePid}`));
+    // And the replacement announces itself, naming the process it replaced: a start
+    // that bound the port and then died is otherwise two pids with no relation.
+    assert.match(handoff, new RegExp(`listening pid=${replacementPid} port=${port} version=9\\.9\\.9 replacing=${before.servicePid}`));
   } finally {
     await stopAndClean(child, [projectDir, agentDir], [replacementPid]);
+  }
+});
+
+// The launcher's WSL branch used to run the manager with its output going to a
+// hidden console, so a server that died on startup left a refused connection and
+// no message anywhere — the state this whole log exists to end. The Windows path
+// cannot redirect it either (Start-Process refuses one file for both streams), so
+// the manager is told where to write and tees its own output there.
+test("a manager that dies on startup says why in its own log", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-log-agent-"));
+  const port = await freePort();
+  const holderLog = path.join(agentDir, "holder.log");
+  const crashLog = path.join(agentDir, "crash.log");
+  const restartLog = path.join(agentDir, "pi-provider-manager-restart.log");
+  const holder = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+    cwd: projectRoot,
+    env: serverEnv({
+      PI_CODING_AGENT_DIR: agentDir,
+      PI_PROVIDER_MANAGER_PORT: String(port),
+      PI_PROVIDER_MANAGER_LOG: holderLog,
+    }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  try {
+    await waitForServer(`http://127.0.0.1:${port}/api/state`);
+    assert.match(fs.readFileSync(holderLog, "utf8"), /Pi Provider Manager API listening/);
+
+    // A second manager on the same port cannot bind. Node's report for that goes
+    // straight to the descriptor, past process.stdout and process.stderr, so the
+    // tee alone would miss it — this asserts it is captured anyway.
+    const crash = spawnSync(process.execPath, [path.join(projectRoot, "server.mjs")], {
+      cwd: projectRoot,
+      env: serverEnv({
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_PORT: String(port),
+        PI_PROVIDER_MANAGER_LOG: crashLog,
+      }),
+      encoding: "utf8",
+    });
+    assert.notEqual(crash.status, 0, "binding a used port has to fail");
+    assert.match(fs.readFileSync(crashLog, "utf8"), /EADDRINUSE/);
+    assert.match(fs.readFileSync(restartLog, "utf8"), /uncaught exception: Error: listen EADDRINUSE/);
+  } finally {
+    await stopAndClean(holder, [agentDir]);
   }
 });
 
@@ -1065,6 +1120,11 @@ test("a replacement that cannot start leaves the old manager serving, and says w
     // Same process, still serving, and the reason is on the state everyone reads.
     assert.equal(recovered.compatibility.servicePid, before.servicePid);
     assert.match(recovered.restartError, /新进程启动后立刻退出/);
+    // The failure is also on disk. `restartError` lives in the memory of a process
+    // that a later handoff may replace, so it cannot be the only account.
+    const handoff = fs.readFileSync(path.join(agentDir, "pi-provider-manager-restart.log"), "utf8");
+    assert.match(handoff, new RegExp(`handoff requested old=${before.servicePid} version=`));
+    assert.match(handoff, /handoff failed: 重启没有成功：新进程启动后立刻退出/);
     // Not stuck: a second attempt is accepted rather than refused as in-flight.
     assert.equal((await postJson(baseUrl, "/api/restart", {}, null)).status, 202);
   } finally {

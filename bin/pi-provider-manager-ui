@@ -184,8 +184,17 @@ if [[ "$reused" -eq 0 ]]; then
     escaped_codex_dir=${codex_dir//\'/\'\'}
     escaped_litellm_bin=${litellm_bin//\'/\'\'}
     escaped_node_bin=${node_bin//\'/\'\'}
+    escaped_log_file=${log_file//\'/\'\'}
+    # This branch used to give wsl.exe nowhere to write: Start-Process puts the
+    # child in a hidden window, and the manager's output vanished with it, so a
+    # start that failed here left a refused connection and no message anywhere.
+    # It cannot be fixed with -RedirectStandardOutput either — Start-Process
+    # refuses one file for both streams, and the two-file workaround sends the
+    # crash output somewhere nobody looks. So the manager is told where to open
+    # its own log instead, which also survives a self-restart: the replacement
+    # inherits this variable and keeps appending to the same file.
     powershell.exe -NoProfile -Command \
-      "\$arguments = @('-d', '${WSL_DISTRO_NAME}', '--', 'env', 'PI_PROVIDER_MANAGER_PORT=${port}', 'PI_PROVIDER_MANAGER_SERVE_UI=1', 'PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE=${agent_dir_source}', 'PI_CODING_AGENT_DIR=${escaped_agent_dir}', 'PI_PROVIDER_MANAGER_CODEX_DIR=${escaped_codex_dir}', 'PI_PROVIDER_MANAGER_CODEX_DIR_SOURCE=${codex_dir_source}', 'PI_PROVIDER_MANAGER_LITELLM=${escaped_litellm_bin}', '${escaped_node_bin}', '${escaped_project_dir}/server.mjs'); Start-Process -FilePath 'wsl.exe' -ArgumentList \$arguments -WindowStyle Hidden" \
+      "\$arguments = @('-d', '${WSL_DISTRO_NAME}', '--', 'env', 'PI_PROVIDER_MANAGER_PORT=${port}', 'PI_PROVIDER_MANAGER_SERVE_UI=1', 'PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE=${agent_dir_source}', 'PI_CODING_AGENT_DIR=${escaped_agent_dir}', 'PI_PROVIDER_MANAGER_CODEX_DIR=${escaped_codex_dir}', 'PI_PROVIDER_MANAGER_CODEX_DIR_SOURCE=${codex_dir_source}', 'PI_PROVIDER_MANAGER_LITELLM=${escaped_litellm_bin}', 'PI_PROVIDER_MANAGER_LOG=${escaped_log_file}', '${escaped_node_bin}', '${escaped_project_dir}/server.mjs'); Start-Process -FilePath 'wsl.exe' -ArgumentList \$arguments -WindowStyle Hidden" \
       >/dev/null 2>&1
   else
     nohup env PI_PROVIDER_MANAGER_PORT="$port" PI_PROVIDER_MANAGER_SERVE_UI=1 PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE="$agent_dir_source" PI_CODING_AGENT_DIR="$agent_dir" \
@@ -261,6 +270,9 @@ if [[ "$reused" -eq 1 ]]; then
 else
   echo "  Pi config:    $agent_dir"
   echo "  Codex config: $codex_dir"
+  # Named on a fresh start only: a reused instance is writing wherever *it* was
+  # started, so pointing at this shell's path would be a confident guess.
+  echo "  Log:          $log_file"
 fi
 # Only worth a line when it is set: an empty value means "find litellm on PATH".
 if [[ -n "$litellm_bin" ]]; then echo "  LiteLLM:      $litellm_bin"; fi

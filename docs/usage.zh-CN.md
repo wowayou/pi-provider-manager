@@ -437,6 +437,7 @@ PI_CODING_AGENT_DIR=/tmp/pi-try CODEX_HOME=/tmp/codex-try \
 | `Port N is already used by another application.` | 你指定的端口被别的程序占了。换一个，或者别指定让它自动选 |
 | `No free port found in 43127-43146.` | 20 个端口全被占。用 `PI_PROVIDER_MANAGER_PORT` 指一个 |
 | `Pi Provider Manager failed to start.` | 服务起不来。它会打印一条可以直接粘贴的手动启动命令，前台跑一遍就能看到真正的报错；日志在 `$PI_CODING_AGENT_DIR/pi-provider-manager-ui.log` |
+| 点「重启」之后浏览器报连不上 | 服务没了。先直接用启动器再起一个（`kill <pid>` 后重跑），然后看 `pi-provider-manager-restart.log`：里面会写明交接走到哪一步、新进程有没有起来 |
 | 打印了 `(reused the instance already running on this port)` | 端口上已经有一个了，这是**正常复用**。LiteLLM 会在每次读取时重新发现，刚装 LiteLLM 不需要重启本管理器；只有管理器代码升级才按它给的 `kill <pid> && <launcher>` 做 |
 
 ### Codex 相关
@@ -462,6 +463,15 @@ PI_CODING_AGENT_DIR=/tmp/pi-try CODEX_HOME=/tmp/codex-try \
 | 「已保存的模型 ID 不可直接改名」 | 加新的、删旧的 |
 
 ### 还是不行
+
+先看日志。管理器会在配置目录里写两个文件：
+
+| 文件 | 内容 |
+|---|---|
+| `$PI_CODING_AGENT_DIR/pi-provider-manager-ui.log` | 管理器自己的输出，包含启动信息和当场崩溃的原因（两个启动分支都会写） |
+| `$PI_CODING_AGENT_DIR/pi-provider-manager-restart.log` | 重启交接的账本：谁请求的、起了哪个新进程、交接成功还是失败；每个进程启动时也会记一行 |
+
+两个文件都有 64 KiB 上限，超了从头写，不会无限长大。
 
 把设置页那几行诊断信息（管理器版本、Pi 版本、已验证兼容、配置目录、路径来源、Node）一起贴出来。
 **不要上传 `auth.json`、真实 key 或私有供应商导出。**
