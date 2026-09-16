@@ -113,10 +113,32 @@ function teeOutputInto(file) {
           : Buffer.from(chunk);
         fs.writeSync(descriptor, bytes);
       } catch {
-        // The console copy below is still worth making.
+        // The console copy below is still worth attempting.
       }
-      return original(chunk, encoding, callback);
+      try {
+        return original(chunk, encoding, callback);
+      } catch {
+        // A stream that has already been destroyed rejects writes synchronously.
+        return true;
+      }
     };
+  }
+  // A console that goes away must not take the manager with it. The launcher's WSL
+  // branch starts the manager on a hidden console, and that console dies with the
+  // session that opened it: the next write then fails with EIO, which arrives as an
+  // 'error' event on the stream, and an unhandled stream error is an uncaught
+  // exception. Measured, not theorised — this is what killed a replacement
+  // milliseconds after it had bound the port, and what left the reported incident
+  // with nothing on the port and nothing written down.
+  let outputFailureNoted = false;
+  for (const stream of [process.stdout, process.stderr]) {
+    stream.on("error", (error) => {
+      if (outputFailureNoted) return;
+      outputFailureNoted = true;
+      logRestart(
+        `output stream failed; further writes to it are dropped rather than fatal: ${describeError(error)}`,
+      );
+    });
   }
   process.on("uncaughtException", (error) => {
     const report = error?.stack || String(error);
@@ -393,10 +415,18 @@ function listenFailureMessage(error) {
   return `无法监听 ${where}：${error?.message || error}`;
 }
 
-// A regular file or a character device (a terminal, /dev/null) is still there for
-// the replacement to write to once this process is gone. A pipe or a socket is not.
+// A regular file (a log, a redirect) is still there for the replacement to write
+// to once this process is gone. A terminal is not: the console the launcher's WSL
+// branch gives the manager belongs to the session that opened it, and it is gone as
+// soon as that session is — so a replacement handed that fd fails on its first
+// write. A pipe belongs to whoever spawned this process, and holding its write end
+// open from a detached child leaves that reader waiting for an end that never
+// comes. /dev/null is a character device and is the one terminal-ish fd worth
+// keeping: it outlives everything.
 function outlivesUs(fd) {
   try {
+    const stream = fd === 1 ? process.stdout : process.stderr;
+    if (stream?.isTTY) return "ignore";
     const stats = fs.fstatSync(fd);
     return stats.isFile() || stats.isCharacterDevice() ? fd : "ignore";
   } catch {

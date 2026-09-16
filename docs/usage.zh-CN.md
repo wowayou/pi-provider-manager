@@ -440,6 +440,7 @@ PI_CODING_AGENT_DIR=/tmp/pi-try CODEX_HOME=/tmp/codex-try \
 | `启动失败：无法监听 127.0.0.1:43127：端口已被占用（EADDRINUSE）` | 端口被别人占了。它会重试一秒再放弃，然后写入日志并退出（不会半死在那里）。换一个端口，或先停掉占用它的进程 |
 | 点「重启」之后浏览器报连不上 | 服务没了。先直接用启动器再起一个（`kill <pid>` 后重跑），然后看 `pi-provider-manager-restart.log`：里面会写明交接走到哪一步、新进程有没有起来 |
 | `重启没有成功：新进程接管端口后立刻退出（pid …），正在恢复原来的版本。` | 新进程起来了、也应答了，但随后就死了 —— 这正是以前会留下“连不上、也没任何提示”的那种情况。现在旧进程会把它收回来重新监听，所以**服务没断**，只是还在跑旧版本。日志里会先有 `replacement answered pid=…`，再有这一条 |
+| 日志里有 `output stream failed; further writes to it are dropped rather than fatal` | 不是故障，而是说明为什么本应出现的报错没打在你那个控制台上：启动这个管理器的终端/控制台已经关掉了，写入它失败了。管理器**不会**因此退出，输出照旧写进日志文件 |
 | 打印了 `(reused the instance already running on this port)` | 端口上已经有一个了，这是**正常复用**。LiteLLM 会在每次读取时重新发现，刚装 LiteLLM 不需要重启本管理器；只有管理器代码升级才按它给的 `kill <pid> && <launcher>` 做 |
 
 ### Codex 相关
