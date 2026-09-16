@@ -1,6 +1,6 @@
 {
   "name": "pi-provider-manager-ui",
-  "version": "0.3.15",
+  "version": "0.3.16",
   "piValidatedVersion": "0.85.1",
   "codexValidatedVersion": "0.154.0",
   "private": true,
