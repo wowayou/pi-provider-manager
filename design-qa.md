@@ -641,3 +641,50 @@ final result: passed
   lifecycle, and the stack trace is the same error.
 
 final result: passed
+
+## The Settle Window Was Not Running — Evidence
+
+- Evidence date: `2026-09-16`. Manager `0.3.15` (post-release). Found by applying
+  0.3.15 to this machine's instance with the in-app restart, which is the moment
+  the previous two rounds were built to make safe.
+- **What was seen.** The handoff log recorded `handoff requested`, `spawned
+  replacement`, the replacement's `listening`, and then nothing: no `replacement
+  answered`, no `handoff complete`, no `handoff failed`. The old process was gone
+  and the replacement was serving correctly. A handoff that *succeeds* is expected
+  to log `handoff complete`, so the log itself said the window had not run.
+- **Reproduced on a detached, console-less instance** (`node server.mjs >/dev/null
+  2>&1`, the shape the launcher gives): the log reached `replacement answered
+  pid=…; watching it for 5000ms before giving up the port` and stopped there, with
+  the old process already gone.
+- **Cause.** Both retry timers were scheduled with `.unref()`. `applyRestart`
+  closes the listening socket on purpose and the replacement is unref'd, so once
+  `server.close()` had taken effect those timers were the only handles left in the
+  event loop — an unref'd timer does not hold it, and the process exited in the
+  middle of the settle window. Everything the window was for therefore did not
+  happen in the launcher's configuration: a replacement that answered once and then
+  died would not have been taken back.
+- **Why it survived the previous round.** Two accidents of configuration, and the
+  test suite had the first one. With a **pipe** on stdout the handle keeps the loop
+  alive, and the restart tests spawned the manager that way; a manager on a
+  **terminal** does too, which is how the earlier pty check showed a complete
+  window. Only a console-less instance exposed it, which is what `0.3.15` had been
+  released to protect. It was found within minutes of deploying it.
+- **Fix.** The retries are deliberately ref'd now, with the reason beside them.
+  Re-measured on the same detached instance: `replacement answered` at
+  `14:49:41.690`, `handoff complete` at `14:49:46.764` — a full five-second window,
+  and the old process exiting only after it.
+- **Coverage, and its limit, stated plainly.** The two restart tests now spawn the
+  manager with no pipes at all, which is the launcher's shape. They pass **with or
+  without** the fix: the manager's own version detection keeps a login-shell child
+  process alive through the window, and a ref'd child masks the drain exactly as the
+  pipe did. This regression is therefore pinned by the detached-instance measurement
+  above, not by the suite. Making it automatic would mean an env hook that forces
+  detection to resolve without a child, which is a change to the product for the
+  sake of a test.
+- **A note on releases.** `0.3.14` and `0.3.15` both ship the settle window with
+  this defect in it, so their restarts do not reclaim the port from a replacement
+  that dies after answering. The output fix in `0.3.15` is unaffected and effective.
+- Not claimed: nothing about the user's machine is inferred. Everything above was
+  measured on this host, on the same launcher branch and console lifecycle.
+
+final result: passed

@@ -289,6 +289,15 @@ const REPLACEMENT_SETTLE_MS = 5_000;
 
 // Answered by a different process id, which is the only proof that matters: this
 // one has stopped listening, so anything replying on the port is the replacement.
+// The handoff resolves by explicit exit — `process.exit(0)` on success, the
+// reclaim path on failure — so nothing here has to let the process die on its own.
+// These timers are therefore deliberately *not* unref'd. Unref'd, they were the only
+// thing left holding the event loop once the listening socket was closed, so a
+// manager started with its output on /dev/null (the launcher's WSL branch) exited
+// silently in the middle of the settle window — the window never ran where it was
+// written for, and the process left no line saying which step it died on. Measured
+// on a detached instance: `replacement answered …` was written, `handoff complete`
+// never was, and the old process was gone.
 function waitForReplacement(deadline, exited) {
   return new Promise((resolve) => {
     function retry() {
@@ -299,7 +308,7 @@ function waitForReplacement(deadline, exited) {
         resolve(0);
         return;
       }
-      setTimeout(attempt, 200).unref?.();
+      setTimeout(attempt, 200);
     }
     function attempt() {
       const request = http.get(
@@ -342,7 +351,7 @@ function replacementSurvives(deadline, replacementPid, exited) {
     function retry() {
       if (exited()) { resolve(false); return; }
       if (Date.now() >= deadline) { resolve(true); return; }
-      setTimeout(check, 200).unref?.();
+      setTimeout(check, 200);
     }
     function check() {
       if (exited()) { resolve(false); return; }
