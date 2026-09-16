@@ -9,6 +9,21 @@ export function selectedNamedModel(models, defaultRowId) {
   return models.find((model) => model.rowId === defaultRowId && String(model.id || "").trim()) || null;
 }
 
+// An untouched UA means "preserve this provider" only while the draft still
+// names the provider it was read from. Once its ID changes, the value belongs
+// to the new target: safe literal/none states are explicit, while an external
+// source value is not copied. A pre-existing target may keep its own external
+// value; a new target gets an explicit clear instead of inheriting ambiguity.
+export function userAgentSaveIntent(form, sourceProviderId, targetExists) {
+  if (form.userAgentEdited) return { write: true, value: form.userAgent };
+  const targetId = String(form.providerId || "").trim();
+  // A new draft owns an explicit none state. Omitting the field here would preserve an old UA while the form says none.
+  if (!sourceProviderId) return { write: true, value: form.userAgent || "" };
+  if (targetId === sourceProviderId) return { write: false };
+  if (form.userAgentKind === "external") return targetExists ? { write: false } : { write: true, value: "" };
+  return { write: true, value: form.userAgent || "" };
+}
+
 // A duplicated provider saves as a new row, so the draft needs an ID that is
 // free: `<source>-copy`, then `-copy-2`, `-copy-3`, …
 export function suggestCopyId(sourceId, takenIds) {
@@ -39,6 +54,8 @@ export function duplicatePiForm(form, takenIds) {
   // identity-drift check refuse a draft that has drifted from nothing.
   const models = form.models.map((model) => ({ ...model, rowId: freshRowId(), persistedId: "" }));
   const sourceDefault = form.models.find((model) => model.rowId === form.defaultRowId);
+  const sourceUserAgentKind = form.userAgentKind || (form.userAgent ? "literal" : "none");
+  const canCopyUserAgent = sourceUserAgentKind === "literal" || sourceUserAgentKind === "none";
   return {
     ...form,
     providerId: suggestCopyId(form.providerId, takenIds),
@@ -49,6 +66,14 @@ export function duplicatePiForm(form, takenIds) {
     moveCredential: false,
     models,
     defaultRowId: (models.find((model) => model.id === sourceDefault?.id) || models[0]).rowId,
+    // A copy is a new provider, so its UA intent must be explicit. Dynamic or
+    // ambiguous source values stay out of the draft and ask the user to fill
+    // them again rather than copying an expression we cannot inspect safely.
+    userAgent: canCopyUserAgent && sourceUserAgentKind === "literal" ? form.userAgent : "",
+    userAgentKind: canCopyUserAgent && sourceUserAgentKind === "literal" ? "literal" : "none",
+    userAgentEdited: canCopyUserAgent,
+    hasModelUserAgentOverride: Boolean(form.hasModelUserAgentOverride),
+    copiedExternalUserAgent: sourceUserAgentKind === "external",
   };
 }
 

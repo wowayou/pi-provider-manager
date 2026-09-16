@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Pi 的第三步高级兼容设置新增供应商级 `User-Agent` 覆盖。状态区分未设置、可安全编辑的字面量和外部/动态配置；未明确编辑时保留外部值，模型级或扩展级 header 只做提示且不会回传浏览器。输入限制为最多 512 字节的可打印 ASCII，不执行动态表达式；成功页说明供应商级 UA 可能被模型级配置覆盖。
 - The credentials step refuses what the server refuses, before 下一步. A provider ID outside `^[a-z0-9][a-z0-9._-]*$` — anything with an `@`, a capital the field had not already lowered, a leading dot — and a base URL that is not `http(s)`, is missing its scheme, or is plain `http` to a non-loopback host, were only rejected by `saveProvider` two steps later, which bounced the user back to step 2 with the server's message. The step now asks `lib/validation.mjs` itself, on both targets, and the ID field carries `aria-invalid` with the rule beside it while it is wrong. A field must not accept keystrokes its parser will reject.
 - An ID that already names another provider is said beside the field. Typing `openai` into a new draft, or renaming a draft to a sibling's ID, silently replaced that provider's address and model list on save; the only earlier signal was the footer's button changing from 保存并设为默认 to 保存更改 on the next step. On Codex it also replaced the key.
 - Leaving an edited prompt asks first. Picking another document, another file tab or 新建提示词 discarded whatever was in the editor with nothing said. All three now go through a toast whose action, 放弃修改并切换, does the leaving; the edit is the only copy of that text. Arrow keys move between file tabs, and the current document carries `aria-current`.

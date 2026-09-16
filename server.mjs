@@ -31,6 +31,7 @@ import {
   repositorySlug,
 } from "./lib/self-update.mjs";
 import { detectCodexVersion, detectPiVersion, liveVersion } from "./lib/version-detect.mjs";
+import { applyUserAgent, readUserAgent } from "./lib/pi-user-agent.mjs";
 import { ConflictError, PROVIDER_ID_PATTERN, isLoopbackHostname, normalizeUrl } from "./lib/validation.mjs";
 
 const HOST = "127.0.0.1";
@@ -456,6 +457,46 @@ function titleFromId(id) {
     .join(" ");
 }
 
+// Only the fields the browser edits are returned. Save paths merge submitted
+// values with the full model read from disk, so unknown Pi fields stay on disk
+// while arbitrary model headers never cross the browser boundary.
+function publicModel(model) {
+  if (!isObject(model)) return {};
+  const result = {};
+  for (const key of ["id", "name", "api", "maximumThinking"]) {
+    if (typeof model[key] === "string") result[key] = model[key];
+  }
+  if (typeof model.reasoning === "boolean") result.reasoning = model.reasoning;
+  if (Array.isArray(model.input)) result.input = model.input.filter((value) => value === "text" || value === "image");
+  for (const key of ["contextWindow", "maxTokens"]) {
+    if (Number.isSafeInteger(model[key])) result[key] = model[key];
+  }
+  if (isObject(model.thinkingLevelMap)) {
+    const thinkingLevelMap = {};
+    for (const key of ["off", "minimal", "low", "medium", "high", "xhigh", "max"]) {
+      if (typeof model.thinkingLevelMap[key] === "string" || model.thinkingLevelMap[key] === null) {
+        thinkingLevelMap[key] = model.thinkingLevelMap[key];
+      }
+    }
+    if (Object.keys(thinkingLevelMap).length > 0) result.thinkingLevelMap = thinkingLevelMap;
+  }
+  if (isObject(model.compat) && typeof model.compat.forceAdaptiveThinking === "boolean") {
+    result.compat = { forceAdaptiveThinking: model.compat.forceAdaptiveThinking };
+  }
+  return result;
+}
+
+function hasUserAgentHeader(headers) {
+  return isObject(headers) && Object.keys(headers).some((key) => key.toLowerCase() === "user-agent");
+}
+
+function hasModelUserAgentOverride(config) {
+  if (!isObject(config)) return false;
+  if (Array.isArray(config.models) && config.models.some((model) => hasUserAgentHeader(model?.headers))) return true;
+  return isObject(config.modelOverrides)
+    && Object.values(config.modelOverrides).some((model) => hasUserAgentHeader(model?.headers));
+}
+
 function publicState() {
   const files = stableManagedSnapshots();
   const auth = parseJsonBytes(AUTH_PATH, files.get(AUTH_PATH));
@@ -473,7 +514,9 @@ function publicState() {
       baseUrl: typeof config.baseUrl === "string" ? config.baseUrl : "",
       api: typeof config.api === "string" ? config.api : "",
       compat: isObject(config.compat) ? config.compat : {},
-      models: Array.isArray(config.models) ? config.models : [],
+      models: Array.isArray(config.models) ? config.models.filter(isObject).map(publicModel) : [],
+      userAgent: readUserAgent(config.headers),
+      hasModelUserAgentOverride: hasModelUserAgentOverride(config),
       credentialConfigured: Boolean(auth[id]),
       isDefault: settings.defaultProvider === id,
     };
@@ -635,6 +678,11 @@ function saveProvider(payload) {
     mergeExistingModel(existingModels.get(model.id), model, payload.models[index], api),
   );
   const providerConfig = { ...existingProvider, baseUrl, api, models: mergedModels };
+  if (Object.hasOwn(payload, "userAgent")) {
+    const headers = applyUserAgent(existingProvider.headers, payload);
+    if (headers) providerConfig.headers = headers;
+    else delete providerConfig.headers;
+  }
   // Switching protocols leaves the previous protocol's flags behind, and
   // cleanCompat would reject them for the new api, so filter what we keep too.
   const keptCompat = cleanCompat(api, existingProvider.compat) || {};

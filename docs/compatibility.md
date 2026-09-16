@@ -25,6 +25,18 @@ To reduce breakage:
 7. The config directory follows Pi's own precedence: `PI_CODING_AGENT_DIR`, then `~/.pi/agent`.
 8. Project path, port, Node binary, browser opening, and WSL distribution are discovered or explicitly overridable; the network host remains loopback-only.
 
+### Provider User-Agent compatibility setting
+
+Pi permits provider-level request headers and model/extension-level request configuration. The manager exposes
+only the provider-level `User-Agent` as a literal compatibility override in the third wizard step. Its read
+contract distinguishes `none`, `literal`, and `external`: dynamic expressions, ambiguous casing, invalid old
+values, and malformed header structures are reported only as `external` and are not evaluated or returned to the
+browser. Omitting the field preserves the on-disk value; an explicit empty string removes all case variants; a
+non-empty valid value is written under the canonical `User-Agent` key. Model and extension headers stay on disk
+and may take precedence at request time. The value is deliberately limited to printable ASCII and 512 bytes as
+a product safety boundary, not as a claim about an HTTP limit. Re-check this behavior against Pi's current
+`models.md` after a Pi upgrade.
+
 
 ## Codex compatibility
 

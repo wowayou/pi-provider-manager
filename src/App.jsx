@@ -38,7 +38,9 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { PROVIDER_ID_PATTERN, normalizeUrl } from "../lib/validation.mjs";
-import { changedPersistedModel, duplicateCodexForm, duplicatePiForm, selectedNamedModel } from "./model-draft.mjs";
+import { validateUserAgent } from "../lib/pi-user-agent.mjs";
+import { changedPersistedModel, duplicateCodexForm, duplicatePiForm, selectedNamedModel, userAgentSaveIntent } from "./model-draft.mjs";
+import { USER_AGENT_PRESETS } from "./user-agent-presets.mjs";
 import { PromptsScreen } from "./prompts-view.jsx";
 import { BulkModal, ErrorBanner, Spinner, createRadioKeyHandler, readApiResponse, titleFromId, useDialog, useScrollEdges } from "./ui-kit.jsx";
 import {
@@ -213,6 +215,10 @@ function blankForm() {
     defaultRowId: firstModel.rowId,
     defaultThinkingLevel: "high",
     compat: {},
+    userAgent: "",
+    userAgentKind: "none",
+    userAgentEdited: false,
+    hasModelUserAgentOverride: false,
   };
 }
 
@@ -328,6 +334,10 @@ function providerToForm(provider, state) {
     ).rowId,
     defaultThinkingLevel: state.settings.defaultThinkingLevel || "high",
     compat: provider.compat || {},
+    userAgent: provider.userAgent?.kind === "literal" ? provider.userAgent.value : "",
+    userAgentKind: provider.userAgent?.kind || "none",
+    userAgentEdited: false,
+    hasModelUserAgentOverride: Boolean(provider.hasModelUserAgentOverride),
   };
 }
 
@@ -796,10 +806,21 @@ function ModelRow({ model, isDefault, isLiveDefault, onChange, onDefault, onArmR
   );
 }
 
-function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, canDeleteProvider, isExistingProvider, isCurrentDefault, liveDefaultModelId }) {
+function userAgentValidationError(value) {
+  try {
+    validateUserAgent(value);
+    return "";
+  } catch (problem) {
+    return problem.message;
+  }
+}
+
+function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, canDeleteProvider, isExistingProvider, isCurrentDefault, liveDefaultModelId, userAgentFocusRequest }) {
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [scrolled, setScrolled] = useState(false);
+  const advancedRef = useRef(null);
+  const userAgentRef = useRef(null);
   const updateModel = (rowId, value) => setForm((current) => ({ ...current, models: current.models.map((model) => model.rowId === rowId ? value : model) }));
   const addModel = () => setForm((current) => ({ ...current, models: [...current.models, blankModel()], defaultRowId: current.defaultRowId || current.models[0]?.rowId || "" }));
   // Which row would inherit the default marker once this one is gone: the radio
@@ -922,6 +943,47 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
   const thinkingAliasModels = form.models.filter((model) => /-(max|xhigh)$/i.test(model.id));
   const currentApi = apiMeta(form.api);
   const namedModels = form.models.filter((model) => model.id.trim()).length;
+  const userAgentError = userAgentValidationError(form.userAgent);
+  const externalUserAgent = form.userAgentKind === "external" && !form.userAgentEdited;
+  const userAgentSummary = externalUserAgent
+    ? "UA 由外部配置"
+    : form.userAgentKind === "literal" && !form.userAgentEdited
+      ? "已配置 UA"
+      : "";
+  useEffect(() => {
+    if (!userAgentFocusRequest || !userAgentError) return;
+    advancedRef.current?.setAttribute("open", "");
+    requestAnimationFrame(() => {
+      userAgentRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+      userAgentRef.current?.focus();
+    });
+  }, [userAgentFocusRequest, userAgentError]);
+  const changeUserAgent = (value) => {
+    setForm((current) => ({
+      ...current,
+      userAgent: value,
+      userAgentKind: value.trim() ? "literal" : "none",
+      userAgentEdited: true,
+    }));
+  };
+  const fillUserAgent = (value) => {
+    const before = {
+      userAgent: form.userAgent,
+      userAgentKind: form.userAgentKind,
+      userAgentEdited: form.userAgentEdited,
+    };
+    const providerId = form.providerId;
+    changeUserAgent(value);
+    onNotify("已更新草稿", "success", {
+      label: "撤销",
+      onAction: () => setForm((current) => (
+        current.providerId === providerId && current.userAgent === value && current.userAgentEdited
+          ? { ...current, ...before }
+          : current
+      )),
+    });
+  };
+  const clearUserAgent = () => fillUserAgent("");
   return (
     <section className="step-content models-step">
       <div className="step-scroll">
@@ -960,11 +1022,42 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
         </div>
         <p className="scroll-hint">表格可左右滑动，查看上下文容量、图像与推理能力等字段。</p>
         <div className="models-note"><ShieldCheck size={21} weight="duotone" />未指定的能力项将使用保守默认值，不影响正常使用。</div>
-        <details className="advanced-panel">
-          <summary><span><SlidersHorizontal size={21} />高级兼容设置 <small>通常无需修改</small></span><CaretDown size={19} /></summary>
+        <details ref={advancedRef} className="advanced-panel">
+          <summary><span><SlidersHorizontal size={21} />高级兼容设置 <small>通常无需修改</small>{userAgentSummary && <small>{userAgentSummary}</small>}</span><CaretDown size={19} /></summary>
           <div className="advanced-content">
-            <div><h3>模型协议覆盖</h3><p>只有网关针对某个模型使用不同接口时才需要设置。</p></div>
-            {form.models.map((model) => <label key={model.rowId}><span className="mono">{model.id || "未命名模型"}</span><select value={model.api} onChange={(event) => updateModel(model.rowId, { ...model, api: event.target.value })}><option value="inherit">继承网关默认协议</option>{API_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label>)}
+            <div className="advanced-group user-agent-group">
+              <div className="advanced-group-heading"><h3>供应商请求设置</h3><p>User-Agent 是供应商级配置，会作用于此供应商下的模型；模型自身或扩展配置可能覆盖它。</p></div>
+              {externalUserAgent && <p className="advanced-external-note"><Info size={17} weight="duotone" />已有外部 UA 配置，保存其他设置将保留它。输入或清除后才会明确替换。</p>}
+              <label className="user-agent-field">
+                <span>User-Agent</span>
+                <small>仅在网关明确要求时填写；不执行动态表达式。</small>
+                <input
+                  ref={userAgentRef}
+                  className="mono"
+                  value={form.userAgent}
+                  onChange={(event) => changeUserAgent(event.target.value)}
+                  placeholder="未设置供应商 UA 覆盖"
+                  aria-invalid={Boolean(userAgentError) || undefined}
+                  aria-describedby={userAgentError ? "user-agent-error" : undefined}
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  autoComplete="off"
+                />
+                {userAgentError && <span id="user-agent-error" className="field-error"><WarningCircle size={15} weight="fill" />{userAgentError}</span>}
+              </label>
+              <div className="user-agent-actions">
+                <span>快速填充：</span>
+                {USER_AGENT_PRESETS.map((preset) => <button key={preset.id} type="button" className="outline-button compact-button" onClick={() => fillUserAgent(preset.value)} title="仅作填写示例，不保证网关接受">{preset.label}</button>)}
+                <button type="button" className="secondary-button compact-button" onClick={clearUserAgent}>清除供应商 UA 覆盖</button>
+              </div>
+              <p className="user-agent-disclaimer">四个值仅作填写示例，不保证网关接受；模板不会保存为单独的 preset。</p>
+              {form.hasModelUserAgentOverride && <p className="compat-note"><Info size={17} weight="duotone" />检测到模型级 UA 覆盖，实际请求可能优先使用模型配置。</p>}
+            </div>
+            <div className="advanced-group protocol-group">
+              <div className="advanced-group-heading"><h3>模型协议覆盖</h3><p>只有网关针对某个模型使用不同接口时才需要设置。</p></div>
+              {form.models.map((model) => <label key={model.rowId}><span className="mono">{model.id || "未命名模型"}</span><select value={model.api} onChange={(event) => updateModel(model.rowId, { ...model, api: event.target.value })}><option value="inherit">继承网关默认协议</option>{API_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label>)}
+            </div>
           </div>
         </details>
         <ErrorBanner message={error} conflict={conflict} />
@@ -1090,6 +1183,11 @@ function SuccessScreen({ result, onCopy, onReturn, onAdd }) {
     const timer = setTimeout(() => setCopied(false), 2000);
     return () => clearTimeout(timer);
   }, [copied]);
+  const userAgentSummary = result.userAgent?.kind === "external"
+    ? "由外部配置"
+    : result.userAgent?.kind === "literal"
+      ? <code>{result.userAgent.value}</code>
+      : "未设置覆盖";
   return (
     <section className="success-page">
       <div className="success-mark"><CheckCircle size={72} weight="fill" /></div>
@@ -1100,6 +1198,7 @@ function SuccessScreen({ result, onCopy, onReturn, onAdd }) {
           ? <>Pi 已识别 {result.modelCount} 个模型，默认模型是 <code>{result.defaultModelId}</code>。</>
           : <>Pi 已识别 {result.modelCount} 个模型。全局默认模型没有改动。</>}
       </p>
+      <p className="success-caveat"><Info size={18} weight="duotone" />供应商 UA：{userAgentSummary}{result.hasModelUserAgentOverride ? "；模型级配置可能覆盖它" : ""}</p>
       <div className="next-step-card">
         <div className="next-step-heading"><TerminalWindow size={28} weight="duotone" /><div><h2>下一步：在 Pi 中验证模型</h2><p>无需重启。回到 Pi 打开 <code>/model</code>，或直接运行下面的命令。</p></div></div>
         <div className="command-row">
@@ -1447,6 +1546,7 @@ export function App() {
   const [deleteTargetId, setDeleteTargetId] = useState("");
   const [deletingProvider, setDeletingProvider] = useState(false);
   const [deleteProviderError, setDeleteProviderError] = useState("");
+  const [userAgentFocusRequest, setUserAgentFocusRequest] = useState(0);
   const [target, setTarget] = useState("pi");
   const [codexForm, setCodexForm] = useState(blankCodexForm);
   const [codexStep, setCodexStep] = useState(1);
@@ -1509,12 +1609,15 @@ export function App() {
   // the browser — the user lands on the credentials step to type the new one.
   const duplicateProvider = () => {
     if (!state.providers.some((provider) => provider.id === form.providerId.trim())) return;
+    const copiedExternalUserAgent = form.userAgentKind === "external" && !form.userAgentEdited;
     setForm(duplicatePiForm(form, state.providers.map((provider) => provider.id)));
     setSelectedId("");
     setStep(2);
     setView("wizard");
     setError("");
-    showToast("已复制模型与兼容设置；改好 ID 和网关地址，填入新 key 后保存");
+    showToast(copiedExternalUserAgent
+      ? "已复制模型与兼容设置；外部 UA 未复制，请在第三步重新填写"
+      : "已复制模型与兼容设置；改好 ID 和网关地址，填入新 key 后保存");
   };
 
   const duplicateCodexProvider = () => {
@@ -1572,6 +1675,12 @@ export function App() {
     const message = validateCredentials();
     if (message) { setError(message); setStep(2); return; }
     if (!form.models.some((model) => model.id.trim())) { setError("至少填写一个模型 ID。"); return; }
+    const userAgentError = userAgentValidationError(form.userAgent);
+    if (userAgentError) {
+      setError(userAgentError);
+      setUserAgentFocusRequest((current) => current + 1);
+      return;
+    }
     const changedIdentity = changedPersistedModel(form.models);
     if (changedIdentity) {
       setError(<>已保存的模型 ID <code>{changedIdentity.persistedId}</code> 不能直接改名或清空；请添加新模型，再用删除按钮移除旧模型。</>);
@@ -1579,6 +1688,9 @@ export function App() {
     }
     const selectedModel = selectedNamedModel(form.models, form.defaultRowId);
     if (!selectedModel) { setError("请选择一个已命名模型作为默认模型。"); return; }
+    const targetProviderId = form.providerId.trim();
+    const targetProvider = state.providers.find((provider) => provider.id === targetProviderId);
+    const userAgentIntent = userAgentSaveIntent(form, selectedId, Boolean(targetProvider));
     setSaving(true);
     setError("");
     const payload = {
@@ -1608,6 +1720,7 @@ export function App() {
       compat: form.compat,
       revision: state.revision,
     };
+    if (userAgentIntent.write) payload.userAgent = userAgentIntent.value;
     try {
       if (demoMode) {
         await new Promise((resolve) => setTimeout(resolve, 500));
@@ -1616,6 +1729,16 @@ export function App() {
           name: titleFromId(payload.providerId),
           baseUrl: payload.baseUrl,
           api: payload.api,
+          userAgent: Object.hasOwn(payload, "userAgent")
+            ? payload.userAgent.trim()
+              ? { kind: "literal", value: payload.userAgent.trim() }
+              : { kind: "none" }
+            : targetProvider?.userAgent?.kind === "external"
+              ? { kind: "external" }
+              : targetProvider?.userAgent?.kind === "literal"
+                ? targetProvider.userAgent
+                : { kind: "none" },
+          hasModelUserAgentOverride: Boolean(form.hasModelUserAgentOverride),
           credentialConfigured: true,
           isDefault: setDefault,
           compat: payload.compat || {},
@@ -1651,6 +1774,8 @@ export function App() {
           defaultModelId: payload.defaultModelId,
           defaultThinkingLevel: payload.defaultThinkingLevel,
           setDefault,
+          userAgent: demoProvider.userAgent,
+          hasModelUserAgentOverride: demoProvider.hasModelUserAgentOverride,
           command: `pi --model ${payload.providerId}/${payload.defaultModelId}:${payload.defaultThinkingLevel}`,
         };
         setSaveResult(result);
@@ -1668,6 +1793,8 @@ export function App() {
         defaultModelId: payload.defaultModelId,
         defaultThinkingLevel: payload.defaultThinkingLevel,
         setDefault,
+        userAgent: saved?.userAgent,
+        hasModelUserAgentOverride: saved?.hasModelUserAgentOverride,
         command: `pi --model ${payload.providerId}/${payload.defaultModelId}:${payload.defaultThinkingLevel}`,
       });
       setView("success");
@@ -2221,7 +2348,7 @@ export function App() {
               />
             </>
           )
-        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} overwrites={selectedId !== form.providerId.trim() && state.providers.some((provider) => provider.id === form.providerId.trim())} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} />}</>}
+        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} overwrites={selectedId !== form.providerId.trim() && state.providers.some((provider) => provider.id === form.providerId.trim())} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} userAgentFocusRequest={userAgentFocusRequest} />}</>}
       </section>
       {codexDeleteTargetId && codexProvider(codexDeleteTargetId) && (
         <CodexDeleteDialog

@@ -236,6 +236,14 @@ final result: passed
 
 final result: passed
 
+## Provider User-Agent Compatibility Setting — Evidence
+
+- Evidence date: `2026-09-16`. Manager `0.3.11`.
+- The production-shaped server/API fixture covers the three states `none`, `literal`, and `external`; it confirms that provider and model header values, including fake secrets, never enter `/api/state` or a save response. Explicit set, clear, omission, malformed values, and revision-protected writes were exercised; unknown model fields remained on disk.
+- `npm run build`: passed. `npm run test:server`: 52 pass, 0 fail, 0 skipped, including the server UA contract, model-response projection, copy semantics, and changed-provider-ID write intent. `npm run test:ui`: 11 pass, 0 fail, 0 skipped against the built page and production-shaped server. `npm run test:sites`: 4 pass, 0 fail, 0 skipped.
+- The released Pi request-level procedure was completed against a fake gateway. The strict evidence artifact is `artifacts/ua-review-20260916/wire-strict-results.json`: Pi `0.85.1`, 20 requests passed and 0 were skipped across OpenAI Completions, OpenAI Responses, Anthropic Messages, and Google Generative AI. It covers the custom provider User-Agent, two models inheriting it, clearing back to Pi's default, a model-level override, and the Anthropic `/v1/messages` path.
+- **Not run in this pass, and so not claimed:** an interactive `/model` smoke inside a running Pi session. The evidence here is the released Pi's request-level wire behavior only, using the documented fake-gateway procedure.
+
 ## Codex 0.154.0 Compatibility Triage — Evidence
 
 - Evidence date: `2026-09-12`. Manager `0.3.9`. Baseline moved from Codex `0.151.0` to `0.154.0`.
