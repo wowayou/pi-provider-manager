@@ -972,7 +972,12 @@ test("a restart hands the port to a manager started from the files on disk", asy
   const child = spawn(process.execPath, [path.join(projectDir, "server.mjs")], {
     cwd: projectDir,
     env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
-    stdio: ["ignore", "pipe", "pipe"],
+    // No pipes. This is how the launcher's WSL branch starts the manager, and it is
+    // the configuration that exposes a handoff depending on the event loop: with a
+    // pipe on stdout the handle keeps the loop alive and the settle window runs by
+    // accident, which is how an unref'd retry timer hid here while a detached
+    // instance exited in the middle of the window and never reclaimed.
+    stdio: ["ignore", "ignore", "ignore"],
   });
   let replacementPid = 0;
 
@@ -1096,7 +1101,10 @@ test("a replacement that answers and then dies is taken back", async () => {
   const child = spawn(process.execPath, [serverPath], {
     cwd: projectDir,
     env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_PORT: String(port) }),
-    stdio: ["ignore", "pipe", "pipe"],
+    // Console-less, like the launcher: the settle window has to run with nothing
+    // else holding the event loop, which is the only configuration where the
+    // reclaim this test asserts actually happens.
+    stdio: ["ignore", "ignore", "ignore"],
   });
 
   try {
