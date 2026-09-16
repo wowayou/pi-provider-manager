@@ -1743,6 +1743,13 @@ test("every piece of text meets WCAG AA contrast in both themes", { timeout: 90_
       // itself, so following it with the page's own back button finds nothing.
       await cdp.evaluate(`document.querySelector('.toast-action').click()`);
       await cdp.waitFor(`document.querySelector('.model-row') && !document.querySelector('.error-banner')`);
+
+      // The reload returns to the previously selected provider, which can
+      // differ after the dialog path above. Keep both theme measurements on
+      // the same three-model page so the count comparison tests theme parity,
+      // not navigation state.
+      await cdp.evaluate(`document.querySelectorAll('.provider-item')[0].click()`);
+      await cdp.waitFor(`document.querySelector('.models-step') && document.querySelectorAll('.model-row').length === 3 && !document.querySelector('.error-banner')`);
     };
 
     const lightCount = await audit("light");
