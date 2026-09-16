@@ -30,7 +30,6 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Tray,
-  Stack,
   Sun,
   TerminalWindow,
   Trash,
@@ -395,7 +394,10 @@ function sidebarProviders(state, target) {
       // is the guess the old `upstream` field used to make.
       subtitle: `${provider.models.length} 个模型 · ${provider.bridge ? "托管桥" : isLocalAddress(provider.baseUrl) ? "本机地址" : "Responses"}`,
       ready: provider.credentialConfigured || provider.requiresAuth === false,
-      readyLabel: "凭据已配置",
+      // A provider that declares it needs no credential is not "configured";
+      // the tick means ready either way, but saying "凭据已配置" would claim a key
+      // exists where none was ever asked for.
+      readyLabel: provider.requiresAuth === false ? "无需凭据" : "凭据已配置",
       notReadyLabel: "未配置凭据",
       badge: provider.isActive ? "生效中" : "",
       icon: provider.bridge || isLocalAddress(provider.baseUrl) ? Plugs : PlugsConnected,
@@ -405,14 +407,20 @@ function sidebarProviders(state, target) {
   return state.providers.map((provider) => ({
     id: provider.id,
     name: provider.name || titleFromId(provider.id),
-    keywords: `${provider.id} ${provider.name || ""} ${apiMeta(provider.api).short}`,
+    // The base URL is searchable on both targets: with several entries from one
+    // gateway vendor the host is often the only thing the user remembers.
+    keywords: `${provider.id} ${provider.name || ""} ${provider.baseUrl} ${apiMeta(provider.api).short}`,
     subtitle: `${provider.models.length} 个模型 · ${apiMeta(provider.api).short}`,
     ready: provider.credentialConfigured,
     readyLabel: "凭据已配置",
     notReadyLabel: "未配置凭据",
-    // The Pi sidebar keeps the look it already had; the default provider is
-    // already marked inside the workspace.
-    badge: "",
+    // Which provider Pi will actually use is the same question Codex answers in
+    // its sidebar, so it is answered in the same place. Read from settings rather
+    // than provider.isDefault: a local save updates settings.defaultProvider, and
+    // deriving the mark from the same field keeps the two from disagreeing.
+    // "默认", not "生效中": Pi resolves a provider per model, so nothing about the
+    // other entries is switched off.
+    badge: state.settings.defaultProvider && provider.id === state.settings.defaultProvider ? "默认" : "",
     icon: apiMeta(provider.api).icon,
     source: provider,
   }));
@@ -737,7 +745,6 @@ function ModelRow({ model, isDefault, isLiveDefault, onChange, onDefault, onArmR
   }, [confirmRemove, armedAt]);
   return (
     <div className={`model-row ${isDefault ? "is-default" : ""}`}>
-      <span className="drag-handle"><Stack size={17} aria-hidden="true" /></span>
       <label className="model-name-cell">
         <span className="sr-only">模型 ID</span>
         <span className="model-id-field">
@@ -1017,7 +1024,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
         </div>
         {thinkingAliasModels.length > 0 && <div className="model-warning"><WarningCircle size={20} weight="fill" /><span><strong>发现疑似思考档位后缀：</strong>{thinkingAliasModels.map((model) => model.id).join("、")}。只有网关真的把它们作为模型 ID 时才应保留；否则用右侧“推理能力”和 Pi 的 Shift+Tab 切换。</span></div>}
         <div className={`models-table ${scrolled ? "is-scrolled" : ""}`} onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 2)}>
-          <div className="model-table-head"><span /><span>模型 ID</span><span>上下文容量</span><span>最大输出</span><span>图像能力</span><span>推理能力</span><span>默认模型</span><span className="model-action-cell" /></div>
+          <div className="model-table-head"><span>模型 ID</span><span>上下文容量</span><span>最大输出</span><span>图像能力</span><span>推理能力</span><span>默认模型</span><span className="model-action-cell" /></div>
           {form.models.map((model) => <ModelRow key={model.rowId} model={model} isDefault={form.defaultRowId === model.rowId && Boolean(model.id.trim())} isLiveDefault={Boolean(liveDefaultModelId) && model.id.trim() === liveDefaultModelId} onChange={(value) => updateModel(model.rowId, value)} onSafeDefaults={() => updateModel(model.rowId, { ...model, ...safeDefaults(model.id) })} onDefault={() => setForm((current) => ({ ...current, defaultRowId: model.rowId }))} onArmRemove={() => armRemoveModel(model)} onRemove={() => removeModel(model.rowId)} onBlockedRemove={blockLastModelRemoval} canRemove={form.models.length > 1} />)}
         </div>
         <p className="scroll-hint">表格可左右滑动，查看上下文容量、图像与推理能力等字段。</p>

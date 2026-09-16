@@ -2,7 +2,7 @@
 
 Run the local server yourself and open the preview in the browser available to this environment. Do not give the user server-start instructions when you can run it.
 
-Before making substantial visual changes, use the Product Design plugin's `get-context` skill when the visual source is unclear or no longer matches the current goal. When the user gives durable prototype-specific design feedback, preferences, or decisions, record them in `AGENTS.md`.
+Before substantial visual changes, use the Product Design plugin's `get-context` skill when the visual source is unclear or no longer matches the current goal. When the user gives durable prototype-specific design feedback, preferences, or decisions, record them here.
 
 When implementing from a selected generated mock, treat that image as the source of truth for layout, component anatomy, density, spacing, color, typography, visible content, and hierarchy.
 
@@ -10,91 +10,86 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 
 ## Selected Product Direction
 
-- Use the beginner-friendly three-step flow from visual option 2 as the overall framework.
-- Combine the provider/model master-detail clarity from visual option 3, especially the multi-model table and default-model selection.
+- A beginner-friendly three-step flow is the framework, with the provider/model master-detail clarity of a multi-model table plus explicit default-model selection.
 - Keep compatibility flags collapsed and clearly labeled as normally unnecessary.
-- Never return an existing API key to the browser. The UI may show only whether a credential is configured.
-- The normal user should be able to finish setup without knowing context limits, cache settings, strict tools, or adaptive-thinking terminology.
-- Treat a provider as an API gateway/router similar to OpenRouter: one Base URL and credential can contain many upstream model families.
-- Keep a default wire protocol at provider level, while allowing an advanced per-model protocol override for gateways that expose mixed APIs.
-- Keep provider-level User-Agent in Step 3's collapsed advanced compatibility settings. Expose only the three states none/literal/external; preserve an untouched external value, never evaluate it in the browser, and warn when model or extension configuration may override it.
-- Settings must be a real screen, not a placeholder. It owns Pi defaults, thinking level, transport, thinking-block visibility, and compatibility status.
-- After saving, show a dedicated success/next-step screen with the exact Pi model command and `/model` guidance; do not leave the user at the bottom of the edit form.
-- Treat Pi as provider-scoped configuration plus model-centric runtime selection. Preserve unknown provider/model/settings fields to reduce breakage across Pi upgrades.
-- Keep Pi update detection in repository maintenance automation. It may compare stable release metadata and open a reminder, but must not add a Pi runtime dependency, make application startup depend on upstream availability, or advance `piValidatedVersion` without manual validation.
-- Keep `models.json` and `settings.json` consistent by construction. A save that would leave `settings.defaultModel` pointing at a model the submitted list no longer contains is refused by the server; the client cannot be the only thing standing between the two files, because a stale tab or a direct API call reaches the same endpoint.
-- Treat the three Pi config files as concurrently editable by CC Switch, Pi, text editors, and this UI. State responses carry an opaque revision; every write must echo it and reject a mismatch with HTTP 409 before touching disk. This is optimistic concurrency protection, not merely atomic-write rollback.
-- Treat a persisted model ID as storage identity, not as an ordinary editable label. It is read-only in the form; replacing it means adding the new ID and deleting the old row through the armed, reversible removal flow. Reject identity drift before saving, and never silently choose the first named model when no default radio is selected.
+- Never return an existing API key to the browser. The UI may show only whether a credential is configured. Prompt text is the one stated exception, below.
+- The normal user finishes setup without knowing context limits, cache settings, strict tools, or adaptive-thinking terminology.
+- A provider is an API gateway/router: one Base URL and credential can contain many upstream model families. Keep a default wire protocol at provider level, with an advanced per-model override for gateways exposing mixed APIs.
+- Keep provider-level User-Agent in Step 3's collapsed advanced settings. Expose only none/literal/external; preserve an untouched external value, never evaluate it in the browser, and warn when model or extension configuration may override it.
+- Settings is a real screen, not a placeholder: Pi defaults, thinking level, transport, thinking-block visibility, compatibility status.
+- After saving, show a dedicated success/next-step screen with the exact Pi model command and `/model` guidance; never leave the user at the bottom of the edit form.
+- Pi is provider-scoped configuration plus model-centric runtime selection. Preserve unknown provider/model/settings fields across Pi upgrades.
+- Keep Pi update detection in repository maintenance automation. It may compare stable release metadata and open a reminder, but must not add a Pi runtime dependency, gate startup on upstream availability, or advance `piValidatedVersion` without manual validation.
+- Keep `models.json` and `settings.json` consistent by construction. A save that would leave `settings.defaultModel` pointing at a dropped model is refused by the server; the client cannot be the only guard, because a stale tab or a direct API call reaches the same endpoint.
+- Treat the three Pi files as concurrently editable by CC Switch, Pi, text editors, and this UI. State responses carry an opaque revision; every write echoes it and a mismatch is HTTP 409 before disk. Optimistic concurrency protection, not merely atomic-write rollback.
+- A persisted model ID is storage identity, not an editable label: read-only in the form, replaced by adding the new ID and deleting the old row through the armed, reversible flow. Reject identity drift, and never silently choose the first named model when no default radio is selected.
 - Optimize long model catalogs with a sticky header, internal scrolling, compact rows, and bulk model-ID import.
 - Public screenshots and documentation must not expose machine-specific home paths or credentials.
-- The product is in focused maintenance mode. Do not pursue CC Switch feature parity or revive the unstarted CSV/import, model-discovery, session, Skills, usage, or proxy roadmap unless the owner explicitly reopens it; prioritize security, confirmed correctness defects, and Pi compatibility.
-- **The owner explicitly reopened scope a second time, on 2026-08-22, to add global prompt management.** Both agents' instruction files live in the config directory this manager already owns, so `lib/prompt-library.mjs` serves both from one declaration of which files each agent reads. Prompt text is returned to the browser on purpose — a document nobody can read back cannot be edited — which is a stated exception to the credential rule, not a leak.
-- **The owner explicitly reopened scope once, on 2026-08-21, to add Codex CLI support.** It is a deliberate second target, not feature-parity drift, and it stays narrow: providers, credentials, and the active selection. Presets, model discovery, usage dashboards, and a traffic proxy remain out of scope. Do not remove Codex support as out-of-bounds maintenance work.
+- The project is in focused maintenance mode: no CC Switch feature parity, and no reviving the retired CSV/import, discovery, session, Skills, usage, or proxy roadmap without explicit owner direction. Prioritize security, confirmed correctness defects, and Pi/Codex compatibility.
+- **Owner-reopened scope, 2026-08-21: Codex CLI support** — a deliberate second target, narrow by design (providers, credentials, active selection). Presets, model discovery, usage dashboards, and a traffic proxy stay out of scope. Do not remove Codex support as out-of-bounds maintenance work.
+- **Owner-reopened scope, 2026-08-22: global prompt management.** Both agents' instruction files live in the config directory this manager already owns, so `lib/prompt-library.mjs` serves both from one declaration of which files each agent reads. Prompt text returns to the browser on purpose — a document nobody can read back cannot be edited — a stated exception to the credential rule, not a leak.
 
 ## Interaction and UI Conventions
 
-- Typeset every machine literal in the monospace `--mono` face: provider IDs, base URLs, model IDs, token counts, thinking levels, config paths, versions, and the `pi --model` command. Prose stays in Inter. This is the product's visual signature, so do not mix the two roles.
-- Use one focus treatment app-wide: a 2px `--orange` `:focus-visible` outline with 2px offset, and the `--ring` box-shadow on text fields. Never remove focus styling from an interactive element.
-- All motion uses the `--fast` / `--base` / `--ease` tokens and must degrade under `prefers-reduced-motion`; only progress indicators keep animating there.
-- Feedback must be truthful: a control may only show a success state after the underlying action actually succeeded. Clipboard writes can fail, so the copy control falls back to selecting the command and reports the failure in the error toast tone.
-- A 409's corrective action (重新读取, a page reload) lives in the persistent error banner as well as in the toast that first reports it — the toast expires after seven seconds, the banner does not. The banner button renders only while the conflict flag from the last request error is live, and every write clears that flag at entry — every write, not every save: the prompt routes and both delete dialogs reach the same revision guard and shipped without it, so a screen that renders a request error renders it through `ErrorBanner` with `conflict`, and a path that calls `reportRequestError` clears the flag where it starts.
-- Destructive row actions arm on first click and delete on the second; they never delete on a single click and never open a dialog. Arming is where the consequence is stated, and every removal offers 撤销 in its toast. The row Pi's default currently points at is marked from `state.settings`, never from the form's own default radio, so the mark stays on the live model when the radio is moved.
-- A destructive action that is temporarily unavailable must remain visible and focusable. Activating it explains the blocking invariant and offers the shortest corrective action; never communicate the restriction only through a disabled control, low opacity, or a hover-only tooltip.
-- Provider deletion uses a named, accessible confirmation dialog rather than the model-row arm flow. It removes all provider models and the credential by default, offers an explicit keep-credential option, gives Cancel initial focus, and requires a valid replacement provider/model before deleting Pi's current default.
-- In the model catalog, primary controls share one 42px top-aligned rail and every row keeps stable geometry while badges, protocol notes, or armed-delete feedback change. Put the deletion consequence in the shared toast rather than expanding one row; render every model ID in that feedback with the monospace face.
+- Typeset every machine literal in the monospace `--mono` face: provider IDs, base URLs, model IDs, token counts, thinking levels, config paths, versions, the `pi --model` command. Prose stays in Inter; do not mix the two roles.
+- One focus treatment app-wide: a 2px `--orange` `:focus-visible` outline with 2px offset, and the `--ring` box-shadow on text fields. Never remove focus styling from an interactive element.
+- All motion uses the `--fast` / `--base` / `--ease` tokens and degrades under `prefers-reduced-motion`; only progress indicators keep animating there.
+- Feedback must be truthful: a success state only after the action actually succeeded. Clipboard writes can fail, so the copy control falls back to selecting the command and reports the failure in the error toast tone.
+- A 409's corrective action (重新读取, a reload) lives in the persistent banner as well as in the toast that first reports it, because the toast expires after seven seconds and the banner does not. The banner button renders only while the conflict flag from the last request error is live, and **every write clears that flag at entry** — every write, not every save. A screen that renders a request error renders it through `ErrorBanner` with `conflict`; a path calling `reportRequestError` clears the flag where it starts.
+- **Both targets answer "which one is live" in the same place: the provider row in the sidebar.** Codex marks its active provider 生效中; Pi marks `settings.json`'s `defaultProvider` 默认, read from `state.settings` rather than per-provider `isDefault` so a local save cannot leave the two disagreeing. Pi is not labelled 生效中 — it resolves a provider per model, so nothing about the other rows is switched off.
+- **A control's gate must be the same fact its handler checks.** 复制供应商 renders only when the form's ID names a stored provider — exactly what `duplicatePiForm`/`duplicateCodexForm` require before copying — because gating it on the selection left a visible button whose click did nothing once the draft's ID was renamed.
+- **Do not draw an affordance the product does not implement.** The Pi model row's drag-handle glyph had no reordering behind it, and row order means nothing in `models.json` beyond which row the default radio marks; the glyph and its grid column are gone rather than wired up.
+- Destructive row actions arm on first click and delete on the second; never on a single click, never via a dialog. Arming states the consequence, and every removal offers 撤销. The row Pi's default points at is marked from `state.settings`, never from the form's own default radio, so the mark stays on the live model when the radio moves.
+- A destructive action that is temporarily unavailable stays visible and focusable. Activating it explains the blocking invariant and offers the shortest corrective action; never communicate the restriction only through a disabled control, low opacity, or a hover-only tooltip.
+- Provider deletion uses a named, accessible confirmation dialog rather than the model-row arm flow: removes the provider's models and credential by default, offers an explicit keep-credential option, gives Cancel initial focus, and requires a valid replacement provider/model before deleting Pi's current default.
+- In the catalog, primary controls share one 42px top-aligned rail and rows keep stable geometry while badges, protocol notes, or armed-delete feedback change. Put the deletion consequence in the shared toast rather than expanding a row; render every model ID in that feedback in monospace.
 - Keep repeated per-row helpers out of the model table. Bulk affordances belong in the section header so rows stay compact and long catalogs stay scannable.
-- 复制供应商 duplicates a saved provider into a fresh draft — models, compat flags, and reasoning efforts carry over; the credential never does, because the stored key cannot return to the browser. The draft lands on the credentials step with a free `<id>-copy` ID and asks for a new key, which is the workflow a duplicate exists for. Both targets share it.
-- A duplicate is new to disk, so it must not inherit anything that describes the source's relationship with storage. `persistedId` is cleared on every copied row — carried over it marks the copy's IDs read-only and makes the identity-drift check refuse a draft that has drifted from nothing — and `moveCredential` is cleared, because the source provider still exists and still needs its key. When adding a field to a provider draft, decide which of the three kinds it is: configuration (copies), secret (never copies), or storage relationship (cleared).
-- Do not hide primary navigation at narrow widths. The provider list becomes a horizontally scrollable rail below 860px rather than disappearing.
-- Every colour lives in a token on `:root`. Do not write a literal hex value in a rule; add or reuse a semantic token instead, otherwise dark mode silently breaks.
-- Dark is the same design at a second set of token values, never a second design. Layout, spacing, type, and structure are identical; only the palette differs. Orange fills keep their brand value, while orange used as text lightens to `--orange-dark` so it stays legible on dark panels.
-- Theme has three states: `system` (default), `light`, and `dark`. The resolved value is written to `document.documentElement.dataset.theme` by a pre-paint inline script in `index.html`, so the CSS only needs a `[data-theme="dark"]` block and the app never flashes the wrong theme. Keep that script in sync with the `ppm-theme` localStorage key.
+- 复制供应商 duplicates a saved provider into a fresh draft — models, compat flags, and reasoning efforts carry over; **the credential never does**, because the stored key cannot return to the browser. The draft lands on the credentials step with a free `<id>-copy` ID and asks for a new key, which is the workflow a duplicate exists for. Both targets share it.
+- A duplicate is new to disk, so it inherits nothing describing the source's relationship with storage: `persistedId` is cleared (carried over it marks the copy's IDs read-only and makes the identity-drift check refuse a draft that drifted from nothing) and `moveCredential` is cleared (the source still exists and still needs its key). When adding a draft field, decide which it is — configuration (copies), secret (never copies), or storage relationship (cleared).
+- Do not hide primary navigation at narrow widths: below 860px the provider list becomes a horizontally scrollable rail rather than disappearing.
+- Every colour lives in a token on `:root`. Never write a literal hex value in a rule; add or reuse a semantic token, or dark mode silently breaks.
+- Dark is the same design at a second set of token values, never a second design: identical layout, spacing, type, and structure; only the palette differs. Orange fills keep their brand value; orange as text lightens to `--orange-dark`.
+- Theme is `system` (default), `light`, `dark`. The resolved value is written to `document.documentElement.dataset.theme` by a pre-paint inline script in `index.html`, so CSS needs only a `[data-theme="dark"]` block and the app never flashes. Keep that script in sync with the `ppm-theme` localStorage key.
 - Set `color-scheme` per theme so native selects, scrollbars, and search fields follow. Overlays step one surface lighter in dark via `--surface-overlay`.
-- The app's inner scrollers (provider list, model table, step and settings scroll areas, textareas) paint thin token-colored scrollbars, 2026-09-12 owner round: a full-height native scrollbar is the loudest element in the dark theme. Scrolling itself stays native; only the paint changes.
-- Text fields signal keyboard focus with the orange border plus the `--ring` box-shadow, never an outline — `--ring` is a box-shadow value, so an outline built from it is an invalid declaration and silently drops the cue. Outline treatments are for non-text controls.
+- Inner scrollers (provider list, model table, step and settings scroll areas, textareas) paint thin token-colored scrollbars — a full-height native scrollbar is the loudest element in the dark theme. Scrolling stays native; only the paint changes.
+- Text fields signal keyboard focus with the orange border plus `--ring`, never an outline: `--ring` is a box-shadow value, so an outline built from it is invalid and silently drops the cue. Outline treatments are for non-text controls.
 - Settings and credential forms cap field measure at 880px on wide screens; a gateway URL input stretched across a 1120px card stops reading as a field.
 - The zero-provider empty state is an icon plus one sentence pointing at 添加供应商 — the first-run moment is part of the design, not a stray fallback paragraph.
-- Radios and checkboxes are drawn from our own tokens with `appearance: none` on the native input, so the two themes match. Keep the native input: it carries keyboard support, radio grouping, and form semantics that a `div` would have to reimplement.
-- Never count or accumulate inside a `setState` updater. React may run it late, twice under StrictMode, or skip its eager path entirely, so anything read afterwards is unreliable. Derive counts from the currently rendered value before dispatching the update.
-- Blue link styling means an informational disclosure and nothing else. Anything that writes to the form is a button, and anything that overwrites values the user may have typed carries an undo action in its toast.
-- A field must not accept keystrokes its parser will reject. Mark invalid drafts with `aria-invalid` while typing rather than reverting silently on blur, and bound numeric input on both ends so a typo cannot become a plausible-looking value.
-- Treat a key that is absent from the config file as unwritten, not as saved. Filling a default in the UI and then reporting it as already persisted leaves the user unable to write it.
-- A wizard step refuses what the server will refuse before the user leaves it. The provider ID pattern and `normalizeUrl` live in `lib/validation.mjs` and are the same code on both ends, so the credentials step asks them on 下一步 and marks a bad ID with `aria-invalid` while typing; a server round trip that bounces the user back two steps is not a validation UI. An ID that already names another provider is stated beside the field, because the field cannot refuse it — saving really does replace that provider.
+- Radios and checkboxes are drawn from our own tokens with `appearance: none` on the native input. Keep the native input: it carries keyboard support, radio grouping, and form semantics a `div` would have to reimplement.
+- Never count or accumulate inside a `setState` updater. React may run it late, twice under StrictMode, or skip the eager path entirely, so anything read afterwards is unreliable. Derive counts from the currently rendered value before dispatching the update.
+- Blue link styling means an informational disclosure and nothing else. Anything that writes to the form is a button, and anything overwriting values the user may have typed carries an undo action in its toast.
+- A field must not accept keystrokes its parser will reject: mark invalid drafts with `aria-invalid` while typing rather than reverting silently on blur, and bound numeric input on both ends so a typo cannot become a plausible-looking value.
+- Treat a key absent from the config file as unwritten, not saved — filling a default in the UI and reporting it as already persisted leaves the user unable to write it.
+- A wizard step refuses what the server will refuse before the user leaves it. The provider ID pattern and `normalizeUrl` live in `lib/validation.mjs`, the same code on both ends, so the credentials step asks them on 下一步 and marks a bad ID with `aria-invalid` while typing; a server round trip that bounces the user back two steps is not a validation UI. An ID that already names another provider is stated beside the field, because the field cannot refuse it — saving really does replace that provider.
 - Leaving an edited prompt document — another document, another file, 新建 — goes through the toast's action, not the first click. The edit is the only copy of that text.
 - Every dialog uses `useDialog` from `ui-kit.jsx`: Escape closes, Tab stays inside, focus returns to the opener, and `locked` holds it up while a request is in flight so a stray key cannot discard the error it is about to report.
 
-
 ## Codex conventions
 
-- **Codex is a second target, not a second product.** It shares the shell — sidebar, three-step wizard, settings screen, success handoff — and shares nothing else. The Pi side keeps the appearance it already had; adding Codex must not restyle it. Its rows carry an empty badge cell only so both targets can use one grid. Demo mode is part of that shared shell: every Pi request path that fakes its happy plan under `?demo=1` has a Codex counterpart, because a demo save that always 409s presents a broken product to the exact surface screenshots and QA come from.
-- **Single-table layout, chosen by the owner.** `config.toml` holds exactly one manager-owned `[model_providers.<id>]`, `custom` by default, so the file matches the snippet vendors publish. The cost is that inactive providers have nowhere to live in Codex's own files, so they live in `pi-provider-manager-store.json`. Say this plainly in documentation instead of implying the config file is still the whole truth.
-- **The file wins over the store, and reading never writes.** An owned table matching nothing in the store is adopted as a provider and labelled as adopted in the UI. Adoption is derived on the read path; only an explicit save, switch, or delete touches disk. A page load must never modify a working setup.
-- **Only write fields Codex actually accepts.** Unknown keys inside `[model_providers.*]` are silently ignored — the struct's `deny_unknown_fields` is schemars-only (it shapes the JSON schema, not the TOML parse; measured on `0.151.0` and `0.154.0`), so staying inside the documented set is deliberate conservatism, not a parser requirement. What does fail the whole config is a table without `name`. `wire_api` is `responses` and nothing else. Never write `env_key`, because a configured `env_key` whose variable is unset is a hard startup error — that is precisely why `requires_openai_auth = true` is the auth path.
-- **Never touch what the manager does not own.** Comments, unrelated top-level keys, and hand-written `[model_providers.*]` tables are preserved byte for byte. The `[profiles.*]` tables left by 0.2.0/0.2.1 are deleted by the names recorded in the store, never by prefix match, so a hand-written profile sharing the prefix survives.
-- **Never write `[profiles.*]`.** Codex 0.149.0 demoted profiles in `config.toml` to legacy and errors out of `--profile <name>` while a matching table exists; profiles now live in `$CODEX_HOME/<name>.config.toml`. Switching model within a provider is `codex -m <model>`, plus `-c model_reasoning_effort=` when the effort differs.
+- **Codex is a second target, not a second product.** It shares the shell — sidebar, three-step wizard, settings screen, success handoff — and nothing else: separate files, separate revisions, separate vocabulary. The Pi side keeps the appearance it already had; adding Codex must not restyle it. Both targets mark their live selection in the sidebar, so the Pi row carries text there too; the shared grid is why one row vocabulary exists, not a reason to leave Pi's cell blank. Demo mode is part of that shell: every Pi path that fakes its happy plan under `?demo=1` has a Codex counterpart, because a demo save that always 409s presents a broken product to the exact surface screenshots and QA come from.
+- **Single-table layout, owner-chosen.** `config.toml` holds exactly one manager-owned `[model_providers.<id>]`, `custom` by default, matching the snippet vendors publish. Inactive providers therefore have nowhere to live in Codex's own files and live in `pi-provider-manager-store.json`. Say this plainly in documentation rather than implying the config file is the whole truth.
+- **The file wins over the store, and reading never writes.** An owned table matching nothing in the store is adopted as a provider and labelled as adopted. Adoption is derived on the read path; only an explicit save, switch, or delete touches disk. A page load must never modify a working setup.
+- **Only write fields Codex actually accepts.** Unknown keys inside `[model_providers.*]` are silently ignored — `deny_unknown_fields` is schemars-only, shaping the JSON schema rather than the TOML parse, measured on `0.151.0` and `0.154.0` — so staying inside the documented set is deliberate conservatism, not a parser requirement. What does fail the whole config is a table without `name`. `wire_api` is `responses` and nothing else. Never write `env_key`: a configured `env_key` whose variable is unset is a hard startup error, which is precisely why `requires_openai_auth = true` is the auth path.
+- **Never touch what the manager does not own.** Comments, unrelated top-level keys, and hand-written `[model_providers.*]` tables are preserved byte for byte. `[profiles.*]` tables left by 0.2.0/0.2.1 are deleted by the names recorded in the store, never by prefix match, so a hand-written profile sharing the prefix survives.
+- **Never write `[profiles.*]`.** Codex 0.149.0 demoted them in `config.toml` to legacy and errors out of `--profile <name>` while a matching table exists; profiles now live in `$CODEX_HOME/<name>.config.toml`. Switching model within a provider is `codex -m <model>`, plus `-c model_reasoning_effort=` when the effort differs.
 - **Verify the command the UI tells people to run, not just that Codex loads the config.** `codex doctor` reported the generated profiles as fine — a legacy table does parse; only the `--profile` selector rejects it. `tests/codex-real-binary.test.mjs` must exercise advertised commands end to end.
-- **The manager does not carry model traffic, for Codex either.** An upstream that speaks only Chat Completions is reached through a LiteLLM proxy whose config the manager writes and whose process it supervises. That is config editing plus process supervision, not proxying — no request passes through this server. **Do not implement the Responses-to-Chat translation here**: the part that moves is Codex's side of the wire and Codex ships weekly, so owning the translation means owning a permanent version-chasing obligation (see cc-switch#2806). When a wire change needs a worked example, `docs/compatibility.md` lists the two projects that carry one — CLIProxyAPI for the `responses → chat-completions` direction, sub2api for how such a translator is tested — along with the ones deliberately not used as references and why. They are reading, not templates to copy; keep pointing users at a proxy they run themselves.
+- **The manager carries no model traffic, for Codex either.** An upstream speaking only Chat Completions is reached through a LiteLLM proxy whose config the manager writes and whose process it supervises — config editing plus process supervision, not proxying; no request passes through this server. **Do not implement the Responses-to-Chat translation here**: the moving part is Codex's side of the wire and Codex ships weekly, so owning it means a permanent version-chasing obligation (see cc-switch#2806). `docs/compatibility.md` lists the two projects carrying a worked example, and the ones deliberately not used as references; they are reading, not templates. Keep pointing users at a proxy they run themselves.
 - **Supervision is a capability, not a platform assumption.** Whether a started process can later be proven ours is probed by reading procfs, not inferred from `process.platform`. Where it is unavailable the manager declines to supervise rather than starting something it could never stop, and hands over the command instead. Do not "fix" that by killing on liveness alone.
-- **Supervising that proxy has three non-negotiables.** Pin it to `127.0.0.1`, because LiteLLM defaults to `0.0.0.0` and would publish an unauthenticated proxy holding the user's upstream key on every interface. Start it detached, so closing the manager never cuts Codex off mid-session. And never signal a recorded process id unless it is still provably ours: this runner spawned it and has not seen it exit, or procfs shows that process running our own config file. Neither half is optional — process ids are reused, so liveness alone means killing a stranger; and the command line is empty for about one start in twenty while the kernel finishes the exec, so requiring it alone orphans the bridge we just started, port and upstream key included. A pid that is alive and still nameless after a short wait is `null`, never `false`: unknown refuses and asks for a hand, while "not ours" starts a second proxy over it or forgets it. Bridge runtime state stays outside the config revision so starting or stopping cannot 409 a draft.
-- **The upstream key belongs to the bridge, not to Codex.** It goes in the manager's `0600` store and reaches LiteLLM through an environment variable; it must never be written into `config.toml`, `auth.json`, or the generated YAML. A bridged provider writes `requires_openai_auth = false` and carries no Codex credential at all.
+- **Supervising that proxy has three non-negotiables.** Pin it to `127.0.0.1`, because LiteLLM defaults to `0.0.0.0` and would publish an unauthenticated proxy holding the upstream key on every interface. Start it detached, so closing the manager never cuts Codex off mid-session. And never signal a recorded process id unless it is still provably ours — this runner spawned it and has not seen it exit, or procfs shows it running our config file. Neither half is optional: ids are reused, so liveness alone kills a stranger, and the command line is empty for about one start in twenty while the kernel finishes the exec, so requiring it alone orphans the bridge. A pid alive and still nameless after a short wait is `null`, never `false`: unknown refuses and asks for a hand, while "not ours" starts a second proxy over it. Bridge runtime state stays outside the config revision so starting or stopping cannot 409 a draft.
+- **The upstream key belongs to the bridge, not to Codex.** It lives in the manager's `0600` store and reaches LiteLLM through an environment variable; never write it into `config.toml`, `auth.json`, or the generated YAML. A bridged provider writes `requires_openai_auth = false` and carries no Codex credential at all.
 - **State the scope of a switch truthfully.** Codex reads its config once at startup, so switching affects newly started sessions and leaves running ones alone. Never offer `codex resume` as the follow-up command: Codex replays the previous provider's encrypted reasoning content, which another provider cannot read.
-- **Pi and Codex carry separate revisions.** `state.revision` covers the three Pi files, `state.codex.revision` covers the three Codex ones. Do not merge them; editing one agent must not 409 a draft for the other.
-- **Nothing on the /api/state path may shell out and wait.** `status()` is reached by every state read, and `litellm --version` alone takes eight to nine seconds. Probe in the background and report the answer when it lands.
-- **A skipped test is a failed test here.** `test:codex-real` skips itself where Codex or LiteLLM is missing, so the summary line reads "3 passed" whether the bridge was proven or silently sat out. Check the skipped count, and make any availability probe resolve the binary through the product's own discovery — probing something else makes it skip on exactly the machines where the behaviour matters.
-- **`npm run test:codex-real` proves the two claims nothing else can.** A stand-in gateway on loopback records the `Authorization` header, so the direct path is checked all the way from writing the files to Codex sending the stored credential; a second one answers 404 on `/v1/responses`, so the bridged path fails loudly if Codex ever reaches the upstream directly. Both run `codex exec` for real, offline and keyless. Keep them that way — a test that needs a live key is a test nobody runs.
-- **It is the only check that answers whether Codex accepts what we write.** Everything else verifies against a schema read from source, which cannot. It runs the installed binary and asserts `codex doctor --json` loaded the config; it skips itself where Codex is absent. Run it after any change to what goes into `config.toml`, and after a Codex upgrade.
-- `lib/` holds dependency-free server modules shipped as source in the release archive. `lib/toml-document.mjs` is also imported by the browser so a pasted vendor snippet is parsed by the same code that writes the file.
+- **Pi and Codex carry separate revisions.** `state.revision` covers the three Pi files, `state.codex.revision` the three Codex ones. Never merge them; editing one agent must not 409 a draft for the other.
+- **Nothing on the `/api/state` path may shell out and wait.** `status()` is reached by every state read, and `litellm --version` alone takes eight to nine seconds. Probe in the background and report the answer when it lands.
+- **A skipped test is a failed test here.** `test:codex-real` skips itself where Codex or LiteLLM is missing, so a summary line reads "3 passed" whether the bridge was proven or silently sat out. Check the skipped count, and make any availability probe resolve the binary through the product's own discovery — probing something else makes it skip on exactly the machines where the behaviour matters.
+- **`npm run test:codex-real` proves the two claims nothing else can.** A stand-in gateway on loopback records the `Authorization` header, so the direct path is checked from writing the files to Codex sending the stored credential; a second answers 404 on `/v1/responses`, so the bridged path fails loudly if Codex ever reaches the upstream directly. Both run `codex exec` for real, offline and keyless — keep them that way, because a test that needs a live key is a test nobody runs.
+- **It is the only check that answers whether Codex accepts what we write**, since everything else verifies against a schema read from source. It runs the installed binary, asserts `codex doctor --json` loaded the config, and skips itself where Codex is absent. Run it after any change to what goes into `config.toml`, and after a Codex upgrade.
+- `lib/` holds dependency-free server modules shipped as source in the release archive. `lib/toml-document.mjs` is also imported by the browser, so a pasted vendor snippet is parsed by the same code that writes the file.
 
 ## Handoff
 
-Read this section first, then `design-qa.md` for how the UI got to its current
-form and what has already been reviewed.
+Read this section first, then `design-qa.md` for how the UI reached its current form and what has already been reviewed.
 
-**Where things are — and where to read it, rather than here.** This section used
-to enumerate the latest release, the version number, and the notable pull
-requests, and it was three releases stale before anyone noticed. It was also the
-section that says to keep one source for live facts, so the enumeration is gone
-rather than refreshed:
+**Live facts live in one place.** This section used to enumerate the latest release, the version number, and notable pull requests, and was three releases stale before anyone noticed. Use these instead:
 
 | Question | Authority |
 |---|---|
@@ -107,125 +102,29 @@ rather than refreshed:
 
 Every checklist item required before the first public push is done.
 
-**Use one project vocabulary and one source for live facts.** The vocabulary and
-documentation ownership table are in `docs/architecture.md`. In particular, a
-provider is an API gateway entry that may contain several upstream model
-families, `models-store.json` is never read or written, GitHub Releases define
-what shipped, and `main` may carry unreleased work. Keep the English and Chinese
-READMEs aligned.
+**One vocabulary, one source for live facts.** The vocabulary and documentation-ownership tables are in `docs/architecture.md`: a provider is a gateway entry that may contain several upstream model families, `models-store.json` is never read or written, GitHub Releases define what shipped, and `main` may carry unreleased work. Keep the English and Chinese READMEs aligned.
 
-**How to land changes.** `main` is protected and the rules apply to
-administrators, so there is no direct push. Open a branch, open a pull request,
-let the required `ci-passed` check go green, then squash-merge. Every merge back
-through #45 is a squash, so the history is single-parent commits each naming
-their pull request; this says squash because that is what is actually done. `ci-passed` is a single aggregate job that depends on the whole
-Node matrix, the production-browser UI job, and the Windows launcher job — which runs the launcher's
-first-run refusals, not only parses it; require that check and never the
-individual implementation jobs, because a required check naming a Node version
-or UI job disappears when the workflow changes and then blocks every pull request
-with no visible cause.
+**How to land changes.** `main` is protected and the rules apply to administrators, so there is no direct push: open a branch, open a pull request, let the required `ci-passed` check go green, then squash-merge. Every merge through #45 is a squash, so history is single-parent commits each naming their pull request. `ci-passed` is one aggregate job over the Node matrix, the production-browser UI job, and the Windows launcher job — which runs the launcher's first-run refusals, not only parses it. Require that check and never the individual implementation jobs, because a required check naming a Node version or UI job disappears when the workflow changes and then blocks every pull request with no visible cause.
 
-**Model and provider deletion preserve the cross-file invariants.** Saving a
-provider replaces its stored model list wholesale,
-so removing a row also discards that model's compatibility flags and the unknown
-fields we promise to preserve. Persisted model IDs are therefore read-only in the
-form: replacement is add the new ID, then delete the old row through the armed,
-reversible flow. The draft rejects identity drift and refuses to invent a default
-when no named row is selected. `saveProvider` separately refuses to drop the model
-`settings.json` points at unless the same request names a replacement. The model
-table marks the live default from `state.settings`; arming any delete explains its
-consequence in a monospace-aware toast without moving the fixed row controls, and
-the completed removal offers 撤销. Provider deletion uses a separate confirmation
-dialog and `POST /api/providers/delete`: it removes the provider and its models,
-deletes the `auth.json` entry by default, or retains that entry only when the user
-explicitly asks. Deleting `settings.json`'s current provider requires a replacement
-provider/model that already exists. The server validates the relationship and
-writes all three files with snapshot rollback; retained auth-only IDs remain
-available for credential reuse but do not appear in the provider navigation.
-Every write also requires the revision from the last `/api/state` response; a
-changed file returns HTTP 409 and leaves the external change intact.
+**Deletion preserves the cross-file invariants.** Saving a provider replaces its stored model list wholesale, so removing a row also discards that model's compatibility flags and the unknown fields we promise to preserve. Persisted model IDs are therefore read-only in the form; replacement is add the new ID, then delete the old row through the armed, reversible flow. The draft rejects identity drift and refuses to invent a default when no named row is selected. `saveProvider` separately refuses to drop the model `settings.json` points at unless the same request names a replacement. Provider deletion is a separate confirmation dialog and `POST /api/providers/delete`: it removes the provider and its models, deletes the `auth.json` entry by default (or retains it only when explicitly asked), and requires an existing replacement provider/model when deleting Pi's current default. The server validates the relationship and writes all three files with snapshot rollback; retained auth-only IDs stay available for credential reuse but do not appear as providers. Every write also requires the revision from the last `/api/state` response; a changed file returns HTTP 409 and leaves the external change intact.
 
-**Verify against the shape the product actually ships in.** Two shipped bugs
-came from verifying somewhere the product does not run. An indicator for
-unwritten settings was only ever exercised in demo mode, where the fixture omits
-keys, while the real server normalizes every key before the client sees it, so
-the branch could never fire. The pre-paint theme script was only checked against
-`vite dev`, which sends no CSP, while the packaged server sends one that blocked
-the script outright. Anything touching the served page or the API has to be run
-against `server.mjs` with `PI_PROVIDER_MANAGER_SERVE_UI=1`, not only against the
-dev server or `?demo=1`.
+**Verify against the shape the product actually ships in.** Two shipped bugs came from verifying somewhere the product does not run. An indicator for unwritten settings was only ever exercised in demo mode, where the fixture omits keys, while the real server normalizes every key before the client sees it, so the branch could never fire. The pre-paint theme script was only checked against `vite dev`, which sends no CSP, while the packaged server sends one that blocked the script outright. Anything touching the served page or the API must be run against `server.mjs` with `PI_PROVIDER_MANAGER_SERVE_UI=1`, not only against the dev server or `?demo=1`.
 
-**Exercise the boundary, do not read it.** The most serious defect found so far
-was a cross-origin write that let any visited page copy a stored API key onto an
-attacker-controlled gateway. It had been present since the first public commit
-and is invisible on inspection; it showed up only once a real cross-origin
-request was actually sent. The same applies to header handling: `fetch()`
-silently refuses to set `Host`, so rebinding checks need a raw `http.request`.
+**Exercise the boundary, do not read it.** The most serious defect found so far was a cross-origin write that let any visited page copy a stored API key onto an attacker-controlled gateway. Present since the first public commit and invisible on inspection, it surfaced only once a real cross-origin request was sent. Header handling is the same: `fetch()` silently refuses to set `Host`, so rebinding checks need a raw `http.request`.
 
-**A sandboxed terminal can stop the suite without failing it.** Every browser case
-spawns a server and a browser and then tears both down, and in an agent or CI
-shell holding a pty without job control that teardown delivers `SIGTTIN` to the
-runner. Its default action is to stop the process, so the run ends after the
-first case with a truncated summary and exit 149, and every later `server.mjs` is
-stopped before it binds or writes one line — which arrives as `ECONNREFUSED` and
-reads as a broken product rather than a stopped test. A whole session was spent
-re-running commands that were never rejected. Run detached from the controlling
-terminal, `setsid --wait node --test …` with stdin from `/dev/null`, and trust the
-reported counts rather than the tail of the output: a run that stopped early
-looks exactly like a short one that passed.
+**A sandboxed terminal can stop the suite without failing it.** Every browser case spawns a server and a browser and then tears both down, and in an agent or CI shell holding a pty without job control that teardown delivers `SIGTTIN`, whose default action stops the runner. The run ends after the first case with a truncated summary and exit 149, and every later `server.mjs` is stopped before it binds or writes one line — arriving as `ECONNREFUSED`, which reads as a broken product rather than a stopped test. Run detached from the controlling terminal, `setsid --wait node --test …` with stdin from `/dev/null`, and trust the reported counts rather than the tail of the output; a run that stopped early looks exactly like a short one that passed.
 
-**A test names every directory the server reads.** `/api/state` resolves a Pi
-directory and a Codex directory on every read, so a case that sets only
-`PI_CODING_AGENT_DIR` runs against whoever's `~/.codex` is on the machine — which
-puts their gateway IDs and base URLs into this suite's failure output and makes
-the result depend on one developer's private config. Five browser cases did that
-until 2026-09-12. They now pass `isolatedCodexDir(agentDir)` even though they
-never open the Codex side, because the reason to name it is isolation, not
-coverage.
+**A test names every directory the server reads.** `/api/state` resolves a Pi directory and a Codex directory on every read, so a case that sets only `PI_CODING_AGENT_DIR` runs against whoever's `~/.codex` is on the machine — putting their gateway IDs and base URLs into this suite's failure output and making the result depend on one developer's private config. Cases pass `isolatedCodexDir(agentDir)` even when they never open the Codex side, because the reason to name it is isolation, not coverage.
 
-**Every release states the Pi version it was validated against.** The number
-lives once, as `piValidatedVersion` in `package.json`; the server reads it and
-Settings shows it beside the Pi version detected on the machine, saying plainly
-when the two differ. Release notes quote it. The full procedure after a Pi
-upgrade is in `docs/compatibility.md`.
+**Every release states the Pi version it was validated against.** The number lives once, as `piValidatedVersion` in `package.json`; the server reads it and Settings shows it beside the Pi version detected on the machine, saying plainly when the two differ. Release notes quote it, and the procedure after a Pi upgrade is in `docs/compatibility.md`. Real-Pi evidence is not summarised here: each run writes a fake provider into an isolated `PI_CODING_AGENT_DIR` with a non-routable URL and a dummy key, then asks the released Pi to list its model, using no real endpoint, credential, or normal home config. `design-qa.md` holds the dated records — naming a date and a version here is how this went stale before.
 
-**There is real-Pi evidence, and it is not summarised here.** Each run has the
-same shape: the production-shaped server writes a fake provider into an isolated
-`PI_CODING_AGENT_DIR` with a non-routable URL and a dummy key, and the released
-Pi is asked to list its model. No real endpoint, credential, or normal home
-config is ever used. `design-qa.md` holds the dated records and which version
-each one exercised — this paragraph naming a date and a version is how it went
-stale before, so the live baseline stays only in `package.json` and the evidence
-stays only in `design-qa.md`.
-
-**Pi updates are monitored outside the product runtime.** A daily/manual
-workflow compares `piValidatedVersion` with the latest stable
-`earendil-works/pi` GitHub Release and maintains one owner-assigned compatibility
-issue when review is needed. It does not import Pi code, run during application
-startup or builds, or update the baseline. Current behavior and triage ownership
-are documented in `docs/compatibility.md`.
+**Pi updates are monitored outside the product runtime.** A daily/manual workflow compares `piValidatedVersion` with the latest stable `earendil-works/pi` GitHub Release and maintains one owner-assigned compatibility issue when review is needed. It does not import Pi code, run during application startup or builds, or update the baseline. Current behavior and triage ownership are in `docs/compatibility.md`.
 
 **Open items.**
 
-- Neither advisory carries a CVE. Both were published on 2026-08-18
-  (`GHSA-wqcr-r9hp-xrcx`, `GHSA-78m8-7gh8-qr33`); checked on 2026-09-12, 25
-  days later, `cve_id` is still `null` and `identifiers` lists only the GHSA
-  itself. An earlier handoff recorded the request as "accepted with HTTP 202",
-  but the advisory API exposes no "requested" state, so nothing readable today
-  confirms the request sits in GitHub's CNA queue rather than never having
-  registered; from outside, the two look the same. GitHub documents no
-  turnaround and no escalation path. The one lever is a GitHub Support ticket
-  asking whether the two requests are queued — a prompt, not a decision, and
-  it is the only thing that rules out the "never registered" case. Do not
-  request the same vulnerabilities from MITRE directly: a second ID for one
-  defect is worse than waiting. Nothing depends on the CVE — the fix shipped
-  in `v0.1.4` and Dependabot alerts on the GHSA. When an ID arrives, add it to
-  the advisory and to the `v0.1.4` release notes.
-- The `local-history` branch holds pre-publication history and may exist in an
-  older checkout. It must never be pushed; the GitHub remote must not contain it.
-- The publication checklist is complete. The project is intentionally in focused
-  maintenance mode; do not reopen the retired import/discovery roadmap without
-  explicit owner direction.
+- Neither advisory carries a CVE. Both were published on 2026-08-18 (`GHSA-wqcr-r9hp-xrcx`, `GHSA-78m8-7gh8-qr33`); checked on 2026-09-12, `cve_id` is still `null` and `identifiers` lists only the GHSA itself. The advisory API exposes no "requested" state, so nothing readable confirms the request sits in GitHub's CNA queue rather than never having registered — from outside, the two look the same, and GitHub documents no turnaround or escalation path. The one lever is a GitHub Support ticket asking whether the two requests are queued. Do not request the same vulnerabilities from MITRE directly: a second ID for one defect is worse than waiting. Nothing depends on the CVE — the fix shipped in `v0.1.4` and Dependabot alerts on the GHSA. When an ID arrives, add it to the advisory and to the `v0.1.4` release notes.
+- The `local-history` branch holds pre-publication history and may exist in an older checkout. It must never be pushed; the GitHub remote must not contain it.
+- The publication checklist is complete. The project is intentionally in focused maintenance mode; do not reopen the retired import/discovery roadmap without explicit owner direction.
 
 **Quick check that everything is where this section says.**
 
@@ -239,6 +138,4 @@ gh api repos/wowayou/pi-provider-manager/branches --jq '.[].name'
 gh api repos/wowayou/pi-provider-manager/security-advisories --jq '.[] | "\(.ghsa_id) \(.cve_id // "pending")"'
 ```
 
-The working directory differs per machine. Trust the git remote,
-`wowayou/pi-provider-manager`, rather than any absolute path recorded in an old
-handoff or shell history.
+The working directory differs per machine. Trust the git remote, `wowayou/pi-provider-manager`, rather than any absolute path recorded in an old handoff or shell history.

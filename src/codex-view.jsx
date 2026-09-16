@@ -541,9 +541,11 @@ function CodexModelRow({ model, isDefault, isLiveModel, onChange, onDefault, onA
           }}
           onBlur={() => setArmedAt(0)}
           aria-disabled={!canRemove}
-          title={canRemove ? (confirmRemove ? "再点一次确认删除" : "删除这一行") : "不能删除唯一模型；先添加替代模型"}
+          title={canRemove ? (confirmRemove ? (isLiveModel ? "再点一次删除 Codex 当前使用的模型" : "再点一次确认删除") : "删除这一行") : "不能删除唯一模型；先添加替代模型"}
           aria-label={canRemove
-            ? confirmRemove ? `再点一次删除 ${model.id || "该模型"}` : `删除 ${model.id || "该模型"}`
+            ? confirmRemove
+              ? `再点一次删除 ${model.id || "该模型"}${isLiveModel ? "，它是 Codex 当前使用的模型" : ""}`
+              : `删除 ${model.id || "该模型"}${isLiveModel ? "（Codex 当前使用）" : ""}`
             : `不能删除 ${model.id || "该模型"}，它是这个供应商的唯一模型；先添加替代模型`}
         >
           <Trash size={18} weight={confirmRemove ? "fill" : "regular"} />
@@ -562,12 +564,32 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
   const updateModel = (rowId, value) => setForm((current) => ({ ...current, models: current.models.map((model) => model.rowId === rowId ? value : model) }));
   const addModel = () => setForm((current) => ({ ...current, models: [...current.models, blankCodexModel()], defaultRowId: current.defaultRowId || current.models[0]?.rowId || "" }));
 
-  const armRemoveModel = (model) => onNotify(
-    model.id.trim()
-      ? <>再次点击会移除 <code>{model.id.trim()}</code>。</>
-      : "再次点击会移除这个未命名模型行。",
-    "error",
-  );
+  // Which row would inherit the default marker once this one is gone: the radio
+  // stays where it is unless it is the row being removed.
+  const nextDefaultAfterRemoving = (rowId) => {
+    const models = form.models.filter((model) => model.rowId !== rowId);
+    const next = models.find((model) => model.rowId === form.defaultRowId && model.id.trim())
+      || models.find((model) => model.id.trim());
+    return next?.id.trim() || "";
+  };
+  // Removing the model config.toml currently points at is the one deletion whose
+  // consequence reaches outside this draft, so arming says so. The Pi side states
+  // the same fact about settings.json.
+  const removalMessage = (model) => {
+    const name = model.id.trim();
+    if (!name) return "再次点击会移除这个未命名模型行。";
+    if (name === liveModel) {
+      const nextDefaultId = nextDefaultAfterRemoving(model.rowId);
+      // Only the active provider can have a live model, and that provider's footer
+      // offers 保存更改 alone — so the message names that button rather than the
+      // activate-and-save one, which is not on screen in this state.
+      return nextDefaultId
+        ? <>删除 <code>{name}</code> 后，保存更改会把 Codex 的默认模型改为 <code>{nextDefaultId}</code>。</>
+        : <>删除 <code>{name}</code> 后，需要先指定另一个已命名模型才能保存。</>;
+    }
+    return <>再次点击会移除 <code>{name}</code>。</>;
+  };
+  const armRemoveModel = (model) => onNotify(removalMessage(model), "error");
   const blockLastModelRemoval = () => onNotify(
     canDeleteProvider
       ? "不能单独删除这个供应商的唯一模型。如需移除整个供应商，请使用“删除供应商”。"
@@ -623,6 +645,9 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
   };
 
   const namedModels = form.models.filter((model) => model.id.trim()).length;
+  // Whether this draft describes a stored provider, which is exactly what
+  // `duplicateCodexProvider` requires before it will copy anything.
+  const canDuplicateProvider = codex.providers.some((provider) => provider.id === form.providerId.trim());
   // The step-one choice, not only the saved record: before the first save
   // there is no record, and the summary still has to describe the draft.
   const isBridge = form.upstream === "bridge" || Boolean(codexProviderOf(codex, form)?.bridge);
@@ -661,7 +686,12 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
                 <small>{isBridge ? "不写入 Codex 的配置" : !form.requiresAuth ? "Codex 不会带 Authorization" : form.credentialMode === "keep" ? "浏览器无法读取旧 key" : "当前草稿尚未写入 Codex 配置"}</small>
               </span>
             </div>
-            {canDeleteProvider && (
+            {/* Gated on the same fact the handler checks — this form's ID names a
+                saved provider — not on the selection. Renaming a draft's ID to a
+                fresh one used to leave the button standing and clicking it did
+                nothing, because `duplicateCodexProvider` bails on exactly that
+                mismatch. Pi has always gated it this way. */}
+            {canDuplicateProvider && (
               <button type="button" className="duplicate-provider-button" onClick={onDuplicate} title="以当前配置为模板新建：模型与推理强度照搬，凭据需要另填"><Copy size={18} />复制供应商</button>
             )}
             {canDeleteProvider && (

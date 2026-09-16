@@ -393,3 +393,73 @@ final result: passed
   this Windows host could not have supervised anyway. The four real-Codex checks
   that do not depend on LiteLLM ran against the installed binary and passed,
   including `codex exec` reaching a stand-in gateway with the stored credential.
+
+## Fifth UI Round — Cross-Target Consistency — Evidence
+
+- Evidence date: `2026-09-16`. Manager `0.3.12` (post-release). Owner-directed
+  detail round, opened by one observation: the Codex sidebar marked its live
+  provider and Pi's did not. Chasing that asymmetry turned up three more places
+  where the two targets answered the same question differently, one of them a
+  control that did nothing when clicked.
+- **The Pi sidebar now marks its default provider.** The server has always sent
+  `isDefault`; the sidebar mapping discarded it and rendered an empty badge cell,
+  so "which one am I actually using" was answered on one target and not the
+  other. Pi's row now carries 默认, derived from `state.settings.defaultProvider`
+  rather than the per-provider `isDefault` field, because a local save updates
+  `settings.defaultProvider` and deriving the mark from the same field keeps the
+  two from disagreeing. Deliberately not 生效中: Pi resolves a provider per model,
+  so nothing about the other rows is switched off.
+- **A Codex control that did nothing (defect).** `复制供应商` was gated on the
+  *selection* (`canDeleteProvider`) while `duplicateCodexProvider` bails unless
+  the *form's* provider ID names a stored provider. Opening a saved provider,
+  renaming its ID at step two and continuing therefore left the button visible
+  and inert. It is now gated on the same fact the handler checks, which is how the
+  Pi side has always gated it. Confirmed reachable by driving the real page: the
+  renamed draft's arm is blocked by the step's own "请输入 API Key。" until a key is
+  typed, which is what the first attempt at the test walked into.
+- **The Codex model row now states the consequence of removing the live model.**
+  Pi said so in the armed-delete tooltip, the accessible label and the arm toast;
+  Codex said only "再点一次确认删除". The wording names the button that is actually
+  on screen: only the active provider can have a live model, and that provider's
+  footer offers 保存更改 alone, not 保存并设为当前生效.
+- **A Codex provider needing no credential no longer reports 凭据已配置.**
+  `requires_openai_auth = false` means Codex sends no Authorization header, so the
+  green tick's label claimed a key where none was ever asked for. The tick stays —
+  the provider is ready — and the label now reads 无需凭据.
+- **Pi's provider filter searches the gateway address**, as Codex's already did.
+  With several entries from one vendor the host is the one thing a user
+  remembers, and it was the one thing Pi would not match.
+- **The Pi model row no longer draws a drag handle it does not implement.** The
+  glyph had no reordering behind it, and row order means nothing in `models.json`
+  beyond which row the default radio marks. Glyph, its leading grid column, the
+  header's empty cell and the narrow-width `min-width` all go together.
+- Verified against the production build served by `server.mjs`
+  (`PI_PROVIDER_MANAGER_SERVE_UI=1`, `?demo=1` for the populated fixture): both
+  targets screenshotted in light and dark at 1440x900, confirming the badge and
+  the re-aligned model table after the column removal, and that 默认 / 生效中 land
+  on the right rows.
+- Each new browser assertion was run against deliberately reverted code before
+  being kept, and failed as intended: the duplicate gate reported
+  `duplicate: true` where the fixed build reports `false`; disabling the
+  live-model branch left the arm toast matching neither half of the asserted
+  wording; and making `nextDefaultAfterRemoving` return an empty id collapsed the
+  named-replacement half into the ask-for-one message. Three mutations, three
+  failures, each on the assertion meant to hold it.
+- Note for future tests in this suite, learned the hard way here: the delete
+  buttons arm on first click and are reset by `onBlur`, but a synthetic
+  `element.click()` does not move focus, so `onBlur` never fires and the armed
+  state survives. A second synthetic click more than `CONFIRM_ARM_DELAY` later
+  therefore *deletes* the row rather than re-arming it. The test now waits for the
+  button to lose `is-confirming` — the component's own 3.2s window — before
+  arming it again, instead of assuming a blur that a scripted click never causes.
+- `npm test`: **162 pass, 0 fail, 0 skipped** — 52 server, 62 Codex, 11 prompts,
+  4 sites, 8 Pi-update, 1 release, 8 launcher, 11 UI, 5 real-Codex. Zero skips
+  means the LiteLLM bridge and the real `codex exec` paths were actually exercised
+  on this host, not sat out.
+- Documentation aligned in the same round: `AGENTS.md` rewritten to 141 lines
+  with every rule retained but the narrative justification behind the durable
+  decisions compressed; the sidebar live-selection mark added to the
+  `docs/architecture.md` vocabulary and both targets' sections of the Chinese
+  usage guide; the round recorded under `CHANGELOG.md`'s `Unreleased`.
+
+final result: passed
