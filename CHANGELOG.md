@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+## 0.3.16 - 2026-09-16
+
+- Validated against Pi `0.85.1` and Codex `0.154.0`; the full suite ran with no skips. This release exists because `0.3.14` and `0.3.15` shipped the settle window with an unref'd timer in it, so the window did not run in the launcher's own configuration and their restarts did not reclaim the port from a replacement that died after answering. It was found within minutes of deploying `0.3.15`.
 - **The settle window did not run where it was written for.** `waitForReplacement` and `replacementSurvives` scheduled their retries with `.unref()`. The handoff closes the listening socket on purpose, and a manager started with its output on `/dev/null` has no stream handle either, so those timers were the only thing holding the event loop — and this process exited in the middle of the window, silently. Measured on a detached instance: `replacement answered pid=…` was written, `handoff complete` never was, the old process was gone, and a replacement that answered and then died would not have been taken back. It survived review because a test whose parent has a pipe on stdout, and a manager on a terminal, both hold the loop by accident; only a console-less instance showed it. The retries are now deliberately ref'd, with the reason written down beside them.
 - A test that lets the manager run the way the launcher's WSL branch starts it: the two restart tests now spawn it with no pipes at all, which is the configuration where a handoff depends on the event loop. Recorded honestly: they pass with or without the fix, because the manager's own version detection keeps a login-shell child alive through the window — so this one is pinned by the detached-instance measurement above, not by the suite.
 
