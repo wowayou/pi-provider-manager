@@ -237,6 +237,15 @@ html, body, #root { width: 100%; height: 100%; overflow: hidden; }
 body { margin: 0; min-width: 320px; min-height: 100%; background: var(--canvas); -webkit-font-smoothing: antialiased; }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
+/* An inactive control has to look inactive, and half opacity is what says so.
+ * WCAG 1.4.3 exempts text in an inactive component for that reason, which is why
+ * the contrast audit reports these findings instead of failing them. Measured
+ * worst case: the 「填入网关旧版 1M 示例」 button at 2.13:1 in light and 2.7:1 in
+ * dark, whose colour is this opacity times --orange-dark composited over --field.
+ * Clearing AA there would take roughly .95 and .78 — a disabled button that reads
+ * as pressable, a worse outcome than dim text beside the note that already
+ * explains why it is unavailable. The numbers and the decision are in
+ * design-qa.md; a change to this rule changes them. */
 button:disabled { cursor: not-allowed; opacity: .5; }
 
 /*
@@ -636,6 +645,13 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .user-agent-actions > span { color: var(--muted); font-size: 12px; }
 .user-agent-actions .compact-button { min-height: 36px; padding-inline: 11px; font-size: 12px; }
 .user-agent-disclaimer { margin: 0; color: var(--muted) !important; font-size: 11px !important; line-height: 1.5; }
+.beta-group { display: grid; gap: 12px; }
+.beta-model-field, .beta-value-field { grid-column: 1 / -1 !important; align-items: flex-start !important; max-width: 880px; }
+.beta-model-field select { width: min(100%, 420px); }
+.beta-value-field input { max-width: 880px; }
+.beta-value-field small { max-width: 720px; line-height: 1.5; }
+.beta-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.beta-actions .compact-button { min-height: 36px; padding-inline: 11px; font-size: 12px; }
 .protocol-group label { min-width: 0; }
 .model-warning { margin: 0 0 13px; border: 1px solid var(--warn-border); background: var(--warn-bg); color: var(--warn-text); border-radius: 9px; padding: 10px 12px; display: flex; gap: 9px; align-items: flex-start; font-size: 12px; line-height: 1.5; }
 .model-warning svg { color: var(--warn-icon); flex: none; margin-top: 1px; }
@@ -672,6 +688,23 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 .modal-count { margin-right: auto; color: var(--muted); font-size: 12px; }
 .modal-shortcut { margin: 14px 0 0; color: var(--ink-3); font-size: 11.5px; text-align: right; }
+.discover-modal { width: min(640px, 100%); }
+.discover-modal .modal-heading p code { font-family: var(--mono); font-size: 12px; }
+.discover-filter { position: relative; margin-top: 16px; }
+.discover-filter svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.discover-filter input { width: 100%; padding-left: 38px; }
+.discover-list { margin-top: 12px; max-height: min(52vh, 420px); overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-sunken); }
+.discover-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.discover-row:last-child { border-bottom: 0; }
+.discover-row:hover { background: var(--surface-hover); }
+.discover-row .mono { font-size: 13px; overflow-wrap: anywhere; }
+.discover-row small { margin-left: auto; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.discover-row.is-existing { cursor: default; color: var(--ink-3); }
+.discover-status { display: flex; align-items: center; gap: 10px; padding: 26px 0 8px; color: var(--muted); font-size: 13px; }
+.discover-empty { padding: 22px 12px; text-align: center; color: var(--muted); font-size: 13px; }
+.discover-modal .error-banner { margin-top: 16px; }
+.discover-bulk-actions { display: flex; gap: 6px; margin-right: auto; }
+.discover-bulk-actions button { min-height: 32px; padding-inline: 10px; font-size: 12px; }
 .delete-dialog-heading { display: flex; align-items: flex-start; gap: 14px; }
 .delete-dialog-icon { width: 46px; height: 46px; flex: none; border-radius: 9px; display: grid; place-items: center; background: var(--danger-bg); color: var(--danger-text); }
 .delete-dialog-heading h2 { margin: 0; font-size: 21px; }

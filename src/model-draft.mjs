@@ -24,6 +24,15 @@ export function userAgentSaveIntent(form, sourceProviderId, targetExists) {
   return { write: true, value: form.userAgent || "" };
 }
 
+// Model-level beta follows the source provider/model identity and target model.
+export function anthropicBetaSaveIntent(model, sourceProviderId, targetProviderId, targetModelExists) {
+  if (model.anthropicBetaEdited) return { write: true, value: model.anthropicBeta || "" };
+  const sourceId = String(sourceProviderId || "").trim();
+  const targetId = String(targetProviderId || "").trim();
+  if (sourceId && targetId === sourceId && model.persistedId === model.id?.trim()) return { write: false };
+  if (model.anthropicBetaKind === "external") return targetModelExists ? { write: false } : { write: true, value: "" };
+  return { write: true, value: model.anthropicBeta || "" };
+}
 // A duplicated provider saves as a new row, so the draft needs an ID that is
 // free: `<source>-copy`, then `-copy-2`, `-copy-3`, …
 export function suggestCopyId(sourceId, takenIds) {
@@ -52,7 +61,19 @@ export function duplicatePiForm(form, takenIds) {
   // persistedId is storage identity, and a copy has none: every row is new to
   // disk. Carrying it over would mark the copy's IDs read-only and make the
   // identity-drift check refuse a draft that has drifted from nothing.
-  const models = form.models.map((model) => ({ ...model, rowId: freshRowId(), persistedId: "" }));
+  let copiedExternalBeta = false;
+  const models = form.models.map((model) => {
+    const externalBeta = model.anthropicBetaKind === "external";
+    copiedExternalBeta ||= externalBeta;
+    return {
+      ...model,
+      rowId: freshRowId(),
+      persistedId: "",
+      anthropicBeta: externalBeta ? "" : (model.anthropicBeta || ""),
+      anthropicBetaKind: externalBeta ? "none" : (model.anthropicBetaKind || "none"),
+      anthropicBetaEdited: true,
+    };
+  });
   const sourceDefault = form.models.find((model) => model.rowId === form.defaultRowId);
   const sourceUserAgentKind = form.userAgentKind || (form.userAgent ? "literal" : "none");
   const canCopyUserAgent = sourceUserAgentKind === "literal" || sourceUserAgentKind === "none";
@@ -74,6 +95,7 @@ export function duplicatePiForm(form, takenIds) {
     userAgentEdited: canCopyUserAgent,
     hasModelUserAgentOverride: Boolean(form.hasModelUserAgentOverride),
     copiedExternalUserAgent: sourceUserAgentKind === "external",
+    copiedExternalBeta,
   };
 }
 

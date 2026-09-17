@@ -1871,9 +1871,23 @@ test("every piece of text meets WCAG AA contrast in both themes", { timeout: 90_
     );
     // Not a failure — WCAG exempts an inactive control — but a disabled style is
     // a decision, and the only way anyone revisits it is by seeing what it costs.
+    // Grouped, because the hover sweep and the transient states re-measure the
+    // same control many times over: one finding printed twenty times is a finding
+    // nobody reads. The one entry currently expected is the disabled-state
+    // paragraph in design-qa.md, and the rule that sets its numbers is
+    // `button:disabled` in src/styles.css.
     if (exemptFound.length > 0) {
-      console.log(`${exemptFound.length} exempt (disabled) text elements below AA:`);
-      for (const entry of exemptFound) console.log(`${describe(entry)} [${entry.where}]`);
+      const grouped = new Map();
+      for (const entry of exemptFound) {
+        const key = `${entry.selector} :: ${entry.text} :: ${entry.ratio}`;
+        const group = grouped.get(key) || { entry, where: [] };
+        group.where.push(entry.where);
+        grouped.set(key, group);
+      }
+      console.log(`${exemptFound.length} exempt (disabled) measurements below AA, ${grouped.size} distinct:`);
+      for (const { entry, where } of grouped.values()) {
+        console.log(`${describe(entry)} [${where.length} states, first: ${where[0]}]`);
+      }
     }
     assert.equal(cdp.errors.length, 0, JSON.stringify(cdp.errors));
   } catch (error) {
@@ -2756,6 +2770,139 @@ test("production UI keeps new-draft User-Agent intent and locates invalid whites
     }
     await stopProcess(chrome, true);
     await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+
+test("production UI edits Anthropic Beta and preserves unrelated draft edits", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-beta-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-beta-"));
+  writeFixture(agentDir);
+  const modelsPath = path.join(agentDir, "models.json");
+  const fixture = JSON.parse(fs.readFileSync(modelsPath, "utf8"));
+  fixture.providers["review-router"].api = "anthropic-messages";
+  fixture.providers["review-router"].models = fixture.providers["review-router"].models.slice(0, 2);
+  fs.writeFileSync(modelsPath, JSON.stringify(fixture));
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server; let chrome; let cdp; let serverOutput = "";
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
+    chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl("http://127.0.0.1:" + debugPort + "/json/version", 30_000);
+    const target = await fetch("http://127.0.0.1:" + debugPort + "/json/new?" + encodeURIComponent("http://127.0.0.1:" + appPort), { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl); await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    await cdp.send("Page.navigate", { url: "http://127.0.0.1:" + appPort });
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 2");
+    const clickText = (selector, text) => cdp.evaluate("[...document.querySelectorAll(" + JSON.stringify(selector) + ")].find((node) => node.textContent.includes(" + JSON.stringify(text) + ")).click()");
+    const setValue = (selector, value) => cdp.evaluate("(() => { const input = document.querySelector(" + JSON.stringify(selector) + "); const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(input, " + JSON.stringify(value) + "); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+    await cdp.evaluate("[...document.querySelectorAll('.provider-item')].find((node) => node.title.includes('review-router')).click()");
+    await cdp.waitFor("document.querySelector('.models-table')");
+    await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
+    await cdp.waitFor("document.querySelector('.beta-group select')");
+    await setValue(".beta-value-field input", "context-1m-2025-08-07");
+    await clickText(".wizard-footer .primary-button", "保存并设为默认");
+    await cdp.waitFor("document.querySelector('.success-page')");
+    let saved = JSON.parse(fs.readFileSync(modelsPath, "utf8"));
+    assert.equal(saved.providers["review-router"].models[0].headers["anthropic-beta"], "context-1m-2025-08-07");
+    await cdp.evaluate("[...document.querySelectorAll('.provider-item')].find((node) => node.title.includes('review-router')).click()");
+    await cdp.waitFor("document.querySelector('.beta-value-field input')");
+    assert.equal(await cdp.evaluate("document.querySelector('.beta-value-field input').value"), "context-1m-2025-08-07");
+    await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
+    await cdp.waitFor("document.querySelector('.advanced-panel').open");
+    await clickText(".beta-actions button", "清除模型覆盖");
+    await cdp.evaluate("document.querySelector('.model-row input:not([readonly])').focus()");
+    await setValue(".model-row input:not([readonly])", "211K");
+    await cdp.evaluate("document.querySelector('.model-row input:not([readonly])').blur()");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await clickText(".toast-action", "撤销");
+    assert.equal(await cdp.evaluate("document.querySelector('.beta-value-field input').value"), "context-1m-2025-08-07");
+    assert.equal(await cdp.evaluate("document.querySelector('.model-row input:not([readonly])').value"), "211K");
+    await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
+    await setValue(".beta-value-field input", "$BETA");
+    await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
+    await clickText(".wizard-footer .primary-button", "保存并设为默认");
+    await cdp.waitFor("document.querySelector('.advanced-panel[open] .beta-value-field input[aria-invalid=\"true\"]')");
+    assert.equal(await cdp.evaluate("document.querySelector('.advanced-panel').open"), true);
+    await cdp.waitFor("document.activeElement === document.querySelector('.beta-value-field input')");
+    assert.equal(await cdp.evaluate("document.querySelector('.success-page')"), null);
+    assert.deepEqual(cdp.errors, []);
+    assert.equal(serverOutput.includes("Error"), false, serverOutput);
+  } finally {
+    if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }
+    await stopProcess(chrome, true); await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("production UI imports the models a gateway lists, and explains a gateway it cannot reach", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-discover-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-discover-"));
+  writeFixture(agentDir);
+  const [appPort, debugPort, gatewayPort] = await Promise.all([freePort(), freePort(), freePort()]);
+  // The stored provider points at a stand-in gateway on loopback, so the
+  // listing is fetched with the key the fixture stored — never one the browser saw.
+  const modelsPath = path.join(agentDir, "models.json");
+  const fixture = JSON.parse(fs.readFileSync(modelsPath, "utf8"));
+  fixture.providers["review-router"].baseUrl = `http://127.0.0.1:${gatewayPort}/v1`;
+  fs.writeFileSync(modelsPath, JSON.stringify(fixture));
+  let server; let chrome; let cdp; let gateway; let serverOutput = ""; let gatewayOutput = "";
+  try {
+    gateway = spawn(process.execPath, [path.join(projectRoot, "tests", "fixtures", "fake-chat-gateway.mjs"), String(gatewayPort), "dummy-browser-test-key"], { stdio: ["ignore", "ignore", "pipe"] });
+    gateway.stderr.on("data", (chunk) => { gatewayOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${gatewayPort}/v1/models`);
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${appPort}/api/state`);
+    chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profileDir}`, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
+    const target = await fetch(`http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(`http://127.0.0.1:${appPort}`)}`, { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl); await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    await cdp.send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
+    const clickText = (selector, text) => cdp.evaluate(`[...document.querySelectorAll(${JSON.stringify(selector)})].find((node) => node.textContent.includes(${JSON.stringify(text)})).click()`);
+
+    await clickText(".models-actions button", "获取模型");
+    await cdp.waitFor("document.querySelector('.discover-modal .discover-row')");
+    assert.deepEqual(await cdp.evaluate("[...document.querySelectorAll('.discover-row .mono')].map((node) => node.textContent)"), ["fake-chat-model"]);
+    assert.equal(await cdp.evaluate("document.querySelector('.discover-modal .primary-button').disabled"), true, "nothing is selected until the user picks");
+    await cdp.evaluate("document.querySelector('.discover-row input').click()");
+    assert.equal(await cdp.evaluate("document.querySelector('.discover-modal .modal-count').textContent"), "网关返回 1 个模型，已选 1 个");
+    await clickText(".discover-modal .primary-button", "导入 1 个模型");
+    await cdp.waitFor("!document.querySelector('.discover-modal') && document.querySelectorAll('.model-row').length === 4");
+    assert.equal(await cdp.evaluate("[...document.querySelectorAll('.model-row .model-name-cell input')].at(-1).value"), "fake-chat-model");
+    assert.match(await cdp.evaluate("document.querySelector('.toast')?.textContent || ''"), /已从网关导入 1 个模型/);
+    assert.match(gatewayOutput, /GET \/v1\/models auth=yes/, "the listing was fetched without the stored credential");
+
+    // Already-listed IDs are shown but cannot be imported twice.
+    await clickText(".models-actions button", "获取模型");
+    await cdp.waitFor("document.querySelector('.discover-modal .discover-row.is-existing input:disabled')");
+    assert.equal(await cdp.evaluate("document.querySelector('.discover-modal .modal-count').textContent"), "网关返回 1 个模型，已选 0 个");
+    await clickText(".discover-modal .secondary-button", "取消");
+    await cdp.waitFor("!document.querySelector('.discover-modal')");
+
+    // A gateway that does not answer is reported in the dialog, with a retry.
+    await stopProcess(gateway);
+    await clickText(".models-actions button", "获取模型");
+    await cdp.waitFor("document.querySelector('.discover-modal .error-banner')");
+    assert.match(await cdp.evaluate("document.querySelector('.discover-modal .error-banner').textContent"), /无法连接网关/);
+    assert.equal(await cdp.evaluate("[...document.querySelectorAll('.discover-modal button')].some((node) => node.textContent.includes('重试'))"), true);
+    await clickText(".discover-modal .secondary-button", "取消");
+    await cdp.waitFor("!document.querySelector('.discover-modal')");
+    assert.equal(await cdp.evaluate("document.querySelectorAll('.model-row').length"), 4, "a failed listing changed the draft");
+    assert.deepEqual(cdp.errors, []);
+    assert.equal(serverOutput.includes("Error"), false, serverOutput);
+  } finally {
+    if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }
+    await stopProcess(chrome, true); await stopProcess(server); await stopProcess(gateway);
     fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }

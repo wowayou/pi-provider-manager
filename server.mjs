@@ -32,6 +32,8 @@ import {
 } from "./lib/self-update.mjs";
 import { detectCodexVersion, detectPiVersion, liveVersion } from "./lib/version-detect.mjs";
 import { applyUserAgent, readUserAgent } from "./lib/pi-user-agent.mjs";
+import { applyAnthropicBeta, readAnthropicBeta, normalizeAnthropicBeta } from "./lib/pi-anthropic-beta.mjs";
+import { describeDiscoveryStatus, discoveryRequest, parseModelList } from "./lib/model-discovery.mjs";
 import { ConflictError, PROVIDER_ID_PATTERN, isLoopbackHostname, normalizeUrl } from "./lib/validation.mjs";
 
 const HOST = "127.0.0.1";
@@ -721,6 +723,8 @@ function publicModel(model) {
     }
     if (Object.keys(thinkingLevelMap).length > 0) result.thinkingLevelMap = thinkingLevelMap;
   }
+  const beta = readAnthropicBeta(model.headers);
+  result.anthropicBeta = beta;
   if (isObject(model.compat) && typeof model.compat.forceAdaptiveThinking === "boolean") {
     result.compat = { forceAdaptiveThinking: model.compat.forceAdaptiveThinking };
   }
@@ -815,6 +819,11 @@ function normalizeModel(model, providerApi) {
     throw new Error(`${id} 的最大输出必须小于上下文容量。`);
   }
   const reasoning = Boolean(model.reasoning);
+  if (Object.hasOwn(model, "anthropicBeta")) {
+    const beta = normalizeAnthropicBeta(model.anthropicBeta);
+    const effectiveApi = model.api && ALLOWED_APIS.has(model.api) && model.api !== "inherit" ? model.api : providerApi;
+    if (beta && effectiveApi !== "anthropic-messages") throw new Error("Anthropic Beta 请求头仅适用于 anthropic-messages 协议。");
+  }
   const maximumThinking = ALLOWED_THINKING.has(model.maximumThinking) ? model.maximumThinking : "high";
   const normalized = {
     id,
@@ -852,6 +861,10 @@ function cleanCompat(api, compat) {
 
 function mergeExistingModel(existing, normalized, submitted, providerApi) {
   const merged = { ...(isObject(existing) ? existing : {}), ...normalized };
+  if (Object.hasOwn(submitted, "anthropicBeta")) {
+    const headers = applyAnthropicBeta(existing?.headers, submitted.anthropicBeta);
+    if (headers) merged.headers = headers; else delete merged.headers;
+  }
   const inheritsProviderApi = !submitted.api || submitted.api === "inherit" || submitted.api === providerApi;
   if (inheritsProviderApi) delete merged.api;
   if (!normalized.thinkingLevelMap) delete merged.thinkingLevelMap;
@@ -1098,6 +1111,89 @@ function sendJson(response, status, value) {
     "X-Content-Type-Options": "nosniff",
   });
   response.end(body);
+}
+
+// Asks the gateway for its model catalogue with the credential the draft would
+// save with, and returns only IDs and display names. This is the one endpoint
+// that sends a stored key somewhere on demand, so its shape is deliberately
+// narrow: the URL is validated by the same rule as a save, the key is resolved
+// the same way a save resolves it and never returned, redirects are refused so
+// a gateway cannot bounce the credential elsewhere, and the body is bounded and
+// parsed — never relayed. Cross-origin pages are kept out by the Host and JSON
+// checks every /api/ POST goes through.
+const DISCOVERY_TIMEOUT_MS = 15_000;
+const DISCOVERY_MAX_BYTES = 2_000_000;
+
+function discoveryCredential(credential, auth) {
+  const mode = isObject(credential) ? credential.mode : "";
+  if (mode === "new") {
+    const key = String(credential.apiKey || "").trim();
+    if (!key) throw new Error("请先在第二步输入 API Key，再获取模型列表。");
+    return key;
+  }
+  if (mode !== "keep" && mode !== "migrate") throw new Error("凭据方式无效。");
+  const sourceId = String((mode === "migrate" ? credential.fromProvider : credential.providerId) || "").trim();
+  if (!PROVIDER_ID_PATTERN.test(sourceId) || !Object.hasOwn(auth, sourceId) || !isObject(auth[sourceId])) {
+    throw new Error(mode === "keep" ? "这个供应商还没有保存凭据，请先输入 API Key。" : "选择的已有凭据不存在。");
+  }
+  const entry = auth[sourceId];
+  if (entry.type !== "api_key" || typeof entry.key !== "string" || !entry.key.trim()) {
+    throw new Error("保存的凭据不是 API Key（例如 OAuth 登录），无法用它获取模型列表。");
+  }
+  return entry.key.trim();
+}
+
+function describeFetchFailure(error) {
+  if (error?.name === "TimeoutError" || error?.name === "AbortError") return "连接超时";
+  const cause = error?.cause;
+  const code = cause?.code || error?.code;
+  const message = cause?.message || error?.message || "";
+  return code ? `${code}${message ? `，${message}` : ""}` : message || "未知错误";
+}
+
+async function readBounded(response, limit) {
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const chunks = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > limit) {
+      await reader.cancel();
+      throw new Error("网关返回的模型列表过大，已停止读取。");
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+async function discoverModels(payload) {
+  if (!isObject(payload)) throw new Error("请求内容无效。");
+  const api = String(payload.api || "");
+  if (!ALLOWED_APIS.has(api)) throw new Error("请选择受支持的接口协议。");
+  const key = discoveryCredential(payload.credential, readJson(AUTH_PATH));
+  const { url, headers } = discoveryRequest(api, payload.baseUrl, key);
+  let response;
+  try {
+    response = await fetch(url, { headers, redirect: "manual", signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS) });
+  } catch (error) {
+    throw new Error(`无法连接网关：${describeFetchFailure(error)}。`);
+  }
+  const text = await readBounded(response, DISCOVERY_MAX_BYTES).catch((error) => {
+    if (response.ok) throw error;
+    return "";
+  });
+  if (!response.ok) throw new Error(describeDiscoveryStatus(response.status));
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new Error("网关返回的内容不是 JSON，可能地址不是模型列表接口。请手动填写模型 ID。");
+  }
+  const models = parseModelList(body);
+  return { models, endpoint: new URL(url).pathname };
 }
 
 // The theme bootstrap has to run before first paint, so it cannot be bundled or
@@ -1350,6 +1446,10 @@ const server = http.createServer(async (request, response) => {
       const body = await readBody(request);
       promptLibrary(body).deleteDocument(body);
       sendJson(response, 200, { ok: true, state: publicState() });
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/providers/discover-models") {
+      sendJson(response, 200, { ok: true, ...(await discoverModels(await readBody(request))) });
       return;
     }
     if (request.method === "POST" && request.url === "/api/codex/bridge-check") {

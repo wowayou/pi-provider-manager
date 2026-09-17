@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { changedPersistedModel, duplicateCodexForm, duplicatePiForm, selectedNamedModel, suggestCopyId, userAgentSaveIntent } from "../src/model-draft.mjs";
+import { changedPersistedModel, duplicateCodexForm, duplicatePiForm, selectedNamedModel, suggestCopyId, userAgentSaveIntent, anthropicBetaSaveIntent } from "../src/model-draft.mjs";
 
 test("persisted model identities cannot be renamed or cleared in a draft", () => {
   const unchanged = { rowId: "stored", persistedId: "anthropic/claude-opus", id: "anthropic/claude-opus" };
@@ -89,6 +89,13 @@ test("a duplicated Pi draft carries the models but never the credential", () => 
   assert.equal(form.moveCredential, true);
 });
 
+test("a duplicated Pi draft clears external model Beta values explicitly", () => {
+  const copy = duplicatePiForm({ providerId: "router", models: [{ rowId: "r1", persistedId: "m", id: "m", anthropicBeta: "", anthropicBetaKind: "external", anthropicBetaEdited: false }], defaultRowId: "r1", userAgentKind: "none", userAgent: "", hasModelUserAgentOverride: false }, []);
+  assert.equal(copy.models[0].anthropicBeta, "");
+  assert.equal(copy.models[0].anthropicBetaKind, "none");
+  assert.equal(copy.models[0].anthropicBetaEdited, true);
+  assert.equal(copy.copiedExternalBeta, true);
+});
 test("a duplicated Pi draft does not copy an external User-Agent expression", () => {
   const copy = duplicatePiForm({
     providerId: "router",
@@ -158,4 +165,13 @@ test("a duplicated Codex draft keeps the bridge address but not the bridge key",
   assert.equal(bridge.upstream, "bridge");
   assert.equal(bridge.bridgeUpstreamUrl, "https://up.example/v1");
   assert.equal(bridge.bridgeApiKey, "");
+});
+test("model beta save intent preserves external target and clears new targets", () => {
+  const external = { persistedId: "m", anthropicBeta: "", anthropicBetaKind: "external", anthropicBetaEdited: false };
+  assert.deepEqual(anthropicBetaSaveIntent(external, "source", "source", true), { write: false });
+  assert.deepEqual(anthropicBetaSaveIntent(external, "source", "other", false), { write: true, value: "" });
+  const literal = { persistedId: "m", anthropicBeta: "context-1m-2025-08-07", anthropicBetaKind: "literal", anthropicBetaEdited: false };
+  assert.deepEqual(anthropicBetaSaveIntent(literal, "source", "other", false), { write: true, value: "context-1m-2025-08-07" });
+  const edited = { ...external, anthropicBeta: "beta-a, beta-b", anthropicBetaEdited: true };
+  assert.deepEqual(anthropicBetaSaveIntent(edited, "source", "source", true), { write: true, value: "beta-a, beta-b" });
 });
