@@ -55,9 +55,11 @@ rule is Pi's (`packages/ai/src/api/anthropic-messages.ts`, `getBetaFeatures`). D
 `POST /api/providers/discover-models` asks the gateway for its catalogue at the URL Pi's own clients would
 derive from the same baseUrl: `<baseUrl>/v1/models` for `anthropic-messages` (the Anthropic SDK appends
 `/v1/…`), `<baseUrl>/models` for the OpenAI protocols and Gemini (those clients treat the baseUrl as already
-versioned). A listing that works is therefore evidence the chat endpoint will resolve. Authentication mirrors
-Pi: `x-api-key` plus `anthropic-version` for Anthropic (Bearer for an `sk-ant-oat` token), Bearer for OpenAI,
-`x-goog-api-key` for Gemini. The response is reduced to IDs and display names in `lib/model-discovery.mjs`.
+versioned). A listing that works is therefore evidence the chat endpoint will resolve. Authentication is
+Bearer plus `anthropic-version` for Anthropic — deliberately not Pi's `x-api-key`, because the relays this is
+for reject that header on `/v1/models` (Anyrouter: 401 "未提供令牌") while Anthropic itself accepts Bearer —
+Bearer for OpenAI, `x-goog-api-key` for Gemini. The response is reduced to IDs and display names in
+`lib/model-discovery.mjs`.
 
 
 ## Codex compatibility

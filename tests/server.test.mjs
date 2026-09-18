@@ -348,7 +348,7 @@ test("discovers a gateway's models with the credential a save would use, and nev
       return json(200, { object: "list", data: [{ id: "gw/alpha", object: "model" }, { id: "gw/beta", display_name: "Beta" }, { id: "bad id" }], secret: "gateway-secret-not-real" });
     }
     if (request.url === "/anthropic/v1/models?limit=1000") {
-      if (request.headers["x-api-key"] !== TYPED_KEY || request.headers["anthropic-version"] !== "2023-06-01") return json(403, { type: "error" });
+      if (request.headers.authorization !== `Bearer ${TYPED_KEY}` || request.headers["anthropic-version"] !== "2023-06-01") return json(403, { type: "error" });
       return json(200, { data: [{ id: "claude-x", display_name: "Claude X", type: "model" }], has_more: false });
     }
     if (request.url === "/redirect/models") { response.writeHead(302, { Location: `http://127.0.0.1:${gatewayPort}/v1/models` }); response.end(); return; }

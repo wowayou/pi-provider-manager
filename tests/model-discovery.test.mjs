@@ -7,7 +7,9 @@ test("asks the URL Pi itself would derive from the same baseUrl", () => {
   // Google clients treat the baseUrl as already versioned.
   const anthropic = discoveryRequest("anthropic-messages", "https://gw.example/", "sk-key");
   assert.equal(anthropic.url, "https://gw.example/v1/models?limit=1000");
-  assert.deepEqual(anthropic.headers, { "x-api-key": "sk-key", "anthropic-version": "2023-06-01", accept: "application/json" });
+  // Bearer for every Anthropic-shaped key: relays reject `x-api-key` on the
+  // listing endpoint (Anyrouter answers it with 401 "未提供令牌").
+  assert.deepEqual(anthropic.headers, { authorization: "Bearer sk-key", "anthropic-version": "2023-06-01", accept: "application/json" });
   const oauth = discoveryRequest("anthropic-messages", "https://gw.example", "sk-ant-oat01-token");
   assert.equal(oauth.headers.authorization, "Bearer sk-ant-oat01-token");
   assert.equal(oauth.headers["x-api-key"], undefined);
