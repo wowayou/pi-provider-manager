@@ -288,6 +288,8 @@ One row per superseded evidence section; the full dated text of each lives in gi
 | 2026-08-31 | 0.3.7 | Pi `0.84.4` step 8 on the release itself; byte-identical row against the `0.84.3` control | passed |
 | 2026-08-31 | 0.3.7 | Windows archive verifier on Windows: `OpenRead`/`Expand-Archive` on the published zip, two refusals, bytes from disk (`ECONNRESET`) | passed |
 | 2026-08-31 | 0.3.8 | Codex `0.151.0` triage: four invariants unchanged; the reasoning-effort rewrite defect found and fixed | passed |
+| 2026-09-18 | 0.4.0 | Anthropic beta on the wire, real Pi `0.85.1` against a loopback gateway: the override sent alone, its sibling keeping the derived list, a `[1M]` id as-is, clearing restoring the derived list | passed |
+| 2026-09-18 | 0.4.0 | Model discovery against six configured relays; the listing-path boundary exercised on the live server; the dialog's fit measured at 1280×600 | passed |
 
 final result: all historical sections passed except the one recorded as blocked, which its successor section closed
 
@@ -691,3 +693,49 @@ final result: passed
   measured on this host, on the same launcher branch and console lifecycle.
 
 final result: passed
+
+## Anthropic Beta Override and Gateway Model Discovery — Evidence
+
+- Evidence date: `2026-09-18`. Manager `0.4.0`, Pi `0.85.1`, Codex `0.154.0`,
+  Node `24.18.0`. Three pull requests: #102 (the header and the dialog), #103 (the
+  listing path), #104 (any protocol, and the dialog's fit). Everything below was
+  measured on this host; the relays were asked through the running manager with
+  the credentials already in its own config, and no response body contained one.
+- **What reaches the wire.** `npm run test:pi-real` runs the installed Pi against a
+  stand-in Anthropic gateway on loopback that records every request. A model
+  carrying an override sent exactly its two tokens
+  (`context-1m-2025-08-07`, `prompt-caching-2024-07-31`) and **not** the
+  `interleaved-thinking-2025-05-14` Pi derives on its own; its sibling sent the
+  derived list; a `claude-big[1M]` ID went out as-is with
+  `contextWindow=1000000`/`maxTokens=128000`; clearing the override handed the
+  derived list back. The key travelled as `x-api-key`. This is the case the first
+  revision of the test could not see: with `--thinking off` there is no derived
+  list to replace, so "replaced" and "there was nothing to replace" look alike.
+- **The header on a non-Anthropic protocol.** pi-ai `0.85.1` spreads
+  `model.headers` into the request for `openai-completions`, `openai-responses`
+  and `google` alike, so the manager validates the value's shape and never its
+  protocol. The gate an earlier revision carried refused a real draft — a gpt
+  model added to an Anthropic-protocol relay and switched by the per-model
+  override — while protecting nothing, and was removed.
+- **The listing against real relays.** Six configured gateways were asked through
+  the running server. DeepSeek (`https://api.deepseek.com/anthropic`) answered 404
+  at the derived path and listed two models once `/v1/models` was given; Anyrouter
+  listed 15 at the default path and again with an override; `qq-newapi` answered
+  non-JSON at both paths; `agentrouter` timed out; `any-codex` and `sota` listed
+  normally. This is why the path is overridable at all.
+- **The path boundary.** Five off-origin paths — absolute URL, `//host`, a
+  `user@` form, a scheme downgrade, another port — were each refused by the live
+  server with the reason stated. Same-origin paths outside the baseUrl's own
+  prefix were allowed, which is the shape DeepSeek needs; a prefix rule was tried
+  first and refused it.
+- **The dialog on a short window.** The browser suite measures 1280×600 with the
+  dialog open: the dialog, its heading and its primary button all inside the
+  viewport, and the list scrolling inside itself. Before the fix the list had a
+  fixed 420px cap and the dialog no cap at all, so the actions row went below the
+  fold with nothing to scroll.
+- **Coverage limits, stated plainly.** Whether a given relay honours the
+  `anthropic-beta` header is the relay's behaviour and is not asserted anywhere.
+  `qq-newapi`'s non-JSON answer at both paths is unexplained; it is reported to
+  the user as "manual entry required" rather than diagnosed. The relay
+  measurements are one host's configuration at one moment, not a general claim
+  about those services.
