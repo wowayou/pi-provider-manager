@@ -2889,6 +2889,40 @@ test("production UI imports the models a gateway lists, and explains a gateway i
     await clickText(".discover-modal .secondary-button", "取消");
     await cdp.waitFor("!document.querySelector('.discover-modal')");
 
+    // The path is overridable, because relays do not agree on where a
+    // catalogue lives: deepseek serves chat under /anthropic and its list at
+    // the root, so the protocol default 404s there and only an override reaches
+    // it. The dialog states which URL answered rather than leaving the user to
+    // guess whether the override took effect.
+    await clickText(".models-actions button", "获取模型");
+    await cdp.waitFor("document.querySelector('.discover-modal .discover-path input')");
+    assert.equal(await cdp.evaluate("document.querySelector('.discover-path input').placeholder"), "/models", "the field offers the protocol default");
+    assert.equal(await cdp.evaluate("document.querySelector('.discover-path input').value"), "", "an override is opt-in");
+    await cdp.evaluate(`(() => {
+      const input = document.querySelector('.discover-path input');
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(input, '/v1/models?limit=5');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await clickText(".discover-path-row button", "用这个路径重试");
+    await cdp.waitFor("document.querySelector('.discover-modal .modal-heading code').textContent.includes('limit=5')");
+    assert.match(gatewayOutput, /GET \/v1\/models\?limit=5/, "the override was not the URL asked for");
+
+    // Same origin is the boundary: this request carries a stored credential, so
+    // a path that could change host must be refused rather than sent.
+    await cdp.evaluate(`(() => {
+      const input = document.querySelector('.discover-path input');
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(input, 'https://evil.example/v1/models');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await clickText(".discover-path-row button", "用这个路径重试");
+    await cdp.waitFor("document.querySelector('.discover-modal .error-banner')");
+    assert.match(await cdp.evaluate("document.querySelector('.discover-modal .error-banner').textContent"), /同源/);
+    assert.equal(gatewayOutput.includes("evil.example"), false, "the refused host was contacted");
+    await clickText(".discover-modal .secondary-button", "取消");
+    await cdp.waitFor("!document.querySelector('.discover-modal')");
+    assert.equal(await cdp.evaluate("document.querySelectorAll('.model-row').length"), 4, "a path experiment changed the draft");
     // A gateway that does not answer is reported in the dialog, with a retry.
     await stopProcess(gateway);
     await clickText(".models-actions button", "获取模型");

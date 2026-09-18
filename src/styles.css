@@ -705,6 +705,13 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .discover-modal .error-banner { margin-top: 16px; }
 .discover-bulk-actions { display: flex; gap: 6px; margin-right: auto; }
 .discover-bulk-actions button { min-height: 32px; padding-inline: 10px; font-size: 12px; }
+.discover-path { display: grid; gap: 5px; margin-top: 16px; }
+.discover-path > span { font-size: 12.5px; font-weight: 600; }
+.discover-path small { color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+.discover-path small code { font-family: var(--mono); font-size: 11px; }
+.discover-path-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.discover-path-row input { flex: 1 1 260px; min-width: 0; }
+.discover-path-row button { flex: none; min-height: 36px; padding-inline: 11px; font-size: 12px; }
 .delete-dialog-heading { display: flex; align-items: flex-start; gap: 14px; }
 .delete-dialog-icon { width: 46px; height: 46px; flex: none; border-radius: 9px; display: grid; place-items: center; background: var(--danger-bg); color: var(--danger-text); }
 .delete-dialog-heading h2 { margin: 0; font-size: 21px; }

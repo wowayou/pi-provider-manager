@@ -55,7 +55,14 @@ rule is Pi's (`packages/ai/src/api/anthropic-messages.ts`, `getBetaFeatures`). D
 `POST /api/providers/discover-models` asks the gateway for its catalogue at the URL Pi's own clients would
 derive from the same baseUrl: `<baseUrl>/v1/models` for `anthropic-messages` (the Anthropic SDK appends
 `/v1/…`), `<baseUrl>/models` for the OpenAI protocols and Gemini (those clients treat the baseUrl as already
-versioned). A listing that works is therefore evidence the chat endpoint will resolve. Authentication is
+versioned). A listing that works is usually evidence the chat endpoint will resolve too.
+
+Relays do not agree on where a catalogue lives, so the path is overridable per request (`path` in the body, a
+field in the 获取模型 dialog). An override is resolved against the baseUrl with standard URL semantics and is
+refused unless it lands on the **same origin** — that single rule is what decides who receives the credential,
+and the gateway's own host already holds it for every turn. It is deliberately allowed to leave the baseUrl's
+own path: DeepSeek's Anthropic endpoint is `https://api.deepseek.com/anthropic` while its catalogue sits at
+`/v1/models`, so a path-prefix rule would refuse a layout that exists. Authentication is
 Bearer plus `anthropic-version` for Anthropic — deliberately not Pi's `x-api-key`, because the relays this is
 for reject that header on `/v1/models` (Anyrouter: 401 "未提供令牌") while Anthropic itself accepts Bearer —
 Bearer for OpenAI, `x-goog-api-key` for Gemini. The response is reduced to IDs and display names in

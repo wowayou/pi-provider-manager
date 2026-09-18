@@ -12,7 +12,7 @@ The browser is not trusted merely because the API listens on localhost: any page
 - Every API request requires `127.0.0.1`, `localhost`, or `[::1]` in `Host`, on the actual service port, to block DNS rebinding.
 - Every write requires `Content-Type: application/json`. A foreign page cannot send that as a CORS simple request, and the server does not enable CORS or answer preflight.
 - Existing API keys are never returned by API responses.
-- The model-discovery endpoint sends a credential only to a URL that passes the same validation as a save (HTTPS unless loopback), does not follow redirects, bounds the response, and returns only model IDs and display names.
+- The model-discovery endpoint sends a credential only to a URL that passes the same validation as a save (HTTPS unless loopback), does not follow redirects, bounds the response, and returns only model IDs and display names. Its listing path is caller-supplied and therefore resolved against the gateway's baseUrl and refused unless it lands on the same origin, so no path can redirect a stored key to another host, port, or scheme.
 - Request bodies are capped at 1 MB, and provider IDs, credential migration sources, URLs, protocols, models, and settings are validated before use.
 - Config writes use private permissions where supported.
 - Provider updates validate temporary JSON files and roll back multi-file failures.
