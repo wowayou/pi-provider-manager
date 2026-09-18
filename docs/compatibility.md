@@ -37,6 +37,30 @@ and may take precedence at request time. The value is deliberately limited to pr
 a product safety boundary, not as a claim about an HTTP limit. Re-check this behavior against Pi's current
 `models.md` after a Pi upgrade.
 
+### Model Anthropic Beta header
+
+A model under an `anthropic-messages` provider may carry `headers["anthropic-beta"]`, which Pi sends as the
+HTTP `anthropic-beta` header — and, when present, uses *instead of* the tool-streaming, thinking, and OAuth
+betas it would otherwise derive. The manager exposes it per model in the third step's advanced settings with
+the same `none` / `literal` / `external` contract as the User-Agent: a comma-separated ASCII token list is
+normalized and deduplicated before writing; dynamic expressions, ambiguous casing, and malformed values are
+reported as `external` and left untouched; an explicit empty string removes every casing; omission preserves.
+Nothing is inferred from a `[1M]` ID or a context window. `npm run test:pi-real` runs the installed Pi against
+a loopback gateway and asserts what reaches the wire; re-run it after a Pi upgrade, since the replace-not-append
+rule is Pi's (`packages/ai/src/api/anthropic-messages.ts`, `getBetaFeatures`). Design record:
+`docs/plans/anthropic-beta-compatibility.md`.
+
+### Model discovery
+
+`POST /api/providers/discover-models` asks the gateway for its catalogue at the URL Pi's own clients would
+derive from the same baseUrl: `<baseUrl>/v1/models` for `anthropic-messages` (the Anthropic SDK appends
+`/v1/…`), `<baseUrl>/models` for the OpenAI protocols and Gemini (those clients treat the baseUrl as already
+versioned). A listing that works is therefore evidence the chat endpoint will resolve. Authentication is
+Bearer plus `anthropic-version` for Anthropic — deliberately not Pi's `x-api-key`, because the relays this is
+for reject that header on `/v1/models` (Anyrouter: 401 "未提供令牌") while Anthropic itself accepts Bearer —
+Bearer for OpenAI, `x-goog-api-key` for Gemini. The response is reduced to IDs and display names in
+`lib/model-discovery.mjs`.
+
 
 ## Codex compatibility
 

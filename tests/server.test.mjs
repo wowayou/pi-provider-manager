@@ -279,6 +279,167 @@ test("writes router-style providers without exposing credentials", async () => {
   }
 });
 
+test("handles model Anthropic Beta through the real HTTP boundary", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-provider-manager-beta-"));
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const models = {
+    providers: {
+      "anthropic-router": { baseUrl: "https://router.example/v1", api: "anthropic-messages", futureProviderField: "keep-provider", models: [
+        { id: "claude-one", name: "Claude One", reasoning: true, input: ["text"], contextWindow: 200000, maxTokens: 16000, headers: { "anthropic-beta": "context-1m-2025-08-07", "X-Secret": "do-not-return" }, futureModelField: "keep-model" },
+        { id: "claude-two", name: "Claude Two", reasoning: true, input: ["text"], contextWindow: 200000, maxTokens: 16000, headers: { "ANTHROPIC-BETA": "!external-secret", "X-Secret": "also-hidden" } },
+      ] },
+      "openai-router": { baseUrl: "https://openai.example/v1", api: "openai-responses", models: [{ id: "gpt", name: "GPT", reasoning: true, input: ["text"], contextWindow: 128000, maxTokens: 16000 }] },
+    },
+  };
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify(models));
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "anthropic-router", defaultModel: "claude-one" }));
+  fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({ "anthropic-router": { type: "api_key", key: "beta-key-hidden" }, "openai-router": { type: "api_key", key: "openai-key" } }));
+  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_CODEX_DIR: path.join(agentDir, "codex") }), stdio: ["ignore", "pipe", "pipe"] });
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+    const initialResponse = await fetch(`${baseUrl}/api/state`);
+    const initial = await initialResponse.json();
+    const ant = initial.providers.find((provider) => provider.id === "anthropic-router");
+    assert.deepEqual(ant.models[0].anthropicBeta, { kind: "literal", value: "context-1m-2025-08-07" });
+    assert.deepEqual(ant.models[1].anthropicBeta, { kind: "external" });
+    assert.equal(JSON.stringify(initial).includes("do-not-return"), false);
+    const omitted = await postJson(baseUrl, "/api/providers", { providerId: "anthropic-router", baseUrl: ant.baseUrl, api: ant.api, credential: { mode: "keep" }, models: ant.models.map((model) => ({ id: model.id, name: model.name, contextWindow: model.contextWindow, maxTokens: model.maxTokens, supportsImages: false, reasoning: true, maximumThinking: "high" })), setDefault: false, defaultModelId: "claude-one" }, initial.revision);
+    assert.equal(omitted.status, 200);
+    const preserved = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+    assert.equal(preserved.providers["anthropic-router"].models[0].headers["anthropic-beta"], "context-1m-2025-08-07");
+    assert.equal(preserved.providers["anthropic-router"].models[1].headers["ANTHROPIC-BETA"], "!external-secret");
+    const clearState = await (await fetch(`${baseUrl}/api/state`)).json();
+    const cleared = await postJson(baseUrl, "/api/providers", { providerId: "anthropic-router", baseUrl: ant.baseUrl, api: ant.api, credential: { mode: "keep" }, models: [{ id: "claude-one", name: "Claude One", contextWindow: 200000, maxTokens: 16000, supportsImages: false, reasoning: true, maximumThinking: "high", anthropicBeta: "" }, { id: "claude-two", name: "Claude Two", contextWindow: 200000, maxTokens: 16000, supportsImages: false, reasoning: true, maximumThinking: "high" }], setDefault: false, defaultModelId: "claude-one" }, clearState.revision);
+    assert.equal(cleared.status, 200);
+    const afterClear = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+    assert.equal(Object.hasOwn(afterClear.providers["anthropic-router"].models[0].headers, "anthropic-beta"), false);
+    assert.equal(afterClear.providers["anthropic-router"].models[0].headers["X-Secret"], "do-not-return");
+    assert.equal(afterClear.providers["anthropic-router"].models[1].headers["ANTHROPIC-BETA"], "!external-secret");
+    const invalidState = await (await fetch(`${baseUrl}/api/state`)).json();
+    const beforeInvalid = fs.readFileSync(path.join(agentDir, "models.json"), "utf8");
+    const invalidProtocol = await postJson(baseUrl, "/api/providers", { providerId: "openai-router", baseUrl: "https://openai.example/v1", api: "openai-responses", credential: { mode: "keep" }, models: [{ id: "gpt", name: "GPT", contextWindow: 128000, maxTokens: 16000, supportsImages: false, reasoning: true, maximumThinking: "high", anthropicBeta: "context-1m-2025-08-07" }], setDefault: false, defaultModelId: "gpt" }, invalidState.revision);
+    assert.equal(invalidProtocol.status, 400);
+    assert.equal(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"), beforeInvalid);
+    const mixedState = await (await fetch(`${baseUrl}/api/state`)).json();
+    const allowedMixed = await postJson(baseUrl, "/api/providers", { providerId: "openai-router", baseUrl: "https://openai.example/v1", api: "openai-responses", credential: { mode: "keep" }, models: [{ id: "gpt", name: "GPT", contextWindow: 128000, maxTokens: 16000, supportsImages: false, reasoning: true, maximumThinking: "high", api: "anthropic-messages", anthropicBeta: "beta-a" }], setDefault: false, defaultModelId: "gpt" }, mixedState.revision);
+    assert.equal(allowedMixed.status, 200);
+    const reverseState = await (await fetch(`${baseUrl}/api/state`)).json();
+    const beforeReverse = fs.readFileSync(path.join(agentDir, "models.json"), "utf8");
+    const rejectedMixed = await postJson(baseUrl, "/api/providers", { providerId: "anthropic-router", baseUrl: "https://router.example/v1", api: "anthropic-messages", credential: { mode: "keep" }, models: [{ id: "claude-one", name: "Claude One", contextWindow: 200000, maxTokens: 16000, supportsImages: false, reasoning: true, maximumThinking: "high", api: "openai-responses", anthropicBeta: "beta-a" }, { id: "claude-two", name: "Claude Two", contextWindow: 200000, maxTokens: 16000, supportsImages: false, reasoning: true, maximumThinking: "high" }], setDefault: false, defaultModelId: "claude-one" }, reverseState.revision);
+    assert.equal(rejectedMixed.status, 400);
+    assert.equal(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"), beforeReverse);
+    const stale = await postJson(baseUrl, "/api/providers", { providerId: "anthropic-router", baseUrl: ant.baseUrl, api: ant.api, credential: { mode: "keep" }, models: [{ id: "claude-one", name: "Claude One", contextWindow: 200000, maxTokens: 16000, supportsImages: false, reasoning: true, maximumThinking: "high", anthropicBeta: "beta-a" }], setDefault: false, defaultModelId: "claude-one" }, "0".repeat(64));
+    assert.equal(stale.status, 409);
+  } finally { await stopAndClean(child, [agentDir]); }
+});
+test("discovers a gateway's models with the credential a save would use, and never returns it", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-provider-manager-discover-"));
+  const STORED_KEY = "stored-key-not-real";
+  const TYPED_KEY = "typed-key-not-real";
+  // A stand-in gateway on loopback: OpenAI-shaped under /v1, Anthropic-shaped
+  // under /anthropic, plus the answers a wrong address produces.
+  const seen = [];
+  const gateway = http.createServer((request, response) => {
+    seen.push({ url: request.url, headers: request.headers });
+    const json = (status, body) => { response.writeHead(status, { "Content-Type": "application/json" }); response.end(JSON.stringify(body)); };
+    if (request.url === "/v1/models") {
+      if (![`Bearer ${STORED_KEY}`, `Bearer ${TYPED_KEY}`].includes(request.headers.authorization)) return json(401, { error: { message: "bad key" } });
+      return json(200, { object: "list", data: [{ id: "gw/alpha", object: "model" }, { id: "gw/beta", display_name: "Beta" }, { id: "bad id" }], secret: "gateway-secret-not-real" });
+    }
+    if (request.url === "/anthropic/v1/models?limit=1000") {
+      if (request.headers.authorization !== `Bearer ${TYPED_KEY}` || request.headers["anthropic-version"] !== "2023-06-01") return json(403, { type: "error" });
+      return json(200, { data: [{ id: "claude-x", display_name: "Claude X", type: "model" }], has_more: false });
+    }
+    if (request.url === "/redirect/models") { response.writeHead(302, { Location: `http://127.0.0.1:${gatewayPort}/v1/models` }); response.end(); return; }
+    if (request.url === "/html/models") { response.writeHead(200, { "Content-Type": "text/html" }); response.end("<html>login</html>"); return; }
+    return json(404, { error: "not found" });
+  });
+  const gatewayPort = await freePort();
+  await new Promise((resolve) => gateway.listen(gatewayPort, "127.0.0.1", resolve));
+  const gatewayUrl = `http://127.0.0.1:${gatewayPort}`;
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({ providers: {
+    "stored-router": { baseUrl: `${gatewayUrl}/v1`, api: "openai-completions", models: [{ id: "gw/alpha", name: "Alpha", reasoning: true, input: ["text"], contextWindow: 128000, maxTokens: 16000 }] },
+  } }));
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "stored-router", defaultModel: "gw/alpha" }));
+  fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({
+    "stored-router": { type: "api_key", key: STORED_KEY },
+    "oauth-router": { type: "oauth", access: "oauth-token-not-real" },
+  }));
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port), PI_PROVIDER_MANAGER_CODEX_DIR: path.join(agentDir, "codex") }), stdio: ["ignore", "pipe", "pipe"] });
+  const discover = async (body) => {
+    const response = await fetch(`${baseUrl}/api/providers/discover-models`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    return { status: response.status, text: await response.text() };
+  };
+  const requestsTo = (url) => seen.filter((entry) => entry.url === url).length;
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+    const kept = await discover({ baseUrl: `${gatewayUrl}/v1`, api: "openai-completions", credential: { mode: "keep", providerId: "stored-router" } });
+    assert.equal(kept.status, 200, kept.text);
+    assert.deepEqual(JSON.parse(kept.text).models, [{ id: "gw/alpha" }, { id: "gw/beta", name: "Beta" }]);
+    assert.equal(kept.text.includes(STORED_KEY), false, "the stored key came back to the browser");
+    assert.equal(kept.text.includes("gateway-secret"), false, "the gateway body was relayed");
+    assert.equal(seen.at(-1).headers.authorization, `Bearer ${STORED_KEY}`, "the stored key was not the one sent");
+
+    const typed = await discover({ baseUrl: `${gatewayUrl}/anthropic`, api: "anthropic-messages", credential: { mode: "new", apiKey: TYPED_KEY } });
+    assert.equal(typed.status, 200, typed.text);
+    assert.deepEqual(JSON.parse(typed.text).models, [{ id: "claude-x", name: "Claude X" }]);
+    assert.equal(seen.at(-1).url, "/anthropic/v1/models?limit=1000", "an Anthropic baseUrl gets /v1 appended, as Pi's client does");
+    assert.equal(typed.text.includes(TYPED_KEY), false);
+
+    const migrated = await discover({ baseUrl: `${gatewayUrl}/v1`, api: "openai-responses", credential: { mode: "migrate", fromProvider: "stored-router" } });
+    assert.equal(migrated.status, 200, migrated.text);
+
+    // Refusals happen before any request leaves the machine.
+    const before = seen.length;
+    for (const [body, pattern] of [
+      [{ baseUrl: `${gatewayUrl}/v1`, api: "openai-completions", credential: { mode: "keep", providerId: "nobody" } }, /还没有保存凭据/],
+      [{ baseUrl: `${gatewayUrl}/v1`, api: "openai-completions", credential: { mode: "keep", providerId: "__proto__" } }, /还没有保存凭据/],
+      [{ baseUrl: `${gatewayUrl}/v1`, api: "openai-completions", credential: { mode: "migrate", fromProvider: "constructor" } }, /不存在/],
+      [{ baseUrl: `${gatewayUrl}/v1`, api: "openai-completions", credential: { mode: "keep", providerId: "oauth-router" } }, /不是 API Key/],
+      [{ baseUrl: `${gatewayUrl}/v1`, api: "openai-completions", credential: { mode: "new", apiKey: "  " } }, /API Key/],
+      [{ baseUrl: "http://remote.example/v1", api: "openai-completions", credential: { mode: "new", apiKey: TYPED_KEY } }, /HTTPS/],
+      [{ baseUrl: `${gatewayUrl}/v1`, api: "not-an-api", credential: { mode: "new", apiKey: TYPED_KEY } }, /协议/],
+    ]) {
+      const refused = await discover(body);
+      assert.equal(refused.status, 400, refused.text);
+      assert.match(JSON.parse(refused.text).error, pattern);
+    }
+    assert.equal(seen.length, before, "a refused request still reached the gateway");
+
+    // What the gateway answers is explained, not relayed.
+    const rejected = await discover({ baseUrl: `${gatewayUrl}/v1`, api: "openai-completions", credential: { mode: "new", apiKey: "wrong-key" } });
+    assert.equal(rejected.status, 400);
+    assert.match(JSON.parse(rejected.text).error, /拒绝了这个凭据（HTTP 401）/);
+    assert.equal(rejected.text.includes("bad key"), false);
+    const listed = requestsTo("/v1/models");
+    const redirected = await discover({ baseUrl: `${gatewayUrl}/redirect`, api: "openai-completions", credential: { mode: "new", apiKey: TYPED_KEY } });
+    assert.equal(redirected.status, 400);
+    assert.match(JSON.parse(redirected.text).error, /重定向/);
+    assert.equal(requestsTo("/v1/models"), listed, "the redirect was followed with the credential");
+    const html = await discover({ baseUrl: `${gatewayUrl}/html`, api: "openai-completions", credential: { mode: "new", apiKey: TYPED_KEY } });
+    assert.equal(html.status, 400);
+    assert.match(JSON.parse(html.text).error, /不是 JSON/);
+    const missing = await discover({ baseUrl: `${gatewayUrl}/nowhere`, api: "openai-completions", credential: { mode: "new", apiKey: TYPED_KEY } });
+    assert.equal(missing.status, 400);
+    assert.match(JSON.parse(missing.text).error, /手动填写/);
+    const closedPort = await freePort();
+    const unreachable = await discover({ baseUrl: `http://127.0.0.1:${closedPort}/v1`, api: "openai-completions", credential: { mode: "new", apiKey: TYPED_KEY } });
+    assert.equal(unreachable.status, 400);
+    assert.match(JSON.parse(unreachable.text).error, /无法连接网关/);
+    assert.equal(unreachable.text.includes(TYPED_KEY), false);
+
+    // The same cross-origin guards as every other write.
+    assert.equal(await rawStatus({ port, method: "POST", requestPath: "/api/providers/discover-models", headers: { host: "attacker.example", "content-type": "application/json" }, body: "{}" }), 403);
+    assert.equal(await rawStatus({ port, method: "POST", requestPath: "/api/providers/discover-models", headers: { host: `127.0.0.1:${port}`, "content-type": "text/plain" }, body: "{}" }), 415);
+  } finally {
+    await new Promise((resolve) => gateway.close(resolve));
+    await stopAndClean(child, [agentDir]);
+  }
+});
+
 test("keeps provider UA three-state semantics and never exposes model headers", async () => {
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-user-agent-"));
   const providerSecret = "provider-header-secret-not-a-secret";

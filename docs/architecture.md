@@ -158,6 +158,7 @@ Required invariants:
 - require `application/json` for writes so cross-origin simple requests cannot mutate state
 - do not enable CORS or answer cross-origin preflight without redesigning the authorization boundary
 - never serialize an existing credential to the browser
+- the one endpoint that sends a stored credential somewhere on demand, `POST /api/providers/discover-models`, only ever sends it to a URL that passes the same rule as a save, refuses redirects, bounds and parses the answer, and returns IDs and display names — never the key, never the body
 - cap request bodies and validate provider IDs, URLs, protocols, models, and settings
 - serve the pre-paint theme script under a hash-based CSP in production
 

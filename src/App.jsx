@@ -38,7 +38,8 @@ import {
 } from "@phosphor-icons/react";
 import { PROVIDER_ID_PATTERN, normalizeUrl } from "../lib/validation.mjs";
 import { validateUserAgent } from "../lib/pi-user-agent.mjs";
-import { changedPersistedModel, duplicateCodexForm, duplicatePiForm, selectedNamedModel, userAgentSaveIntent } from "./model-draft.mjs";
+import { changedPersistedModel, duplicateCodexForm, duplicatePiForm, selectedNamedModel, userAgentSaveIntent, anthropicBetaSaveIntent } from "./model-draft.mjs";
+import { normalizeAnthropicBeta } from "../lib/pi-anthropic-beta.mjs";
 import { USER_AGENT_PRESETS } from "./user-agent-presets.mjs";
 import { PromptsScreen } from "./prompts-view.jsx";
 import { BulkModal, ErrorBanner, Spinner, createRadioKeyHandler, readApiResponse, titleFromId, useDialog, useScrollEdges } from "./ui-kit.jsx";
@@ -195,6 +196,9 @@ function blankModel(id = "") {
     maximumThinking: "high",
     api: "inherit",
     forceAdaptiveThinking: false,
+    anthropicBeta: "",
+    anthropicBetaKind: "none",
+    anthropicBetaEdited: false,
   };
 }
 
@@ -316,6 +320,9 @@ function providerToForm(provider, state) {
               : "off"),
         api: model.api || "inherit",
         forceAdaptiveThinking: Boolean(model.compat?.forceAdaptiveThinking),
+        anthropicBeta: model.anthropicBeta?.kind === "literal" ? model.anthropicBeta.value : "",
+        anthropicBetaKind: model.anthropicBeta?.kind || "none",
+        anthropicBetaEdited: false,
       }))
     : [blankModel()];
   return {
@@ -822,12 +829,22 @@ function userAgentValidationError(value) {
   }
 }
 
-function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, canDeleteProvider, isExistingProvider, isCurrentDefault, liveDefaultModelId, userAgentFocusRequest }) {
+function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, onDiscover, canDeleteProvider, isExistingProvider, isCurrentDefault, liveDefaultModelId, userAgentFocusRequest, betaFocusRequest }) {
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState("");
+  const [showDiscover, setShowDiscover] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const advancedRef = useRef(null);
   const userAgentRef = useRef(null);
+  const betaRef = useRef(null);
+  const betaInputRef = useRef(null);
+  const betaModels = form.models.filter((model) => model.id.trim());
+  const initialBetaModel = betaModels.find((model) => (model.api === "inherit" ? form.api : model.api) === "anthropic-messages" || model.anthropicBetaKind !== "none") || betaModels[0];
+  const [betaRowId, setBetaRowId] = useState("");
+  const betaModel = betaModels.find((model) => model.rowId === betaRowId) || initialBetaModel;
+  const betaIsAnthropic = betaModel ? (betaModel.api === "inherit" ? form.api : betaModel.api) === "anthropic-messages" : false;
+  const betaError = betaModel && betaModel.anthropicBetaKind === "literal" ? (() => { try { normalizeAnthropicBeta(betaModel.anthropicBeta); return ""; } catch (problem) { return problem.message; } })() : "";
+  useEffect(() => { if (!betaFocusRequest?.serial) return; setBetaRowId(betaFocusRequest.rowId || ""); advancedRef.current?.setAttribute("open", ""); requestAnimationFrame(() => betaInputRef.current?.focus()); }, [betaFocusRequest?.serial]);
   const updateModel = (rowId, value) => setForm((current) => ({ ...current, models: current.models.map((model) => model.rowId === rowId ? value : model) }));
   const addModel = () => setForm((current) => ({ ...current, models: [...current.models, blankModel()], defaultRowId: current.defaultRowId || current.models[0]?.rowId || "" }));
   // Which row would inherit the default marker once this one is gone: the radio
@@ -934,18 +951,35 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
   );
   const existingIds = useMemo(() => new Set(form.models.map((model) => model.id).filter(Boolean)), [form.models]);
   const newBulkIds = bulkIds.filter((id) => !existingIds.has(id));
-  const importModels = () => {
-    if (newBulkIds.length === 0) return;
+  // Shared by the paste dialog and the gateway listing: rows are appended, IDs
+  // already in the draft are skipped, and a lone blank first row gives way.
+  const addModelEntries = (entries) => {
     setForm((current) => {
-      const existingIds = new Set(current.models.map((model) => model.id).filter(Boolean));
-      const additions = bulkIds.filter((id) => !existingIds.has(id)).map((id) => blankModel(id));
+      const existing = new Set(current.models.map((model) => model.id).filter(Boolean));
+      const additions = [];
+      for (const entry of entries) {
+        if (existing.has(entry.id)) continue;
+        existing.add(entry.id);
+        additions.push({ ...blankModel(entry.id), name: entry.name || entry.id });
+      }
       const hasOnlyBlank = current.models.length === 1 && !current.models[0].id;
       const models = [...(hasOnlyBlank ? [] : current.models), ...additions];
       const defaultRowId = models.some((model) => model.rowId === current.defaultRowId) ? current.defaultRowId : models[0]?.rowId || "";
       return { ...current, models, defaultRowId };
     });
+  };
+  const importModels = () => {
+    if (newBulkIds.length === 0) return;
+    addModelEntries(bulkIds.map((id) => ({ id })));
     setBulkText("");
     setShowBulk(false);
+  };
+  const importDiscovered = (entries) => {
+    const fresh = entries.filter((entry) => !existingIds.has(entry.id));
+    if (fresh.length === 0) return;
+    addModelEntries(fresh);
+    setShowDiscover(false);
+    onNotify(`已从网关导入 ${fresh.length} 个模型；保存后才会写入`);
   };
   const thinkingAliasModels = form.models.filter((model) => /-(max|xhigh)$/i.test(model.id));
   const currentApi = apiMeta(form.api);
@@ -1018,6 +1052,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
           <div><h2>模型列表<span className="count-pill">{namedModels}</span></h2><p>Pi 以 provider/model 选择模型，thinking level 是独立设置。</p></div>
           <div className="models-actions">
             <button type="button" className="secondary-button compact-button" onClick={applySafeToAll} title="把所有模型的上下文容量与最大输出改为安全值，可撤销" aria-label="全部用安全值"><ShieldCheck size={18} /><span className="button-label">全部用安全值</span></button>
+            <button type="button" className="secondary-button compact-button" onClick={() => setShowDiscover(true)} title="向网关请求模型清单，勾选后加入列表" aria-label="获取模型"><CloudArrowDown size={18} /><span className="button-label">获取模型</span></button>
             <button type="button" className="secondary-button compact-button" onClick={() => setShowBulk(true)} title="批量添加模型 ID" aria-label="批量添加"><ListPlus size={18} /><span className="button-label">批量添加</span></button>
             <button type="button" className="outline-button compact-button" onClick={addModel} title="添加模型" aria-label="添加模型"><Plus size={19} /><span className="button-label">添加模型</span></button>
           </div>
@@ -1061,6 +1096,15 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
               <p className="user-agent-disclaimer">四个值仅作填写示例，不保证网关接受；模板不会保存为单独的 preset。</p>
               {form.hasModelUserAgentOverride && <p className="compat-note"><Info size={17} weight="duotone" />检测到模型级 UA 覆盖，实际请求可能优先使用模型配置。</p>}
             </div>
+            <div className="advanced-group beta-group" ref={betaRef}>
+              <div className="advanced-group-heading"><h3>Anthropic Beta 请求头（覆盖）</h3><p>仅在网关要求时配置。Pi 会用这里的列表替换默认 Beta 列表，可能影响工具流式、思考与 OAuth；供应商或扩展配置仍可能覆盖它。</p></div>
+              <label className="beta-model-field"><span>选择模型</span><select className="mono" value={betaModel?.rowId || ""} onChange={(event) => setBetaRowId(event.target.value)} aria-label="选择要编辑 Anthropic Beta 的模型">{betaModels.length === 0 && <option value="">暂无已命名模型</option>}{betaModels.map((model) => { const effective = model.api === "inherit" ? form.api : model.api; const status = model.anthropicBetaKind === "literal" ? " · 已设置" : model.anthropicBetaKind === "external" ? " · 外部配置" : ""; return <option key={model.rowId} value={model.rowId}>{model.id}{effective === "anthropic-messages" ? " · Anthropic" : " · " + apiMeta(effective).short}{status}</option>; })}</select></label>
+              {betaModel && betaModel.anthropicBetaKind === "external" && <p className="advanced-external-note"><Info size={17} weight="duotone" />已有外部配置，原文不会回传到浏览器。清除后才会明确移除模型覆盖。</p>}
+              {betaModel && !betaIsAnthropic && <p className="compat-note"><Info size={17} weight="duotone" />当前模型的有效协议不是 Anthropic Messages，只能查看状态或清除已有覆盖。</p>}
+              <label className="beta-value-field"><span>Beta token 列表</span><small id="anthropic-beta-help">逗号分隔的 ASCII token，例如 <code>context-1m-2025-08-07</code>。动态表达式不会执行。</small><input ref={betaInputRef} className="mono" value={betaModel?.anthropicBetaKind === "external" ? "" : betaModel?.anthropicBeta || ""} disabled={!betaModel} readOnly={!betaIsAnthropic} onChange={(event) => { const value = event.target.value; if (!betaModel) return; updateModel(betaModel.rowId, { ...betaModel, anthropicBeta: value, anthropicBetaKind: value ? "literal" : "none", anthropicBetaEdited: true }); }} placeholder="未设置模型 Beta 覆盖" aria-invalid={Boolean(betaError) || undefined} aria-describedby={betaError ? "anthropic-beta-help anthropic-beta-error" : "anthropic-beta-help"} spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />{betaError && <span id="anthropic-beta-error" className="field-error"><WarningCircle size={15} weight="fill" />{betaError}</span>}</label>
+              <div className="beta-actions"><button type="button" className="outline-button compact-button" disabled={!betaModel || !betaIsAnthropic} onClick={() => { if (!betaModel) return; const before = betaModel; const nextValue = "context-1m-2025-08-07"; updateModel(betaModel.rowId, { ...betaModel, anthropicBeta: nextValue, anthropicBetaKind: "literal", anthropicBetaEdited: true }); onNotify("已填入网关旧版 1M 示例；保存后才会写入", "success", { label: "撤销", onAction: () => setForm((current) => ({ ...current, models: current.models.map((item) => item.rowId === before.rowId && item.anthropicBeta === nextValue ? { ...item, anthropicBeta: before.anthropicBeta, anthropicBetaKind: before.anthropicBetaKind, anthropicBetaEdited: before.anthropicBetaEdited } : item) })) }); }}>填入网关旧版 1M 示例</button><button type="button" className="secondary-button compact-button" disabled={!betaModel} onClick={() => { if (!betaModel) return; const before = betaModel; updateModel(betaModel.rowId, { ...betaModel, anthropicBeta: "", anthropicBetaKind: "none", anthropicBetaEdited: true }); onNotify("已清除模型 Beta 覆盖；保存后才会移除", "success", { label: "撤销", onAction: () => setForm((current) => ({ ...current, models: current.models.map((item) => item.rowId === before.rowId && item.anthropicBeta === "" ? { ...item, anthropicBeta: before.anthropicBeta, anthropicBetaKind: before.anthropicBetaKind, anthropicBetaEdited: before.anthropicBetaEdited } : item) })) }); }}>清除模型覆盖</button></div>
+              <p className="user-agent-disclaimer">留空表示没有模型级覆盖；Pi 默认值或其他配置仍可能提供 Beta 请求头。</p>
+            </div>
             <div className="advanced-group protocol-group">
               <div className="advanced-group-heading"><h3>模型协议覆盖</h3><p>只有网关针对某个模型使用不同接口时才需要设置。</p></div>
               {form.models.map((model) => <label key={model.rowId}><span className="mono">{model.id || "未命名模型"}</span><select value={model.api} onChange={(event) => updateModel(model.rowId, { ...model, api: event.target.value })}><option value="inherit">继承网关默认协议</option>{API_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label>)}
@@ -1081,7 +1125,100 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
         )}
       </footer>
       {showBulk && <BulkModal text={bulkText} ids={bulkIds} newIds={newBulkIds} onText={setBulkText} onClose={() => setShowBulk(false)} onImport={importModels} />}
+      {showDiscover && <DiscoverModal baseUrl={form.baseUrl.trim()} existingIds={existingIds} onDiscover={onDiscover} onClose={() => setShowDiscover(false)} onImport={importDiscovered} />}
     </section>
+  );
+}
+
+// The gateway's own catalogue, offered as checkboxes. The request runs on the
+// server with the credential the draft would save with — a key typed at step
+// two or the one already stored — so nothing secret passes through here; the
+// dialog only ever sees IDs and display names.
+function DiscoverModal({ baseUrl, existingIds, onDiscover, onClose, onImport }) {
+  const dialogRef = useRef(null);
+  const filterRef = useRef(null);
+  const [status, setStatus] = useState("loading");
+  const [models, setModels] = useState([]);
+  const [message, setMessage] = useState("");
+  const [filter, setFilter] = useState("");
+  const [selected, setSelected] = useState(() => new Set());
+  const [attempt, setAttempt] = useState(0);
+  useDialog({ ref: dialogRef, initialFocusRef: filterRef, onClose, locked: status === "loading" });
+  useEffect(() => {
+    let cancelled = false;
+    setStatus("loading");
+    setMessage("");
+    onDiscover()
+      .then((result) => {
+        if (cancelled) return;
+        setModels(result.models);
+        setSelected(new Set());
+        setStatus("ready");
+      })
+      .catch((problem) => {
+        if (cancelled) return;
+        setMessage(problem.message);
+        setStatus("error");
+      });
+    return () => { cancelled = true; };
+  }, [attempt, onDiscover]);
+  // The filter is not in the tree while the request runs, so it is focused
+  // once the list exists rather than by the dialog's first-focus rule.
+  useEffect(() => { if (status === "ready") filterRef.current?.focus(); }, [status]);
+  const needle = filter.trim().toLowerCase();
+  const visible = needle ? models.filter((model) => model.id.toLowerCase().includes(needle) || (model.name || "").toLowerCase().includes(needle)) : models;
+  const selectable = visible.filter((model) => !existingIds.has(model.id));
+  const chosen = models.filter((model) => selected.has(model.id) && !existingIds.has(model.id));
+  const toggle = (id) => setSelected((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const selectVisible = () => setSelected((current) => new Set([...current, ...selectable.map((model) => model.id)]));
+  const clearSelection = () => setSelected(new Set());
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && status !== "loading") onClose(); }}>
+      <section ref={dialogRef} className="bulk-modal discover-modal" role="dialog" aria-modal="true" aria-labelledby="discover-title">
+        <div className="modal-heading">
+          <div><h2 id="discover-title">从网关获取模型列表</h2><p>向 <code>{baseUrl || "（尚未填写地址）"}</code> 请求模型清单。key 只在本机服务里使用，不会回传浏览器；勾选后加入列表，保存后才会写入。</p></div>
+          <button type="button" className="icon-button" onClick={onClose} disabled={status === "loading"} aria-label="关闭"><X size={20} /></button>
+        </div>
+        {status === "loading" && <div className="discover-status" role="status"><Spinner />正在向网关请求模型列表…</div>}
+        {status === "error" && <ErrorBanner message={message} />}
+        {status === "ready" && (
+          <>
+            <div className="discover-filter"><MagnifyingGlass size={17} aria-hidden="true" /><input ref={filterRef} className="mono" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="筛选模型 ID" aria-label="筛选模型 ID" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" /></div>
+            <div className="discover-list" role="group" aria-label="网关返回的模型">
+              {visible.length === 0 && <p className="discover-empty">{models.length === 0 ? "网关没有返回任何模型。请手动填写模型 ID。" : "没有匹配的模型 ID。"}</p>}
+              {visible.map((model) => {
+                const exists = existingIds.has(model.id);
+                return (
+                  <label key={model.id} className={`checkbox-row discover-row ${exists ? "is-existing" : ""}`}>
+                    <input type="checkbox" checked={exists || selected.has(model.id)} disabled={exists} onChange={() => toggle(model.id)} aria-label={model.id} />
+                    <span className="mono">{model.id}</span>
+                    <small>{exists ? "已在列表中" : model.name || ""}</small>
+                  </label>
+                );
+              })}
+            </div>
+          </>
+        )}
+        <div className="modal-actions">
+          {status === "ready" && (
+            <div className="discover-bulk-actions">
+              <button type="button" className="outline-button compact-button" onClick={selectVisible} disabled={selectable.length === 0}>全选{needle ? "匹配项" : ""}</button>
+              <button type="button" className="outline-button compact-button" onClick={clearSelection} disabled={chosen.length === 0}>清空</button>
+            </div>
+          )}
+          <span className="modal-count" aria-live="polite">
+            {status === "ready" ? (models.length === 0 ? "没有可导入的模型" : `网关返回 ${models.length} 个模型，已选 ${chosen.length} 个`) : ""}
+          </span>
+          {status === "error" && <button type="button" className="outline-button" onClick={() => setAttempt((current) => current + 1)}><ArrowsClockwise size={16} />重试</button>}
+          <button type="button" className="secondary-button" onClick={onClose} disabled={status === "loading"}>取消</button>
+          <button type="button" className="primary-button" disabled={chosen.length === 0} onClick={() => onImport(chosen)}>{chosen.length > 0 ? `导入 ${chosen.length} 个模型` : "导入模型"}</button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -1554,6 +1691,7 @@ export function App() {
   const [deletingProvider, setDeletingProvider] = useState(false);
   const [deleteProviderError, setDeleteProviderError] = useState("");
   const [userAgentFocusRequest, setUserAgentFocusRequest] = useState(0);
+  const [betaFocusRequest, setBetaFocusRequest] = useState({ rowId: "", serial: 0 });
   const [target, setTarget] = useState("pi");
   const [codexForm, setCodexForm] = useState(blankCodexForm);
   const [codexStep, setCodexStep] = useState(1);
@@ -1617,13 +1755,14 @@ export function App() {
   const duplicateProvider = () => {
     if (!state.providers.some((provider) => provider.id === form.providerId.trim())) return;
     const copiedExternalUserAgent = form.userAgentKind === "external" && !form.userAgentEdited;
+    const copiedExternalBeta = form.models.some((model) => model.anthropicBetaKind === "external");
     setForm(duplicatePiForm(form, state.providers.map((provider) => provider.id)));
     setSelectedId("");
     setStep(2);
     setView("wizard");
     setError("");
-    showToast(copiedExternalUserAgent
-      ? "已复制模型与兼容设置；外部 UA 未复制，请在第三步重新填写"
+    showToast(copiedExternalUserAgent || copiedExternalBeta
+      ? "已复制模型与兼容设置；外部配置未复制，请在第三步重新填写"
       : "已复制模型与兼容设置；改好 ID 和网关地址，填入新 key 后保存");
   };
 
@@ -1677,6 +1816,41 @@ export function App() {
     setStep(3);
   };
 
+  // What the discovery dialog runs. The credential is described the way a save
+  // describes it, so the server resolves the same key a save would write with
+  // and never hands it back; a draft the save endpoint would refuse is refused
+  // here first, with the same words.
+  const discoverModels = useCallback(async () => {
+    const message = validateCredentials();
+    if (message) throw new Error(`${message} 请先回到第二步补全。`);
+    if (demoMode) {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      return { models: [
+        { id: "anthropic/claude-opus-4-1", name: "Claude Opus 4.1" },
+        { id: "anthropic/claude-sonnet-4-5", name: "Claude Sonnet 4.5" },
+        { id: "openai/gpt-5.6-sol" },
+        { id: "google/gemini-2.5-pro", name: "Gemini 2.5 Pro" },
+      ] };
+    }
+    const response = await fetch("/api/providers/discover-models", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        baseUrl: form.baseUrl.trim(),
+        api: form.api,
+        credential: {
+          mode: form.credentialMode,
+          apiKey: form.credentialMode === "new" ? form.apiKey : undefined,
+          fromProvider: form.credentialMode === "migrate" ? form.migrateFrom : undefined,
+          providerId: form.providerId.trim(),
+        },
+      }),
+    });
+    return readApiResponse(response, "获取模型列表失败");
+    // validateCredentials reads the same form fields listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [demoMode, form.baseUrl, form.api, form.credentialMode, form.apiKey, form.migrateFrom, form.providerId]);
+
   const save = async (setDefault) => {
     setConflict(false);
     const message = validateCredentials();
@@ -1697,6 +1871,15 @@ export function App() {
     if (!selectedModel) { setError("请选择一个已命名模型作为默认模型。"); return; }
     const targetProviderId = form.providerId.trim();
     const targetProvider = state.providers.find((provider) => provider.id === targetProviderId);
+    for (const model of form.models.filter((item) => item.id.trim())) {
+      const targetModelExists = Boolean(targetProvider?.models?.some((item) => item.id === model.id.trim()));
+      const betaIntent = anthropicBetaSaveIntent(model, selectedId, targetProviderId, targetModelExists);
+      if (betaIntent.write && betaIntent.value) {
+        try { betaIntent.value = normalizeAnthropicBeta(betaIntent.value); } catch (problem) { setError("模型 " + model.id.trim() + " 的 Anthropic Beta 请求头无效：" + problem.message); setBetaFocusRequest((current) => ({ rowId: model.rowId, serial: current.serial + 1 })); setStep(3); return; }
+        const effectiveApi = model.api === "inherit" ? form.api : model.api;
+        if (effectiveApi !== "anthropic-messages") { setError("模型 " + model.id.trim() + " 的有效协议不是 Anthropic Messages，不能保存 Beta 请求头覆盖。"); setStep(3); return; }
+      }
+    }
     const userAgentIntent = userAgentSaveIntent(form, selectedId, Boolean(targetProvider));
     setSaving(true);
     setError("");
@@ -1720,6 +1903,11 @@ export function App() {
         maximumThinking: model.maximumThinking,
         api: model.api,
         forceAdaptiveThinking: model.forceAdaptiveThinking,
+        ...(() => {
+          const targetModelExists = Boolean(targetProvider?.models?.some((item) => item.id === model.id.trim()));
+          const intent = anthropicBetaSaveIntent(model, selectedId, targetProviderId, targetModelExists);
+          return intent.write ? { anthropicBeta: intent.value ? normalizeAnthropicBeta(intent.value) : "" } : {};
+        })(),
       })),
       setDefault,
       defaultModelId: selectedModel.id.trim(),
@@ -1757,6 +1945,9 @@ export function App() {
             input: model.supportsImages ? ["text", "image"] : ["text"],
             reasoning: model.reasoning,
             api: model.api === "inherit" ? undefined : model.api,
+            anthropicBeta: Object.hasOwn(model, "anthropicBeta")
+              ? (model.anthropicBeta ? { kind: "literal", value: model.anthropicBeta } : { kind: "none" })
+              : (targetProvider?.models?.find((item) => item.id === model.id)?.anthropicBeta || { kind: "none" }),
           })),
         };
         const demoState = {
@@ -2355,7 +2546,7 @@ export function App() {
               />
             </>
           )
-        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} overwrites={selectedId !== form.providerId.trim() && state.providers.some((provider) => provider.id === form.providerId.trim())} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} userAgentFocusRequest={userAgentFocusRequest} />}</>}
+        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} overwrites={selectedId !== form.providerId.trim() && state.providers.some((provider) => provider.id === form.providerId.trim())} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} onDiscover={discoverModels} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} userAgentFocusRequest={userAgentFocusRequest} betaFocusRequest={betaFocusRequest} />}</>}
       </section>
       {codexDeleteTargetId && codexProvider(codexDeleteTargetId) && (
         <CodexDeleteDialog
