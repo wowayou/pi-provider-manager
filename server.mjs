@@ -819,11 +819,14 @@ function normalizeModel(model, providerApi) {
     throw new Error(`${id} 的最大输出必须小于上下文容量。`);
   }
   const reasoning = Boolean(model.reasoning);
-  if (Object.hasOwn(model, "anthropicBeta")) {
-    const beta = normalizeAnthropicBeta(model.anthropicBeta);
-    const effectiveApi = model.api && ALLOWED_APIS.has(model.api) && model.api !== "inherit" ? model.api : providerApi;
-    if (beta && effectiveApi !== "anthropic-messages") throw new Error("Anthropic Beta 请求头仅适用于 anthropic-messages 协议。");
-  }
+  // Validated for shape only, never gated on protocol. Pi merges `model.headers`
+  // into the request on every API (measured in pi-ai 0.85.1: openai-completions,
+  // openai-responses and google all spread model.headers), so the header goes
+  // out on the wire whatever the protocol; whether a gateway honours it is the
+  // gateway's business, the same stance the provider User-Agent takes. A
+  // protocol gate here refused a real draft — a gpt model added to an
+  // Anthropic-protocol relay — while protecting nothing.
+  if (Object.hasOwn(model, "anthropicBeta")) normalizeAnthropicBeta(model.anthropicBeta);
   const maximumThinking = ALLOWED_THINKING.has(model.maximumThinking) ? model.maximumThinking : "high";
   const normalized = {
     id,

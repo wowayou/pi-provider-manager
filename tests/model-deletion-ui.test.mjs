@@ -2816,6 +2816,32 @@ test("production UI edits Anthropic Beta and preserves unrelated draft edits", {
     await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
     await cdp.waitFor("document.querySelector('.advanced-panel').open");
     await clickText(".beta-actions button", "清除模型覆盖");
+
+    // The report this round came from: a model on an Anthropic-protocol relay,
+    // switched to an OpenAI protocol by the per-model override, given a beta.
+    // Pi sends model.headers on every protocol, so the field stays editable and
+    // the save goes through; the note only says most such gateways ignore it.
+    await cdp.evaluate("(() => { const select = document.querySelectorAll('.protocol-group select')[1]; const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set; setter.call(select, 'openai-completions'); select.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    await cdp.evaluate("(() => { const select = document.querySelector('.beta-model-field select'); const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set; setter.call(select, select.options[1].value); select.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    await cdp.waitFor("document.querySelector('.beta-group .compat-note')");
+    assert.match(await cdp.evaluate("document.querySelector('.beta-group .compat-note').textContent"), /仍会把这个请求头原样发出/);
+    assert.equal(await cdp.evaluate("document.querySelector('.beta-value-field input').readOnly"), false, "the beta field went read-only on a non-Anthropic protocol");
+    assert.equal(await cdp.evaluate("[...document.querySelectorAll('.beta-actions button')].find((node) => node.textContent.includes('1M 示例')).disabled"), false);
+    await setValue(".beta-value-field input", "beta-on-openai");
+    await clickText(".wizard-footer .primary-button", "保存并设为默认");
+    await cdp.waitFor("document.querySelector('.success-page')");
+    saved = JSON.parse(fs.readFileSync(modelsPath, "utf8"));
+    assert.equal(saved.providers["review-router"].models[1].api, "openai-completions");
+    assert.equal(saved.providers["review-router"].models[1].headers["anthropic-beta"], "beta-on-openai");
+    assert.equal(Object.hasOwn(saved.providers["review-router"].models[0], "headers"), false, "the cleared override on the first model came back");
+    await cdp.evaluate("[...document.querySelectorAll('.provider-item')].find((node) => node.title.includes('review-router')).click()");
+    await cdp.waitFor("document.querySelector('.models-table')");
+    await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
+    await cdp.waitFor("document.querySelector('.advanced-panel').open");
+    // Back to the first model for the undo and invalid-value steps below.
+    await cdp.evaluate("(() => { const select = document.querySelector('.beta-model-field select'); const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set; setter.call(select, select.options[0].value); select.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    await setValue(".beta-value-field input", "context-1m-2025-08-07");
+    await clickText(".beta-actions button", "清除模型覆盖");
     await cdp.evaluate("document.querySelector('.model-row input:not([readonly])').focus()");
     await setValue(".model-row input:not([readonly])", "211K");
     await cdp.evaluate("document.querySelector('.model-row input:not([readonly])').blur()");
@@ -2881,6 +2907,30 @@ test("production UI imports the models a gateway lists, and explains a gateway i
     assert.equal(await cdp.evaluate("[...document.querySelectorAll('.model-row .model-name-cell input')].at(-1).value"), "fake-chat-model");
     assert.match(await cdp.evaluate("document.querySelector('.toast')?.textContent || ''"), /已从网关导入 1 个模型/);
     assert.match(gatewayOutput, /GET \/v1\/models auth=yes/, "the listing was fetched without the stored credential");
+
+    // The dialog fits a short window. Once the path field joined the heading,
+    // the filter and a 420px list, the actions row sat below the fold on a
+    // 600px viewport with nothing to scroll — the primary button was simply
+    // off-screen. Measured in the resting layout before anything is clicked.
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 600, deviceScaleFactor: 1, mobile: false });
+    await clickText(".models-actions button", "获取模型");
+    await cdp.waitFor("document.querySelector('.discover-modal .discover-row')");
+    const fit = await cdp.evaluate(`(() => {
+      const dialog = document.querySelector('.discover-modal').getBoundingClientRect();
+      const primary = document.querySelector('.discover-modal .primary-button').getBoundingClientRect();
+      const heading = document.querySelector('.discover-modal .modal-heading').getBoundingClientRect();
+      const list = document.querySelector('.discover-list');
+      return {
+        dialogInside: dialog.top >= 0 && dialog.bottom <= window.innerHeight,
+        primaryInside: primary.top >= 0 && primary.bottom <= window.innerHeight,
+        headingInside: heading.top >= 0,
+        listScrolls: getComputedStyle(list).overflowY === 'auto',
+      };
+    })()`);
+    assert.deepEqual(fit, { dialogInside: true, primaryInside: true, headingInside: true, listScrolls: true });
+    await clickText(".discover-modal .secondary-button", "取消");
+    await cdp.waitFor("!document.querySelector('.discover-modal')");
+    await cdp.send("Emulation.clearDeviceMetricsOverride");
 
     // Already-listed IDs are shown but cannot be imported twice.
     await clickText(".models-actions button", "获取模型");
