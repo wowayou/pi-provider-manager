@@ -40,6 +40,7 @@ import { PROVIDER_ID_PATTERN, normalizeUrl } from "../lib/validation.mjs";
 import { validateUserAgent } from "../lib/pi-user-agent.mjs";
 import { changedPersistedModel, duplicateCodexForm, duplicatePiForm, selectedNamedModel, userAgentSaveIntent, anthropicBetaSaveIntent } from "./model-draft.mjs";
 import { normalizeAnthropicBeta } from "../lib/pi-anthropic-beta.mjs";
+import { defaultDiscoveryPath } from "../lib/model-discovery.mjs";
 import { USER_AGENT_PRESETS } from "./user-agent-presets.mjs";
 import { PromptsScreen } from "./prompts-view.jsx";
 import { BulkModal, ErrorBanner, Spinner, createRadioKeyHandler, readApiResponse, titleFromId, useDialog, useScrollEdges } from "./ui-kit.jsx";
@@ -1125,7 +1126,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
         )}
       </footer>
       {showBulk && <BulkModal text={bulkText} ids={bulkIds} newIds={newBulkIds} onText={setBulkText} onClose={() => setShowBulk(false)} onImport={importModels} />}
-      {showDiscover && <DiscoverModal baseUrl={form.baseUrl.trim()} existingIds={existingIds} onDiscover={onDiscover} onClose={() => setShowDiscover(false)} onImport={importDiscovered} />}
+      {showDiscover && <DiscoverModal baseUrl={form.baseUrl.trim()} defaultPath={defaultDiscoveryPath(form.api)} existingIds={existingIds} onDiscover={onDiscover} onClose={() => setShowDiscover(false)} onImport={importDiscovered} />}
     </section>
   );
 }
@@ -1134,7 +1135,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
 // server with the credential the draft would save with — a key typed at step
 // two or the one already stored — so nothing secret passes through here; the
 // dialog only ever sees IDs and display names.
-function DiscoverModal({ baseUrl, existingIds, onDiscover, onClose, onImport }) {
+function DiscoverModal({ baseUrl, defaultPath, existingIds, onDiscover, onClose, onImport }) {
   const dialogRef = useRef(null);
   const filterRef = useRef(null);
   const [status, setStatus] = useState("loading");
@@ -1143,15 +1144,22 @@ function DiscoverModal({ baseUrl, existingIds, onDiscover, onClose, onImport }) 
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState(() => new Set());
   const [attempt, setAttempt] = useState(0);
+  // The override the next attempt will use, and the one the current result came
+  // from. Kept apart so editing the field does not relabel a list already shown.
+  const [pathDraft, setPathDraft] = useState("");
+  const [askedPath, setAskedPath] = useState("");
+  const [endpoint, setEndpoint] = useState("");
+  const pathRef = useRef(null);
   useDialog({ ref: dialogRef, initialFocusRef: filterRef, onClose, locked: status === "loading" });
   useEffect(() => {
     let cancelled = false;
     setStatus("loading");
     setMessage("");
-    onDiscover()
+    onDiscover(askedPath)
       .then((result) => {
         if (cancelled) return;
         setModels(result.models);
+        setEndpoint(result.endpoint || "");
         setSelected(new Set());
         setStatus("ready");
       })
@@ -1161,10 +1169,15 @@ function DiscoverModal({ baseUrl, existingIds, onDiscover, onClose, onImport }) 
         setStatus("error");
       });
     return () => { cancelled = true; };
+    // askedPath only changes together with attempt, via retry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt, onDiscover]);
   // The filter is not in the tree while the request runs, so it is focused
   // once the list exists rather than by the dialog's first-focus rule.
   useEffect(() => { if (status === "ready") filterRef.current?.focus(); }, [status]);
+  // A failure is most often the path being wrong for this relay, and the field
+  // that fixes it is the one thing worth having the caret in.
+  useEffect(() => { if (status === "error") pathRef.current?.focus(); }, [status]);
   const needle = filter.trim().toLowerCase();
   const visible = needle ? models.filter((model) => model.id.toLowerCase().includes(needle) || (model.name || "").toLowerCase().includes(needle)) : models;
   const selectable = visible.filter((model) => !existingIds.has(model.id));
@@ -1174,17 +1187,40 @@ function DiscoverModal({ baseUrl, existingIds, onDiscover, onClose, onImport }) 
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
+  const retry = () => { setAskedPath(pathDraft.trim()); setAttempt((current) => current + 1); };
   const selectVisible = () => setSelected((current) => new Set([...current, ...selectable.map((model) => model.id)]));
   const clearSelection = () => setSelected(new Set());
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && status !== "loading") onClose(); }}>
       <section ref={dialogRef} className="bulk-modal discover-modal" role="dialog" aria-modal="true" aria-labelledby="discover-title">
         <div className="modal-heading">
-          <div><h2 id="discover-title">从网关获取模型列表</h2><p>向 <code>{baseUrl || "（尚未填写地址）"}</code> 请求模型清单。key 只在本机服务里使用，不会回传浏览器；勾选后加入列表，保存后才会写入。</p></div>
+          <div><h2 id="discover-title">从网关获取模型列表</h2><p>向 <code>{endpoint || `${baseUrl || "（尚未填写地址）"}${askedPath || defaultPath}`}</code> 请求模型清单。key 只在本机服务里使用，不会回传浏览器；勾选后加入列表，保存后才会写入。</p></div>
           <button type="button" className="icon-button" onClick={onClose} disabled={status === "loading"} aria-label="关闭"><X size={20} /></button>
         </div>
         {status === "loading" && <div className="discover-status" role="status"><Spinner />正在向网关请求模型列表…</div>}
         {status === "error" && <ErrorBanner message={message} />}
+        {status !== "loading" && (
+          <label className="discover-path">
+            <span>模型列表路径</span>
+            <small id="discover-path-help">留空使用协议默认值 <code>{defaultPath}</code>。相对于 API 地址，必须同源。</small>
+            <span className="discover-path-row">
+              <input
+                ref={pathRef}
+                className="mono"
+                value={pathDraft}
+                onChange={(event) => setPathDraft(event.target.value)}
+                onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); retry(); } }}
+                placeholder={defaultPath}
+                aria-describedby="discover-path-help"
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                autoComplete="off"
+              />
+              <button type="button" className="outline-button compact-button" onClick={retry}><ArrowsClockwise size={16} />用这个路径重试</button>
+            </span>
+          </label>
+        )}
         {status === "ready" && (
           <>
             <div className="discover-filter"><MagnifyingGlass size={17} aria-hidden="true" /><input ref={filterRef} className="mono" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="筛选模型 ID" aria-label="筛选模型 ID" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" /></div>
@@ -1213,7 +1249,6 @@ function DiscoverModal({ baseUrl, existingIds, onDiscover, onClose, onImport }) 
           <span className="modal-count" aria-live="polite">
             {status === "ready" ? (models.length === 0 ? "没有可导入的模型" : `网关返回 ${models.length} 个模型，已选 ${chosen.length} 个`) : ""}
           </span>
-          {status === "error" && <button type="button" className="outline-button" onClick={() => setAttempt((current) => current + 1)}><ArrowsClockwise size={16} />重试</button>}
           <button type="button" className="secondary-button" onClick={onClose} disabled={status === "loading"}>取消</button>
           <button type="button" className="primary-button" disabled={chosen.length === 0} onClick={() => onImport(chosen)}>{chosen.length > 0 ? `导入 ${chosen.length} 个模型` : "导入模型"}</button>
         </div>
@@ -1820,17 +1855,20 @@ export function App() {
   // describes it, so the server resolves the same key a save would write with
   // and never hands it back; a draft the save endpoint would refuse is refused
   // here first, with the same words.
-  const discoverModels = useCallback(async () => {
+  const discoverModels = useCallback(async (path = "") => {
     const message = validateCredentials();
     if (message) throw new Error(`${message} 请先回到第二步补全。`);
     if (demoMode) {
       await new Promise((resolve) => setTimeout(resolve, 600));
-      return { models: [
-        { id: "anthropic/claude-opus-4-1", name: "Claude Opus 4.1" },
-        { id: "anthropic/claude-sonnet-4-5", name: "Claude Sonnet 4.5" },
-        { id: "openai/gpt-5.6-sol" },
-        { id: "google/gemini-2.5-pro", name: "Gemini 2.5 Pro" },
-      ] };
+      return {
+        models: [
+          { id: "anthropic/claude-opus-4-1", name: "Claude Opus 4.1" },
+          { id: "anthropic/claude-sonnet-4-5", name: "Claude Sonnet 4.5" },
+          { id: "openai/gpt-5.6-sol" },
+          { id: "google/gemini-2.5-pro", name: "Gemini 2.5 Pro" },
+        ],
+        endpoint: `${form.baseUrl.trim()}${path.trim() || defaultDiscoveryPath(form.api)}`,
+      };
     }
     const response = await fetch("/api/providers/discover-models", {
       method: "POST",
@@ -1838,6 +1876,7 @@ export function App() {
       body: JSON.stringify({
         baseUrl: form.baseUrl.trim(),
         api: form.api,
+        path,
         credential: {
           mode: form.credentialMode,
           apiKey: form.credentialMode === "new" ? form.apiKey : undefined,

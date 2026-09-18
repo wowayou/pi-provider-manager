@@ -392,6 +392,27 @@ test("discovers a gateway's models with the credential a save would use, and nev
     const migrated = await discover({ baseUrl: `${gatewayUrl}/v1`, api: "openai-responses", credential: { mode: "migrate", fromProvider: "stored-router" } });
     assert.equal(migrated.status, 200, migrated.text);
 
+    // A custom path. This is the deepseek shape, measured against the real
+    // gateway: the chat endpoint lives under /anthropic while the catalogue sits
+    // at the root, so the default path 404s and only an override reaches it.
+    // Deliberately allowed to leave the baseUrl's own path — a prefix rule would
+    // refuse a layout that exists — because same origin is what decides who
+    // receives the credential, and that host already holds it for every turn.
+    const custom = await discover({ baseUrl: `${gatewayUrl}/anthropic`, api: "anthropic-messages", credential: { mode: "new", apiKey: TYPED_KEY }, path: "/v1/models" });
+    assert.equal(custom.status, 200, custom.text);
+    assert.deepEqual(JSON.parse(custom.text).models, [{ id: "gw/alpha" }, { id: "gw/beta", name: "Beta" }]);
+    assert.equal(seen.at(-1).url, "/v1/models", "the override was not the URL asked for");
+    assert.equal(JSON.parse(custom.text).endpoint, `${gatewayUrl}/v1/models`, "the dialog is told the full URL that answered");
+    assert.equal(custom.text.includes(TYPED_KEY), false);
+    // Written without a leading slash, and resolved under the versioned baseUrl.
+    const relative = await discover({ baseUrl: `${gatewayUrl}/v1`, api: "openai-completions", credential: { mode: "keep", providerId: "stored-router" }, path: "models" });
+    assert.equal(relative.status, 200, relative.text);
+    assert.equal(seen.at(-1).url, "/v1/models");
+    // Blank is not an override: the protocol default still applies.
+    const blank = await discover({ baseUrl: `${gatewayUrl}/v1`, api: "openai-completions", credential: { mode: "keep", providerId: "stored-router" }, path: "   " });
+    assert.equal(blank.status, 200, blank.text);
+    assert.equal(seen.at(-1).url, "/v1/models");
+
     // Refusals happen before any request leaves the machine.
     const before = seen.length;
     for (const [body, pattern] of [
@@ -402,6 +423,12 @@ test("discovers a gateway's models with the credential a save would use, and nev
       [{ baseUrl: `${gatewayUrl}/v1`, api: "openai-completions", credential: { mode: "new", apiKey: "  " } }, /API Key/],
       [{ baseUrl: "http://remote.example/v1", api: "openai-completions", credential: { mode: "new", apiKey: TYPED_KEY } }, /HTTPS/],
       [{ baseUrl: `${gatewayUrl}/v1`, api: "not-an-api", credential: { mode: "new", apiKey: TYPED_KEY } }, /协议/],
+      // A path is the one field that could aim a stored key at another host.
+      [{ baseUrl: `${gatewayUrl}/v1`, api: "openai-completions", credential: { mode: "keep", providerId: "stored-router" }, path: "https://evil.example/models" }, /同源/],
+      [{ baseUrl: `${gatewayUrl}/v1`, api: "openai-completions", credential: { mode: "keep", providerId: "stored-router" }, path: "//evil.example/models" }, /同源/],
+      [{ baseUrl: `${gatewayUrl}/v1`, api: "openai-completions", credential: { mode: "keep", providerId: "stored-router" }, path: "https://user@evil.example/models" }, /同源/],
+      [{ baseUrl: `${gatewayUrl}/v1`, api: "openai-completions", credential: { mode: "keep", providerId: "stored-router" }, path: "http://127.0.0.1:1/v1/models" }, /同源/],
+      [{ baseUrl: `${gatewayUrl}/v1`, api: "openai-completions", credential: { mode: "keep", providerId: "stored-router" }, path: "/v1/ models" }, /空白或控制字符/],
     ]) {
       const refused = await discover(body);
       assert.equal(refused.status, 400, refused.text);

@@ -1174,7 +1174,9 @@ async function discoverModels(payload) {
   const api = String(payload.api || "");
   if (!ALLOWED_APIS.has(api)) throw new Error("请选择受支持的接口协议。");
   const key = discoveryCredential(payload.credential, readJson(AUTH_PATH));
-  const { url, headers } = discoveryRequest(api, payload.baseUrl, key);
+  // An override is resolved against the baseUrl and refused if it would leave that
+  // origin or climb above its path — this request carries a stored credential.
+  const { url, headers } = discoveryRequest(api, payload.baseUrl, key, payload.path);
   let response;
   try {
     response = await fetch(url, { headers, redirect: "manual", signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS) });
@@ -1193,7 +1195,11 @@ async function discoverModels(payload) {
     throw new Error("网关返回的内容不是 JSON，可能地址不是模型列表接口。请手动填写模型 ID。");
   }
   const models = parseModelList(body);
-  return { models, endpoint: new URL(url).pathname };
+  // The full URL, not just its path: the dialog shows it so a user who filled in
+  // a custom path can see exactly what answered, and a wrong one (a doubled /v1,
+  // a query the gateway ignored) is obvious at a glance. It carries no secret —
+  // the credential travels in a header, never in the URL.
+  return { models, endpoint: url };
 }
 
 // The theme bootstrap has to run before first paint, so it cannot be bundled or
