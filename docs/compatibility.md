@@ -39,9 +39,13 @@ a product safety boundary, not as a claim about an HTTP limit. Re-check this beh
 
 ### Model Anthropic Beta header
 
-A model under an `anthropic-messages` provider may carry `headers["anthropic-beta"]`, which Pi sends as the
-HTTP `anthropic-beta` header — and, when present, uses *instead of* the tool-streaming, thinking, and OAuth
-betas it would otherwise derive. The manager exposes it per model in the third step's advanced settings with
+A model may carry `headers["anthropic-beta"]`, which Pi sends as the HTTP `anthropic-beta` header — on the
+Anthropic protocol used *instead of* the tool-streaming, thinking, and OAuth betas it would otherwise derive,
+and on every other protocol sent as-is, since pi-ai spreads `model.headers` into the request for
+openai-completions, openai-responses and google alike (measured on 0.85.1). The manager therefore validates
+the value's shape and never its protocol: a gpt model on an Anthropic-protocol relay, switched by the per-model
+override, may carry one, and a gateway that ignores it is the gateway's business. The manager exposes it per
+model in the third step's advanced settings with
 the same `none` / `literal` / `external` contract as the User-Agent: a comma-separated ASCII token list is
 normalized and deduplicated before writing; dynamic expressions, ambiguous casing, and malformed values are
 reported as `external` and left untouched; an explicit empty string removes every casing; omission preserves.

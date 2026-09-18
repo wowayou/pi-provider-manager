@@ -8,9 +8,14 @@ reasoning and the sources so the decision can be re-checked after a Pi upgrade.
 
 Zed's `extra_beta_headers: ["context-1m-2025-08-07"]` is the HTTP `anthropic-beta` header. In Pi the same
 thing is the model's `headers["anthropic-beta"]`, so that is what the manager writes — no new field, no
-Zed import. The value is a comma-separated ASCII token list, normalized and deduplicated; only
-`anthropic-messages` models accept a non-empty value; `""` removes every casing of the key; omission
-preserves what is on disk. The browser sees `{ kind: "none" | "literal" | "external", value? }`, the same
+Zed import. The value is a comma-separated ASCII token list, normalized and deduplicated; `""` removes every
+casing of the key; omission preserves what is on disk. It is validated for shape, never gated on protocol:
+Pi spreads `model.headers` into the request on every API (openai-completions, openai-responses and google
+all do, measured in pi-ai 0.85.1), so the header reaches the wire whatever the protocol, and whether a
+gateway honours it is the gateway's business — the stance the provider User-Agent already takes. A first
+revision refused a non-empty value on a non-Anthropic protocol; it refused a real draft (a gpt model added
+to an Anthropic-protocol relay, given the per-model protocol override) while protecting nothing, and was
+removed. The browser sees `{ kind: "none" | "literal" | "external", value? }`, the same
 three-state contract as the provider User-Agent.
 
 Not inferred from a `[1M]` ID or a context window: Pi *replaces* its automatic beta list (tool streaming,
@@ -35,7 +40,7 @@ served by the gateway's own per-model header rules; the manager only edits Pi's 
 | Claim | Where it is checked |
 | --- | --- |
 | Normalization, three read states, canonical write, other headers preserved | `tests/pi-anthropic-beta.test.mjs` |
-| HTTP boundary: preserve on omit, remove on `""`, refuse non-Anthropic, no leak, 409 on stale revision | `tests/server.test.mjs` |
+| HTTP boundary: preserve on omit, remove on `""`, accept on any protocol (written and read back on an OpenAI-protocol model, and on an Anthropic provider's model overridden to OpenAI), still refuse a malformed value, no leak, 409 on stale revision | `tests/server.test.mjs` |
 | Draft intent on save, duplicate never copies an external value | `tests/model-draft.test.mjs` |
 | Browser flow: edit, save, reload, clear with undo, invalid value refocuses the field | `tests/model-deletion-ui.test.mjs` |
 | Wire: override sent exactly, sibling keeps Pi's list, `[1M]` ID sent as-is, clearing restores Pi's list | `tests/pi-anthropic-beta-real.test.mjs` (`npm run test:pi-real`, real installed Pi, loopback gateway) |

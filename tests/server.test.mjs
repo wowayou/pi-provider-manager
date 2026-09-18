@@ -316,19 +316,31 @@ test("handles model Anthropic Beta through the real HTTP boundary", async () => 
     assert.equal(Object.hasOwn(afterClear.providers["anthropic-router"].models[0].headers, "anthropic-beta"), false);
     assert.equal(afterClear.providers["anthropic-router"].models[0].headers["X-Secret"], "do-not-return");
     assert.equal(afterClear.providers["anthropic-router"].models[1].headers["ANTHROPIC-BETA"], "!external-secret");
-    const invalidState = await (await fetch(`${baseUrl}/api/state`)).json();
-    const beforeInvalid = fs.readFileSync(path.join(agentDir, "models.json"), "utf8");
-    const invalidProtocol = await postJson(baseUrl, "/api/providers", { providerId: "openai-router", baseUrl: "https://openai.example/v1", api: "openai-responses", credential: { mode: "keep" }, models: [{ id: "gpt", name: "GPT", contextWindow: 128000, maxTokens: 16000, supportsImages: false, reasoning: true, maximumThinking: "high", anthropicBeta: "context-1m-2025-08-07" }], setDefault: false, defaultModelId: "gpt" }, invalidState.revision);
-    assert.equal(invalidProtocol.status, 400);
-    assert.equal(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"), beforeInvalid);
+    // Not gated on protocol. Pi merges model.headers into every API's request,
+    // so the header reaches the wire on an OpenAI-protocol model too; a gateway
+    // that ignores it is the gateway's business. The gate this used to assert
+    // refused a real draft — a gpt model added to an Anthropic-protocol relay.
+    const openaiState = await (await fetch(`${baseUrl}/api/state`)).json();
+    const onOpenai = await postJson(baseUrl, "/api/providers", { providerId: "openai-router", baseUrl: "https://openai.example/v1", api: "openai-responses", credential: { mode: "keep" }, models: [{ id: "gpt", name: "GPT", contextWindow: 128000, maxTokens: 16000, supportsImages: false, reasoning: true, maximumThinking: "high", anthropicBeta: "context-1m-2025-08-07" }], setDefault: false, defaultModelId: "gpt" }, openaiState.revision);
+    assert.equal(onOpenai.status, 200, await onOpenai.text());
+    assert.equal(JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8")).providers["openai-router"].models[0].headers["anthropic-beta"], "context-1m-2025-08-07");
     const mixedState = await (await fetch(`${baseUrl}/api/state`)).json();
     const allowedMixed = await postJson(baseUrl, "/api/providers", { providerId: "openai-router", baseUrl: "https://openai.example/v1", api: "openai-responses", credential: { mode: "keep" }, models: [{ id: "gpt", name: "GPT", contextWindow: 128000, maxTokens: 16000, supportsImages: false, reasoning: true, maximumThinking: "high", api: "anthropic-messages", anthropicBeta: "beta-a" }], setDefault: false, defaultModelId: "gpt" }, mixedState.revision);
     assert.equal(allowedMixed.status, 200);
+    // The shape the report came from: an Anthropic-protocol provider, one model
+    // switched to an OpenAI protocol by the per-model override, beta on it.
     const reverseState = await (await fetch(`${baseUrl}/api/state`)).json();
-    const beforeReverse = fs.readFileSync(path.join(agentDir, "models.json"), "utf8");
-    const rejectedMixed = await postJson(baseUrl, "/api/providers", { providerId: "anthropic-router", baseUrl: "https://router.example/v1", api: "anthropic-messages", credential: { mode: "keep" }, models: [{ id: "claude-one", name: "Claude One", contextWindow: 200000, maxTokens: 16000, supportsImages: false, reasoning: true, maximumThinking: "high", api: "openai-responses", anthropicBeta: "beta-a" }, { id: "claude-two", name: "Claude Two", contextWindow: 200000, maxTokens: 16000, supportsImages: false, reasoning: true, maximumThinking: "high" }], setDefault: false, defaultModelId: "claude-one" }, reverseState.revision);
-    assert.equal(rejectedMixed.status, 400);
-    assert.equal(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"), beforeReverse);
+    const overriddenMixed = await postJson(baseUrl, "/api/providers", { providerId: "anthropic-router", baseUrl: "https://router.example/v1", api: "anthropic-messages", credential: { mode: "keep" }, models: [{ id: "claude-one", name: "Claude One", contextWindow: 200000, maxTokens: 16000, supportsImages: false, reasoning: true, maximumThinking: "high", api: "openai-responses", anthropicBeta: "beta-a" }, { id: "claude-two", name: "Claude Two", contextWindow: 200000, maxTokens: 16000, supportsImages: false, reasoning: true, maximumThinking: "high" }], setDefault: false, defaultModelId: "claude-one" }, reverseState.revision);
+    assert.equal(overriddenMixed.status, 200, await overriddenMixed.text());
+    const afterOverride = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8")).providers["anthropic-router"].models[0];
+    assert.equal(afterOverride.api, "openai-responses");
+    assert.equal(afterOverride.headers["anthropic-beta"], "beta-a");
+    // Shape is still validated whatever the protocol.
+    const badState = await (await fetch(`${baseUrl}/api/state`)).json();
+    const beforeBad = fs.readFileSync(path.join(agentDir, "models.json"), "utf8");
+    const badShape = await postJson(baseUrl, "/api/providers", { providerId: "openai-router", baseUrl: "https://openai.example/v1", api: "openai-responses", credential: { mode: "keep" }, models: [{ id: "gpt", name: "GPT", contextWindow: 128000, maxTokens: 16000, supportsImages: false, reasoning: true, maximumThinking: "high", anthropicBeta: "$BETA" }], setDefault: false, defaultModelId: "gpt" }, badState.revision);
+    assert.equal(badShape.status, 400);
+    assert.equal(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"), beforeBad);
     const stale = await postJson(baseUrl, "/api/providers", { providerId: "anthropic-router", baseUrl: ant.baseUrl, api: ant.api, credential: { mode: "keep" }, models: [{ id: "claude-one", name: "Claude One", contextWindow: 200000, maxTokens: 16000, supportsImages: false, reasoning: true, maximumThinking: "high", anthropicBeta: "beta-a" }], setDefault: false, defaultModelId: "claude-one" }, "0".repeat(64));
     assert.equal(stale.status, 409);
   } finally { await stopAndClean(child, [agentDir]); }

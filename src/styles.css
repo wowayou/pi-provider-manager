@@ -688,17 +688,25 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 .modal-count { margin-right: auto; color: var(--muted); font-size: 12px; }
 .modal-shortcut { margin: 14px 0 0; color: var(--ink-3); font-size: 11.5px; text-align: right; }
-.discover-modal { width: min(640px, 100%); }
-.discover-modal .modal-heading p code { font-family: var(--mono); font-size: 12px; }
+/* The dialog is a column that never outgrows the viewport: heading, path field
+   and actions keep their size, the list takes what is left and scrolls inside
+   itself. Before this the list had a fixed 420px cap and the dialog no cap at
+   all, so once the path field was added the actions row sat below the fold on
+   a short window with nothing to scroll — the bottom of the dialog was simply
+   gone. The delete dialog already had the same guard. */
+.discover-modal { width: min(640px, 100%); max-height: calc(100dvh - 48px); display: flex; flex-direction: column; min-height: 0; }
+.discover-modal .modal-heading, .discover-modal .discover-path, .discover-modal .discover-filter, .discover-modal .discover-status, .discover-modal .error-banner, .discover-modal .modal-actions { flex: none; }
+.discover-modal .modal-heading p code { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.discover-modal .modal-heading > div { min-width: 0; }
 .discover-filter { position: relative; margin-top: 16px; }
 .discover-filter svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
 .discover-filter input { width: 100%; padding-left: 38px; }
-.discover-list { margin-top: 12px; max-height: min(52vh, 420px); overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-sunken); }
+.discover-list { margin-top: 12px; flex: 1 1 auto; min-height: 96px; max-height: 420px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-sunken); }
 .discover-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
 .discover-row:last-child { border-bottom: 0; }
 .discover-row:hover { background: var(--surface-hover); }
-.discover-row .mono { font-size: 13px; overflow-wrap: anywhere; }
-.discover-row small { margin-left: auto; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.discover-row .mono { font-size: 13px; overflow-wrap: anywhere; min-width: 0; }
+.discover-row small { margin-left: auto; color: var(--muted); font-size: 11.5px; text-align: right; overflow-wrap: anywhere; max-width: 45%; }
 .discover-row.is-existing { cursor: default; color: var(--ink-3); }
 .discover-status { display: flex; align-items: center; gap: 10px; padding: 26px 0 8px; color: var(--muted); font-size: 13px; }
 .discover-empty { padding: 22px 12px; text-align: center; color: var(--muted); font-size: 13px; }
@@ -973,6 +981,9 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
 @media (max-width: 520px) {
   .modal-backdrop { padding: 12px; }
   .provider-delete-dialog { max-height: calc(100dvh - 24px); padding: 20px; }
+  .discover-modal { max-height: calc(100dvh - 24px); padding: 20px; }
+  .discover-modal .modal-actions { flex-wrap: wrap; }
+  .discover-modal .modal-count { flex-basis: 100%; margin-right: 0; }
   .replacement-fields { grid-template-columns: 1fr; }
   .provider-delete-dialog .modal-actions { align-items: stretch; }
   .provider-delete-dialog .modal-actions button { flex: 1; padding-inline: 12px; }
