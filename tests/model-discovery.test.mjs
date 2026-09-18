@@ -39,9 +39,9 @@ test("reads the three list shapes and reduces each entry to id and name", () => 
 
 test("drops what cannot be a model id and never relays other body content", () => {
   const parsed = parseModelList({ data: [
-    { id: "ok", display_name: "line\nbreakbell" },
+    { id: "ok", display_name: "line\nbreak\x07bell" },
     { id: "has space" },
-    { id: "ctrlchar" },
+    { id: "ctrl\x01char" },
     { id: "中文" },
     { id: "x".repeat(257) },
     { id: "" },
