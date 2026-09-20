@@ -470,6 +470,17 @@ test("discovers a gateway's models with the credential a save would use, and nev
     assert.match(JSON.parse(unreachable.text).error, /无法连接网关/);
     assert.equal(unreachable.text.includes(TYPED_KEY), false);
 
+    // An https:// address in front of a plain-HTTP gateway comes back as an
+    // OpenSSL "wrong version number" error. The raw text names neither the cause
+    // nor the fix, so the message is translated into what actually happened and
+    // never relays the openssl internals. The gateway is loopback, so pointing an
+    // https URL at its http listener reproduces the exact handshake failure.
+    const wrongScheme = await discover({ baseUrl: `https://127.0.0.1:${gatewayPort}/v1`, api: "openai-completions", credential: { mode: "new", apiKey: TYPED_KEY } });
+    assert.equal(wrongScheme.status, 400);
+    assert.match(JSON.parse(wrongScheme.text).error, /普通 HTTP 回应了 HTTPS/);
+    assert.equal(wrongScheme.text.includes("openssl"), false, "the raw OpenSSL error was relayed");
+    assert.equal(wrongScheme.text.includes(TYPED_KEY), false);
+
     // The same cross-origin guards as every other write.
     assert.equal(await rawStatus({ port, method: "POST", requestPath: "/api/providers/discover-models", headers: { host: "attacker.example", "content-type": "application/json" }, body: "{}" }), 403);
     assert.equal(await rawStatus({ port, method: "POST", requestPath: "/api/providers/discover-models", headers: { host: `127.0.0.1:${port}`, "content-type": "text/plain" }, body: "{}" }), 415);

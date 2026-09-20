@@ -1150,6 +1150,27 @@ function describeFetchFailure(error) {
   if (error?.name === "TimeoutError" || error?.name === "AbortError") return "连接超时";
   const cause = error?.cause;
   const code = cause?.code || error?.code;
+  // A TLS handshake against a plain-HTTP socket comes back as this OpenSSL error.
+  // Relaying its raw text ("wrong version number:../deps/openssl/…") names neither
+  // the cause nor the fix, so a user who typed https:// in front of an http-only
+  // gateway is left with line noise. Say what it means: the address is https but
+  // the gateway answered in plain HTTP. The manager will not fall back to http for
+  // a remote host — the stored key would travel in cleartext — so the honest next
+  // step is a real HTTPS endpoint (often a different port), not a scheme swap.
+  if (code === "ERR_SSL_WRONG_VERSION_NUMBER") {
+    return "网关用普通 HTTP 回应了 HTTPS 请求，这个地址很可能不是 HTTPS 接口（常见于端口填错）。为避免 key 明文传输，管理器不会改用 http 访问远程网关；请确认网关的 HTTPS 地址后重试";
+  }
+  // Self-signed or otherwise unverifiable certificates are a different fix (trust
+  // the cert, use the hostname the cert is issued for) and worth naming apart from
+  // an unreachable host.
+  const CERT_HINTS = {
+    DEPTH_ZERO_SELF_SIGNED_CERT: "网关使用自签名证书",
+    SELF_SIGNED_CERT_IN_CHAIN: "网关证书链里有自签名证书",
+    UNABLE_TO_VERIFY_LEAF_SIGNATURE: "无法验证网关证书",
+    CERT_HAS_EXPIRED: "网关证书已过期",
+    ERR_TLS_CERT_ALTNAME_INVALID: "网关证书与地址中的主机名不匹配",
+  };
+  if (code && CERT_HINTS[code]) return `${CERT_HINTS[code]}（${code}），无法建立安全连接`;
   const message = cause?.message || error?.message || "";
   return code ? `${code}${message ? `，${message}` : ""}` : message || "未知错误";
 }
