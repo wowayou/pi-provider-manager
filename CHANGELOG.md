@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Validated against Pi `0.86.1`; baseline moved from `0.85.1`.** `providers.md`, the four API identifiers, and the seven thinking levels are unchanged; `0.86.0`/`0.86.1` add only keys this manager already treats as unknown and preserves (`cacheWarming`, `compaction.modelOverrides`, `compat.allowedFallbackModels`, `modelThinkingLevels`). `npm test` ran with 0 skips, including the real Pi `0.86.1` and real Codex binary suites, so `piValidatedVersion` is advanced to `0.86.1`.
+
+- **获取模型 explains a TLS-against-HTTP failure instead of relaying it.** Pointing an `https://` base URL at a gateway that only speaks plain HTTP on that port surfaced the raw OpenSSL error verbatim (`无法连接网关：ERR_SSL_WRONG_VERSION_NUMBER … wrong version number:../deps/openssl/…`), which named neither the cause nor the fix. `describeFetchFailure` now recognises `ERR_SSL_WRONG_VERSION_NUMBER` and says the gateway answered a HTTPS request in plain HTTP — commonly a wrong port — and that the manager will not downgrade to `http` for a remote host because the stored key would travel in cleartext. Common certificate errors (self-signed, expired, hostname mismatch) are translated the same way rather than leaking OpenSSL internals. A boundary case in `tests/server.test.mjs` points an `https://` URL at the loopback HTTP gateway to reproduce the exact handshake failure and asserts the raw OpenSSL text is never relayed. The `远程 API 地址必须使用 HTTPS` refusal in `normalizeUrl` is unchanged: an http-only remote gateway needs a real HTTPS endpoint or a local terminator, not a silent scheme downgrade.
+
 ## 0.4.0 - 2026-09-18
 
 - Validated against Pi `0.85.1` and Codex `0.154.0`; the full suite ran with no skips. This release adds a model-level `anthropic-beta` request header the user can set per model, and a 获取模型 dialog that asks the gateway for its own catalogue and ticks rows into the draft — the first thing here that sends a stored credential to an address the browser chose, which is why the listing path is confined to the gateway's own origin.

@@ -290,6 +290,7 @@ One row per superseded evidence section; the full dated text of each lives in gi
 | 2026-08-31 | 0.3.8 | Codex `0.151.0` triage: four invariants unchanged; the reasoning-effort rewrite defect found and fixed | passed |
 | 2026-09-18 | 0.4.0 | Anthropic beta on the wire, real Pi `0.85.1` against a loopback gateway: the override sent alone, its sibling keeping the derived list, a `[1M]` id as-is, clearing restoring the derived list | passed |
 | 2026-09-18 | 0.4.0 | Model discovery against six configured relays; the listing-path boundary exercised on the live server; the dialog's fit measured at 1280×600 | passed |
+| 2026-09-20 | 0.4.0+unreleased | Pi baseline moved 0.85.1 → 0.86.1: no config/provider/settings/thinking-level change upstream; `npm test` 185 pass, 0 skipped, real Pi `0.86.1` and real Codex binary suites included; 获取模型 TLS-against-HTTP message translated and pinned | passed |
 
 final result: all historical sections passed except the one recorded as blocked, which its successor section closed
 
