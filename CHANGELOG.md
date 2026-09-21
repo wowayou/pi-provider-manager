@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **重启本地服务 shows the handover in progress instead of a silent spinner.** The restart hands the port to a process started from disk and then polls up to 40 seconds for the new pid; until now the button just spun, so a slow handover was indistinguishable from a frozen page. The hint now names the two halves — requesting the restart, then waiting for the new process to take the port — counts the seconds elapsed against the 40-second bound, and says plainly that a brief disconnect mid-handover is expected and the page will refresh itself once the new process answers. No behaviour changed: the same request, the same poll, the same auto-reload on success and message on timeout.
+
 ## 0.4.2 - 2026-09-21
 
 - Validated against Pi `0.86.1` and Codex `0.154.0`; the full suite ran with no skips, including the real Pi `0.86.1` and real Codex binary suites. This release fixes the handoff command always ending in `:high` and stops saving a provider from silently resetting the global thinking level.

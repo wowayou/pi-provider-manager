@@ -1503,12 +1503,18 @@ function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBa
   // would be a step for its own sake.
   const [restartPhase, setRestartPhase] = useState("idle");
   const [restartMessage, setRestartMessage] = useState("");
+  // Which half of the handover the working phase is in, and how long the wait has
+  // run. A restart usually takes a second or two, but the loop below waits up to
+  // 40; without a rising count a slow handoff reads as a frozen button.
+  const [restartStage, setRestartStage] = useState("");
+  const [restartElapsed, setRestartElapsed] = useState(0);
   // Applying an upgrade replaces the process serving this page, so the page cannot
   // trust anything it reads until a different one answers. The server reports the
   // pid it is replacing for exactly that reason.
   const restartService = async () => {
     setRestartPhase("working");
     setRestartMessage("");
+    setRestartStage("requesting");
     try {
       const response = await fetch("/api/restart", {
         method: "POST",
@@ -1516,6 +1522,7 @@ function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBa
         body: "{}",
       });
       const accepted = await readApiResponse(response, "无法重启本地服务。");
+      setRestartStage("handoff");
       const deadline = Date.now() + 40_000;
       while (Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 400));
@@ -1543,6 +1550,21 @@ function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBa
       setRestartPhase("failed");
     }
   };
+  // Count seconds from the moment the working phase begins. Derived from a start
+  // timestamp each tick rather than accumulated in the updater, so a late or
+  // doubled render cannot drift the number.
+  useEffect(() => {
+    if (restartPhase !== "working") {
+      setRestartElapsed(0);
+      return undefined;
+    }
+    const startedAt = Date.now();
+    setRestartElapsed(0);
+    const timer = setInterval(() => {
+      setRestartElapsed(Math.floor((Date.now() - startedAt) / 1000));
+    }, 500);
+    return () => clearInterval(timer);
+  }, [restartPhase]);
   const selectedProvider = state.providers.find((provider) => provider.id === draft.defaultProvider);
   const availableModels = selectedProvider?.models || [];
   // Keep whatever is currently selected in the list, even with no models, so the
@@ -1689,7 +1711,9 @@ function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBa
                       : demoMode
                         ? "演示模式没有本地服务可以重启。"
                         : restartPhase === "working"
-                          ? "正在把端口交给从磁盘上的文件启动的新进程，接管后本页会自动刷新。"
+                          ? (restartStage === "requesting"
+                              ? "正在请求重启本地服务…"
+                              : `新进程正在从磁盘上的文件接管端口。中途会短暂连不上，这是正常的，接管后本页会自动刷新。已等待 ${restartElapsed} 秒，最多 40 秒。`)
                           : "只替换本管理器进程：已经在跑的 LiteLLM 桥和 Pi / Codex 会话不受影响，新进程起不来时会保留当前这个。"}
                   </span>
                 </>
