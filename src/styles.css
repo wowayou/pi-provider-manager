@@ -397,7 +397,7 @@ code { color: var(--ink); background: transparent; }
 .agent-path { margin: 6px 10px 0; color: var(--agent-path); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
 
 /* ---------- workspace shell ---------- */
-.workspace { height: 100%; min-width: 0; min-height: 0; overflow: hidden; padding: 24px 32px; display: flex; flex-direction: column; }
+.workspace { height: 100%; min-width: 0; min-height: 0; overflow: hidden; padding: var(--space-6) var(--space-7); display: flex; flex-direction: column; }
 .stepper { width: 100%; max-width: 1120px; flex: none; margin: 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px 14px 0 0; padding: 28px 34px; display: grid; grid-template-columns: 1fr 1fr 1fr; }
 .step-wrap { display: flex; align-items: center; min-width: 0; }
 .step { flex: none; border: 0; background: transparent; padding: 0; display: flex; align-items: center; gap: 11px; text-align: left; color: var(--step-text); border-radius: 8px; transition: color var(--fast) var(--ease), opacity var(--fast) var(--ease); }
@@ -428,16 +428,16 @@ code { color: var(--ink); background: transparent; }
 .hint-panel code { color: var(--ink); background: var(--info-code); border-radius: 4px; padding: 1px 5px; }
 
 /* ---------- protocol picker ---------- */
-.protocol-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.protocol-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); }
 .protocol-card { position: relative; min-height: 224px; border: 1px solid var(--line); border-radius: 12px; background: var(--field); padding: 24px 18px; text-align: center; color: inherit; transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease); }
 .protocol-card:hover { border-color: var(--orange-edge); background: var(--orange-tint); box-shadow: var(--shadow-card); }
 .protocol-card:active { transform: translateY(1px); }
 .protocol-card.is-selected { border: 2px solid var(--orange); background: var(--orange-tint); padding: 23px 17px; }
 .protocol-icon { height: 52px; display: grid; place-items: center; color: var(--protocol-icon); transition: color var(--fast) var(--ease); }
 .protocol-card.is-selected .protocol-icon { color: var(--orange-dark); }
-.protocol-card strong { display: block; font-size: 16px; margin-top: 8px; }
-.protocol-card b { display: block; font-size: 13px; color: var(--muted); margin-top: 4px; font-weight: 600; }
-.protocol-card p { margin: 16px 0 0; color: var(--muted); line-height: 1.55; font-size: 13px; }
+.protocol-card strong { display: block; font-size: 16px; margin-top: var(--space-2); }
+.protocol-card b { display: block; font-size: 13px; color: var(--muted); margin-top: var(--space-1); font-weight: 600; }
+.protocol-card p { margin: var(--space-4) 0 0; color: var(--muted); line-height: 1.55; font-size: 13px; }
 .selected-check { position: absolute; top: 10px; right: 10px; color: var(--orange); }
 
 .safe-note, .models-note { display: flex; align-items: flex-start; gap: 8px; color: var(--muted-cool); font-size: 13px; margin-top: 18px; }
@@ -467,8 +467,8 @@ code { color: var(--ink); background: transparent; }
    long has the eye travelling for no reason. Capped to a comfortable measure;
    the card keeps the room, the inputs give it back. */
 .form-grid, .credential-box { max-width: 880px; }
-.form-grid { display: grid; grid-template-columns: 1fr 1.35fr; gap: 18px; }
-label { display: flex; flex-direction: column; gap: 7px; font-size: 13px; font-weight: 650; }
+.form-grid { display: grid; grid-template-columns: 1fr 1.35fr; gap: var(--space-4); }
+label { display: flex; flex-direction: column; gap: var(--space-2); font-size: 13px; font-weight: 650; }
 label small { color: var(--muted); font-size: 11px; font-weight: 450; }
 input, select, textarea { width: 100%; height: 42px; border: 1px solid var(--line-strong); border-radius: 8px; padding: 0 12px; background: var(--field); color: var(--ink); outline: none; transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), background var(--fast) var(--ease); }
 input:hover:not(:focus), select:hover:not(:focus) { border-color: var(--border-hover); }
@@ -758,24 +758,24 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
 .settings-page { overflow: hidden; }
 .settings-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 36px; }
 .success-mark { color: var(--green); }
-.success-eyebrow { margin: 15px 0 5px; color: var(--green); font-weight: 750; }
+.success-eyebrow { margin: var(--space-4) 0 var(--space-1); color: var(--green); font-weight: 750; }
 .success-page h1 { margin: 0; font-size: 32px; letter-spacing: -.03em; }
 .success-summary { margin: 10px 0 0; color: var(--muted); }
 .success-summary code { color: var(--ink); font-weight: 600; }
-.next-step-card { width: min(760px, 100%); margin: 34px 0 0; border: 1px solid var(--line); border-radius: 13px; padding: 23px; text-align: left; background: var(--surface-warm); }
-.next-step-heading { display: flex; gap: 13px; align-items: flex-start; }
+.next-step-card { width: min(760px, 100%); margin: var(--space-7) 0 0; border: 1px solid var(--line); border-radius: 13px; padding: var(--space-6); text-align: left; background: var(--surface-warm); }
+.next-step-heading { display: flex; gap: var(--space-3); align-items: flex-start; }
 .next-step-heading svg { color: var(--orange); flex: none; }
 .next-step-heading h2 { margin: 0; font-size: 18px; }
 .next-step-heading p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
-.command-row { margin-top: 18px; border: 1px solid var(--line-strong); background: var(--field); border-radius: 9px; display: flex; align-items: center; padding: 8px 8px 8px 14px; gap: 12px; transition: border-color var(--fast) var(--ease); }
+.command-row { margin-top: var(--space-4); border: 1px solid var(--line-strong); background: var(--field); border-radius: 9px; display: flex; align-items: center; padding: 8px 8px 8px 14px; gap: var(--space-3); transition: border-color var(--fast) var(--ease); }
 .command-row:hover { border-color: var(--border-hover); }
 .command-row code { flex: 1; overflow: auto; color: var(--command-text); font-size: 13px; white-space: nowrap; }
 .copy-button { border: 0; border-radius: 7px; background: var(--orange-soft); color: var(--orange-dark); min-height: 34px; padding: 0 12px; display: flex; align-items: center; gap: 6px; font-weight: 700; flex: none; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
 .copy-button:hover { background: var(--orange-soft-hover); }
 .copy-button.is-copied { background: var(--green-soft); color: var(--green); }
-.next-step-card ol { margin: 18px 0 0 20px; padding: 0; color: var(--ink-2); font-size: 13px; line-height: 1.9; }
+.next-step-card ol { margin: var(--space-4) 0 0 var(--space-5); padding: 0; color: var(--ink-2); font-size: 13px; line-height: 1.9; }
 .next-step-card ol code { color: var(--ink); font-weight: 600; }
-.success-actions { margin-top: 30px; display: flex; gap: 11px; }
+.success-actions { margin-top: var(--space-7); display: flex; gap: var(--space-3); }
 
 /* ---------- settings ---------- */
 .settings-page { display: flex; flex-direction: column; }
