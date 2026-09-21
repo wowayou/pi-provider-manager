@@ -381,7 +381,10 @@ code { color: var(--ink); background: transparent; }
    cluster of ticks. */
 .status-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; }
 .status-dot.is-ok { background: var(--green); }
-.status-dot.is-warn { background: var(--status-warn); }
+/* The amber "needs a credential" state is the one worth catching, so it carries a
+   soft ring the ready green does not: same read at a glance, more weight on the
+   dot that asks for action. */
+.status-dot.is-warn { background: var(--status-warn); box-shadow: 0 0 0 3px var(--warn-bg), 0 0 0 4px var(--warn-border); }
 
 .beginner-tip { position: relative; margin-top: auto; border: 1px solid var(--line); border-radius: 12px; padding: 14px 30px 14px 14px; display: flex; gap: 10px; color: var(--tip-text); background: var(--surface-warm); }
 /* 24px is WCAG 2.2's minimum target size, and the offset is 6px rather than 8px
@@ -393,14 +396,19 @@ code { color: var(--ink); background: transparent; }
 .beginner-tip div { display: flex; flex-direction: column; gap: 4px; }
 .beginner-tip strong { font-size: 13px; }
 .beginner-tip span { font-size: 12px; line-height: 1.5; color: var(--muted); }
+/* The nav links and theme toggle are one footer unit, pushed to the sidebar's
+   base by the provider list's flex:1. Grouping them keeps that anchor whether or
+   not the beginner tip is present, instead of each control relying on its own
+   margin. */
+.sidebar-footer { flex: none; display: flex; flex-direction: column; margin-top: auto; }
 .settings-button { margin: 12px 2px 0; border: 0; background: transparent; color: var(--ink-2); height: 40px; display: flex; align-items: center; gap: 8px; border-radius: 8px; padding: 0 10px; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
 .settings-button:hover, .settings-button.is-active { background: var(--surface-hover); color: var(--orange-dark); }
-.theme-toggle { display: flex; align-items: center; gap: 6px; margin: 10px 2px 0; }
-.theme-toggle > span { color: var(--ink-3); font-size: 12px; margin-right: auto; padding-left: 10px; }
-.theme-switch { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-sunken); }
-.theme-switch button { width: 30px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-3); display: grid; place-items: center; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
-.theme-switch button:hover { color: var(--ink-2); }
-.theme-switch button[aria-checked="true"] { background: var(--panel); color: var(--orange-dark); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+/* The appearance control is a single corner icon sharing the settings row, no
+   label and no row of its own. The nav button flexes; the icon sits at the end. */
+.footer-settings-row { display: flex; align-items: center; gap: 6px; }
+.footer-settings-row .settings-button { flex: 1 1 auto; }
+.theme-cycle-icon { flex: none; width: 36px; height: 36px; margin: 12px 2px 0; border: 0; border-radius: 8px; background: transparent; color: var(--ink-3); display: grid; place-items: center; cursor: pointer; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
+.theme-cycle-icon:hover { background: var(--surface-hover); color: var(--orange-dark); }
 .agent-path { margin: 6px 10px 0; color: var(--agent-path); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
 
 /* ---------- workspace shell ---------- */

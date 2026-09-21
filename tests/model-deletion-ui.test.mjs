@@ -1848,9 +1848,14 @@ test("every piece of text meets WCAG AA contrast in both themes", { timeout: 90_
     await auditTransients("light");
 
     // Through the app's own control rather than localStorage, which throws a
-    // SecurityError on a page that has not finished navigating.
-    await cdp.evaluate(`[...document.querySelectorAll('.theme-switch button')]
-      .find((node) => node.getAttribute('aria-label') === '深色').click()`);
+    // SecurityError on a page that has not finished navigating. The appearance
+    // control cycles system → light → dark, so click it until dark lands.
+    await cdp.evaluate(`(async () => {
+      for (let i = 0; i < 3 && document.documentElement.dataset.theme !== 'dark'; i++) {
+        document.querySelector('.theme-cycle-icon').click();
+        await new Promise((r) => setTimeout(r, 30));
+      }
+    })()`);
     await cdp.waitFor(`document.documentElement.dataset.theme === 'dark'`);
     const darkCount = await audit("dark");
     const darkSignature = await pageSignature();
