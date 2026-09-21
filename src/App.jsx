@@ -230,7 +230,6 @@ function blankForm() {
     // Keyed by row, not by model id: the id is an editable field, and keying on it
     // silently dropped the default the moment a user corrected a typo.
     defaultRowId: firstModel.rowId,
-    defaultThinkingLevel: "high",
     compat: {},
     userAgent: "",
     userAgentKind: "none",
@@ -352,7 +351,6 @@ function providerToForm(provider, state) {
       convertedModels.find((model) => state.settings.defaultProvider === provider.id && model.id === state.settings.defaultModel)
       || convertedModels[0]
     ).rowId,
-    defaultThinkingLevel: state.settings.defaultThinkingLevel || "high",
     compat: provider.compat || {},
     userAgent: provider.userAgent?.kind === "literal" ? provider.userAgent.value : "",
     userAgentKind: provider.userAgent?.kind || "none",
@@ -1961,7 +1959,8 @@ export function App() {
       })),
       setDefault,
       defaultModelId: selectedModel.id.trim(),
-      defaultThinkingLevel: form.defaultThinkingLevel,
+      // Thinking level is not sent: it is a global setting owned by the Settings
+      // screen, and the server ignores it here so a stale tab cannot reset it.
       compat: form.compat,
       revision: state.revision,
     };
@@ -2020,7 +2019,6 @@ export function App() {
           providerId: payload.providerId,
           modelCount: payload.models.length,
           defaultModelId: payload.defaultModelId,
-          defaultThinkingLevel: payload.defaultThinkingLevel,
           setDefault,
           userAgent: demoProvider.userAgent,
           hasModelUserAgentOverride: demoProvider.hasModelUserAgentOverride,
@@ -2039,7 +2037,6 @@ export function App() {
         providerId: payload.providerId,
         modelCount: payload.models.length,
         defaultModelId: payload.defaultModelId,
-        defaultThinkingLevel: payload.defaultThinkingLevel,
         setDefault,
         userAgent: saved?.userAgent,
         hasModelUserAgentOverride: saved?.hasModelUserAgentOverride,
