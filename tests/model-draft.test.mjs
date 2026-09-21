@@ -46,7 +46,7 @@ test("a duplicated Pi draft carries the models but never the credential", () => 
     moveCredential: true,
     models: [
       { rowId: "r1", persistedId: "claude-3-5-sonnet", id: "claude-3-5-sonnet", name: "claude-3-5-sonnet", contextWindow: 200000, maxTokens: 8192, supportsImages: true, reasoning: true, maximumThinking: "high", api: "inherit", forceAdaptiveThinking: false },
-      { rowId: "r2", persistedId: "claude-3-5-haiku", id: "claude-3-5-haiku", name: "claude-3-5-haiku", contextWindow: 200000, maxTokens: 8192, supportsImages: false, reasoning: true, maximumThinking: "medium", api: "inherit", forceAdaptiveThinking: false },
+      { rowId: "r2", persistedId: "claude-3-5-haiku", id: "claude-3-5-haiku", name: "claude-3-5-haiku", contextWindow: 200000, maxTokens: 8192, supportsImages: false, reasoning: true, maximumThinking: "on", api: "inherit", forceAdaptiveThinking: false },
     ],
     defaultRowId: "r2",
     defaultThinkingLevel: "high",
@@ -68,7 +68,7 @@ test("a duplicated Pi draft carries the models but never the credential", () => 
   assert.notEqual(copy.models[0].rowId, "r1");
   assert.notEqual(copy.models[1].rowId, "r2");
   assert.deepEqual(copy.models.map((model) => model.id), ["claude-3-5-sonnet", "claude-3-5-haiku"]);
-  assert.equal(copy.models[1].maximumThinking, "medium");
+  assert.equal(copy.models[1].maximumThinking, "on");
   assert.equal(copy.defaultRowId, copy.models[1].rowId);
   assert.deepEqual(copy.compat, { supportsStrictTools: true });
   assert.equal(copy.userAgent, form.userAgent);
