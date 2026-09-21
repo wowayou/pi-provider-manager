@@ -1498,9 +1498,10 @@ function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBa
       setUpdateBusy("");
     }
   };
-  // idle | confirm | working | failed. "confirm" exists only because a restart
-  // discards an unsaved draft on this very screen; with nothing to lose, asking
-  // would be a step for its own sake.
+  // idle | confirm | working | done | failed. "confirm" exists only because a
+  // restart discards an unsaved draft on this very screen; with nothing to lose,
+  // asking would be a step for its own sake. "done" holds a short beat after the
+  // handover so the reload reads as completion rather than a random jump.
   const [restartPhase, setRestartPhase] = useState("idle");
   const [restartMessage, setRestartMessage] = useState("");
   // Which half of the handover the working phase is in, and how long the wait has
@@ -1535,7 +1536,13 @@ function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBa
           }
           if (next.compatibility?.servicePid && next.compatibility.servicePid !== accepted.pid) {
             // Reloaded rather than merged into this page: the code that served it
-            // is not the code answering now.
+            // is not the code answering now. Leave a note so the reloaded page
+            // comes back on Settings and confirms the restart, instead of the
+            // hard cut to the provider list a bare reload lands on.
+            setRestartStage("");
+            setRestartPhase("done");
+            try { sessionStorage.setItem("ppm.restarted", "1"); } catch { /* private mode: skip the note, still reload */ }
+            await new Promise((resolve) => setTimeout(resolve, 650));
             window.location.reload();
             return;
           }
@@ -1694,7 +1701,7 @@ function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBa
                     // The demo has no local service behind it, so the control is
                     // shown and refused rather than hidden: a reader comparing the
                     // demo with their own install should see the same card.
-                    disabled={restartPhase === "working" || demoMode || Boolean(bundleProblem)}
+                    disabled={restartPhase === "working" || restartPhase === "done" || demoMode || Boolean(bundleProblem)}
                     // `edited`, not `dirty`: an unwritten default is not something a
                     // restart can lose — it is a key settings.json does not carry,
                     // and will still not carry afterwards. Confirming over that
@@ -1703,14 +1710,18 @@ function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBa
                   >
                     {restartPhase === "working"
                       ? <><Spinner />正在重启…</>
-                      : <><ArrowsClockwise size={18} />{pendingApp ? `重启以应用 ${pendingApp}` : "重启本地服务"}</>}
+                      : restartPhase === "done"
+                        ? <><Check size={18} weight="bold" />已重启，正在刷新…</>
+                        : <><ArrowsClockwise size={18} />{pendingApp ? `重启以应用 ${pendingApp}` : "重启本地服务"}</>}
                   </button>
                   <span className={`compat-restart-hint${bundleProblem ? " is-warning" : ""}`}>
                     {bundleProblem
                       ? `${bundleProblem}现在重启只会让新的服务端配上旧界面。`
                       : demoMode
                         ? "演示模式没有本地服务可以重启。"
-                        : restartPhase === "working"
+                        : restartPhase === "done"
+                          ? "新进程已接管端口，正在刷新本页…"
+                          : restartPhase === "working"
                           ? (restartStage === "requesting"
                               ? "正在请求重启本地服务…"
                               : `新进程正在从磁盘上的文件接管端口。中途会短暂连不上，这是正常的，接管后本页会自动刷新。已等待 ${restartElapsed} 秒，最多 40 秒。`)
@@ -1808,6 +1819,22 @@ export function App() {
       .catch((requestError) => setError(requestError.message))
       .finally(() => setLoading(false));
   }, [demoMode]);
+
+  // A restart reloads the page, which otherwise lands on the provider list and
+  // reads as a hard jump away from Settings. The restarting page leaves a note;
+  // the reloaded one returns to Settings and says the restart took.
+  useEffect(() => {
+    if (demoMode) return;
+    let restarted = false;
+    try {
+      restarted = sessionStorage.getItem("ppm.restarted") === "1";
+      if (restarted) sessionStorage.removeItem("ppm.restarted");
+    } catch { /* private mode: nothing to restore */ }
+    if (restarted) {
+      setView("settings");
+      showToast("本地服务已重启，界面已重新加载。", "success");
+    }
+  }, [demoMode, showToast]);
 
   const startNew = () => {
     const fresh = blankForm();
