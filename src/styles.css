@@ -546,16 +546,16 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 /* ---------- model catalog ---------- */
 .models-step .step-scroll { padding-top: 30px; }
 .models-step .section-heading { margin-bottom: 24px; }
-.gateway-summary { border: 1px solid var(--line); border-radius: 12px; display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 16px 20px; background: var(--surface-raised); }
-.summary-icon { width: 50px; height: 50px; border-radius: 11px; display: grid; place-items: center; background: var(--orange-soft); color: var(--orange-dark); }
-.gateway-summary > div:nth-child(2) { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.gateway-summary { border: 1px solid var(--line); border-radius: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 20px; padding: 16px 20px; background: var(--surface-raised); }
+.summary-icon { flex: none; width: 50px; height: 50px; border-radius: 11px; display: grid; place-items: center; background: var(--orange-soft); color: var(--orange-dark); }
+.gateway-summary > div:nth-child(2) { flex: 1 1 240px; min-width: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .gateway-summary strong { font-size: 18px; }
 .gateway-summary p { width: 100%; margin: 0; color: var(--muted); font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .protocol-badge { color: var(--orange-dark); background: var(--orange-soft); border-radius: 999px; padding: 5px 9px; font-size: 12px; }
 .saved-credential { display: flex; align-items: center; gap: 9px; color: var(--green); }
 .saved-credential span { display: flex; flex-direction: column; gap: 3px; }
 .saved-credential small { color: var(--muted); }
-.gateway-side { display: flex; align-items: center; gap: 16px; }
+.gateway-side { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 16px; margin-left: auto; }
 .delete-provider-button { min-height: 36px; border: 1px solid var(--danger-border); border-radius: 8px; background: var(--danger-bg); color: var(--danger-text); padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; white-space: nowrap; font-weight: 700; transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease); }
 .delete-provider-button:hover { border-color: var(--danger-solid); background: var(--danger-solid); color: var(--on-brand); }
 /* The duplicate sits beside delete as its calm counterpart: same geometry,
@@ -935,8 +935,7 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
   .model-table-head, .model-row { min-width: 904px; }
   /* Codex rows carry four columns, not seven, so they need far less room. */
   .model-table-head.is-codex, .model-row.is-codex { min-width: 480px; }
-  .gateway-summary { grid-template-columns: 48px minmax(0, 1fr); }
-  .gateway-side { grid-column: 2; flex-wrap: wrap; }
+  .gateway-side { width: 100%; margin-left: 0; }
   .models-header { flex-direction: column; align-items: stretch; gap: 12px; }
   .models-actions > * { flex: 1; }
   .success-page, .settings-page { min-height: 0; }
@@ -964,7 +963,7 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
   .models-step .models-note { order: 6; }
   .models-step .advanced-panel { order: 7; }
   .models-step .error-banner { order: 8; }
-  .gateway-summary { grid-template-columns: 42px minmax(0, 1fr); gap: 8px; padding: 12px 14px; }
+  .gateway-summary { gap: 8px 12px; padding: 12px 14px; }
   .summary-icon { width: 42px; height: 42px; }
   .summary-icon svg { width: 28px; height: 28px; }
   .gateway-summary strong { font-size: 16px; }
