@@ -103,12 +103,18 @@ function piModelCommand(providerId, modelId, settings, settingsPresent) {
   return present.has("defaultThinkingLevel") && level ? `${base}:${level}` : base;
 }
 
+// The four states that actually differ once written to models.json: no reasoning,
+// reasoning at Pi's default ladder, and the two tiers that need a thinkingLevelMap
+// to unlock (xhigh, then xhigh+max). An earlier version offered 中等 and 强 as
+// separate choices, but both wrote the identical model — reasoning on, no map —
+// so 中等 silently became 强 on the next read. This is a capability declaration
+// (does the model think, and how high can it go), not the runtime thinking level;
+// that one is global, in Settings.
 const THINKING_OPTIONS = [
-  { value: "off", label: "不支持" },
-  { value: "medium", label: "支持 · 中等" },
-  { value: "high", label: "支持 · 强" },
-  { value: "xhigh", label: "支持 · XHigh" },
-  { value: "max", label: "支持 · Max" },
+  { value: "off", label: "不支持思考" },
+  { value: "on", label: "支持思考" },
+  { value: "xhigh", label: "支持思考 · 含 XHigh" },
+  { value: "max", label: "支持思考 · 含 Max" },
 ];
 
 function apiMeta(id) {
@@ -207,7 +213,7 @@ function blankModel(id = "") {
     contextWindow: limits.contextWindow,
     maxTokens: limits.maxTokens,
     supportsImages: true,
-    maximumThinking: "high",
+    maximumThinking: "on",
     api: "inherit",
     forceAdaptiveThinking: false,
     anthropicBeta: "",
@@ -300,7 +306,7 @@ const DEMO_STATE = {
       isDefault: true,
       models: [
         { id: "claude-3-5-sonnet", name: "claude-3-5-sonnet", contextWindow: 200000, maxTokens: 8192, input: ["text", "image"], reasoning: true },
-        { id: "claude-3-5-haiku", name: "claude-3-5-haiku", contextWindow: 200000, maxTokens: 8192, input: ["text", "image"], reasoning: true, maximumThinking: "medium" },
+        { id: "claude-3-5-haiku", name: "claude-3-5-haiku", contextWindow: 200000, maxTokens: 8192, input: ["text", "image"], reasoning: true },
       ],
     },
     { id: "openai", name: "OpenAI", api: "openai-responses", baseUrl: "https://api.openai.com/v1", credentialConfigured: true, models: [] },
@@ -324,13 +330,13 @@ function providerToForm(provider, state) {
         contextWindow: model.contextWindow || 128000,
         maxTokens: model.maxTokens || 16384,
         supportsImages: Array.isArray(model.input) && model.input.includes("image"),
-        maximumThinking: model.maximumThinking || (model.thinkingLevelMap?.max
+        maximumThinking: model.thinkingLevelMap?.max
           ? "max"
           : model.thinkingLevelMap?.xhigh
             ? "xhigh"
             : model.reasoning
-              ? "high"
-              : "off"),
+              ? "on"
+              : "off",
         api: model.api || "inherit",
         forceAdaptiveThinking: Boolean(model.compat?.forceAdaptiveThinking),
         anthropicBeta: model.anthropicBeta?.kind === "literal" ? model.anthropicBeta.value : "",

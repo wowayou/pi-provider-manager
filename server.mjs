@@ -827,7 +827,10 @@ function normalizeModel(model, providerApi) {
   // protocol gate here refused a real draft — a gpt model added to an
   // Anthropic-protocol relay — while protecting nothing.
   if (Object.hasOwn(model, "anthropicBeta")) normalizeAnthropicBeta(model.anthropicBeta);
-  const maximumThinking = ALLOWED_THINKING.has(model.maximumThinking) ? model.maximumThinking : "high";
+  // Only xhigh and max change what is written (they add a thinkingLevelMap);
+  // every other reasoning-on value — the UI's "on", plus "medium"/"high" from an
+  // older client — writes the same model, so they collapse to the default ladder.
+  const maximumThinking = ALLOWED_THINKING.has(model.maximumThinking) ? model.maximumThinking : "on";
   const normalized = {
     id,
     name: String(model.name || id).trim() || id,
