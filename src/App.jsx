@@ -8,7 +8,7 @@ import {
   ChatCircleDots,
   Check,
   CheckCircle,
-  CircleHalf,
+  CircleHalfTilt,
   CircleNotch,
   CloudArrowDown,
   Copy,
@@ -128,9 +128,9 @@ function apiMeta(id) {
 
 const THEME_KEY = "ppm-theme";
 const THEME_OPTIONS = [
-  { value: "system", label: "跟随系统", icon: CircleHalf },
-  { value: "light", label: "浅色", icon: Sun },
-  { value: "dark", label: "深色", icon: Moon },
+  { value: "system", label: "跟随系统", icon: CircleHalfTilt, weight: "duotone" },
+  { value: "light", label: "浅色", icon: Sun, weight: "regular" },
+  { value: "dark", label: "深色", icon: Moon, weight: "regular" },
 ];
 
 function readStoredTheme() {
@@ -163,7 +163,7 @@ function useTheme() {
 }
 
 // The appearance control is a single corner icon that cycles system → light →
-// dark. The icon reflects the current theme (CircleHalf for system, Sun, Moon),
+// dark. The icon reflects the current theme (CircleHalfTilt for system, Sun, Moon),
 // so no label is needed; the title/aria-label state the current value and that a
 // click cycles. It shares the settings row rather than taking a row of its own.
 function ThemeToggle({ theme, onTheme }) {
@@ -176,7 +176,7 @@ function ThemeToggle({ theme, onTheme }) {
   };
   return (
     <button type="button" className="theme-cycle-icon" onClick={cycle} title={`外观：${current.label}，点击切换`} aria-label={`外观：${current.label}，点击切换`}>
-      <CurrentIcon size={18} weight="regular" />
+      <CurrentIcon size={18} weight={current.weight} />
     </button>
   );
 }
