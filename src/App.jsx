@@ -8,11 +8,11 @@ import {
   ChatCircleDots,
   Check,
   CheckCircle,
+  CircleHalfTilt,
   CircleNotch,
   CloudArrowDown,
   Copy,
   Cube,
-  Desktop,
   FileText,
   Gear,
   GoogleLogo,
@@ -128,9 +128,9 @@ function apiMeta(id) {
 
 const THEME_KEY = "ppm-theme";
 const THEME_OPTIONS = [
-  { value: "system", label: "跟随系统", icon: Desktop },
-  { value: "light", label: "浅色", icon: Sun },
-  { value: "dark", label: "深色", icon: Moon },
+  { value: "system", label: "跟随系统", icon: CircleHalfTilt, weight: "duotone" },
+  { value: "light", label: "浅色", icon: Sun, weight: "regular" },
+  { value: "dark", label: "深色", icon: Moon, weight: "regular" },
 ];
 
 function readStoredTheme() {
@@ -162,39 +162,22 @@ function useTheme() {
   return [theme, setTheme];
 }
 
-function ThemeSwitch({ theme, onTheme }) {
-  const buttonRefs = useRef([]);
+// The appearance control is a single corner icon that cycles system → light →
+// dark. The icon reflects the current theme (CircleHalfTilt for system, Sun, Moon),
+// so no label is needed; the title/aria-label state the current value and that a
+// click cycles. It shares the settings row rather than taking a row of its own.
+function ThemeToggle({ theme, onTheme }) {
   const selectedIndex = Math.max(0, THEME_OPTIONS.findIndex((option) => option.value === theme));
-  const onKeyDown = createRadioKeyHandler({
-    refs: buttonRefs,
-    values: THEME_OPTIONS.map((option) => option.value),
-    selectedIndex,
-    onSelect: onTheme,
-  });
+  const current = THEME_OPTIONS[selectedIndex];
+  const CurrentIcon = current.icon;
+  const cycle = () => {
+    const next = THEME_OPTIONS[(selectedIndex + 1) % THEME_OPTIONS.length];
+    onTheme(next.value);
+  };
   return (
-    <div className="theme-toggle">
-      <span>外观</span>
-      <div className="theme-switch" role="radiogroup" aria-label="外观" onKeyDown={onKeyDown}>
-        {THEME_OPTIONS.map((option, index) => {
-          const Icon = option.icon;
-          return (
-            <button
-              key={option.value}
-              type="button"
-              ref={(node) => { buttonRefs.current[index] = node; }}
-              role="radio"
-              aria-checked={theme === option.value}
-              tabIndex={index === selectedIndex ? 0 : -1}
-              aria-label={option.label}
-              title={option.label}
-              onClick={() => onTheme(option.value)}
-            >
-              <Icon size={16} weight={theme === option.value ? "fill" : "regular"} />
-            </button>
-          );
-        })}
-      </div>
-    </div>
+    <button type="button" className="theme-cycle-icon" onClick={cycle} title={`外观：${current.label}，点击切换`} aria-label={`外观：${current.label}，点击切换`}>
+      <CurrentIcon size={18} weight={current.weight} />
+    </button>
   );
 }
 
@@ -483,6 +466,12 @@ function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd
   const [query, setQuery] = useState("");
   const providers = sidebarProviders(state, target);
   const listRef = useRef(null);
+  const activeRowRef = useRef(null);
+  // The row Pi marks 默认 / Codex marks 生效中 is the one worth surfacing: in a long
+  // catalog it can sit below the fold, so bring it into view on mount and on a
+  // target switch. Derived from the same badge the row renders, so "active" here
+  // is exactly the mark the user is looking for.
+  const activeId = providers.find((provider) => provider.badge)?.id || null;
   const [tipDismissed, setTipDismissed] = useState(() => {
     try {
       return localStorage.getItem("ppm.tip-dismissed") === "1";
@@ -500,6 +489,19 @@ function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd
   };
   const keyword = query.trim().toLowerCase();
   const visible = keyword ? providers.filter((provider) => provider.keywords.toLowerCase().includes(keyword)) : providers;
+  // Only auto-locate an unfiltered list: while the user is typing a filter, the
+  // scroll position is theirs to control.
+  useEffect(() => {
+    if (keyword || !activeId) return;
+    const row = activeRowRef.current;
+    const list = listRef.current;
+    if (!row || !list) return;
+    const rowBox = row.getBoundingClientRect();
+    const listBox = list.getBoundingClientRect();
+    if (rowBox.top < listBox.top || rowBox.bottom > listBox.bottom) {
+      row.scrollIntoView({ block: "nearest" });
+    }
+  }, [target, activeId, keyword]);
   // Re-measured whenever the rendered rows change, since a filtered list
   // changes scrollHeight without resizing the container.
   const listEdges = useScrollEdges(listRef, visible.length);
@@ -543,6 +545,7 @@ function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd
             <button
               type="button"
               key={provider.id}
+              ref={provider.id === activeId ? activeRowRef : undefined}
               className={`provider-item ${isSelected ? "is-selected" : ""}`}
               onClick={() => onSelect(provider.source)}
               aria-current={isSelected ? "true" : undefined}
@@ -555,11 +558,11 @@ function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd
               </span>
               <span className="provider-trailing">
                 <span className="provider-badge">{provider.badge}</span>
-                {provider.ready ? (
-                  <CheckCircle className="status-ok" size={18} weight="fill" aria-label={provider.readyLabel} />
-                ) : (
-                  <WarningCircle className="status-warn" size={18} weight="fill" aria-label={provider.notReadyLabel} />
-                )}
+                <span
+                  className={`status-dot ${provider.ready ? "is-ok" : "is-warn"}`}
+                  role="img"
+                  aria-label={provider.ready ? provider.readyLabel : provider.notReadyLabel}
+                />
               </span>
             </button>
           );
@@ -588,9 +591,13 @@ function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd
         <button type="button" className="tip-dismiss" onClick={dismissTip} aria-label="不再显示新手提示"><X size={15} weight="bold" /></button>
       </div>
       )}
-      <button type="button" className={`settings-button nav-prompts ${activeView === "prompts" ? "is-active" : ""}`} onClick={onPrompts}><FileText size={20} />提示词</button>
-      <button type="button" className={`settings-button nav-settings ${activeView === "settings" ? "is-active" : ""}`} onClick={onSettings}><Gear size={20} />设置与兼容性</button>
-      <ThemeSwitch theme={theme} onTheme={onTheme} />
+      <div className="sidebar-footer">
+        <button type="button" className={`settings-button nav-prompts ${activeView === "prompts" ? "is-active" : ""}`} onClick={onPrompts}><FileText size={20} />提示词</button>
+        <div className="footer-settings-row">
+          <button type="button" className={`settings-button nav-settings ${activeView === "settings" ? "is-active" : ""}`} onClick={onSettings}><Gear size={20} />设置与兼容性</button>
+          <ThemeToggle theme={theme} onTheme={onTheme} />
+        </div>
+      </div>
     </aside>
   );
 }
