@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.4.2 - 2026-09-21
+
+- Validated against Pi `0.86.1` and Codex `0.154.0`; the full suite ran with no skips, including the real Pi `0.86.1` and real Codex binary suites. This release fixes the handoff command always ending in `:high` and stops saving a provider from silently resetting the global thinking level.
+
+- **The success screen's `pi --model` command no longer invents a thinking level, and saving a provider no longer rewrites the global one.** The three-step wizard has no control for the runtime thinking level — that is the Settings screen's `defaultThinkingLevel`, a global setting, distinct from the per-model 推理能力 (`maximumThinking`) ceiling in `models.json`. Two defects followed from conflating them: `blankForm()` hard-coded the form's `defaultThinkingLevel` to `high`, so the handoff command was always `…:high` regardless of anything the user chose, and `saveProvider` wrote that value into `settings.defaultThinkingLevel` whenever a provider was set as default, silently resetting the level the user had picked in Settings to `high`. `saveProvider` now sets only `defaultProvider` and `defaultModel`; the thinking level is owned solely by `/api/settings`, so a stale tab or a direct API call can no longer reset it either. The command is built by `piModelCommand`, which reflects the level `settings.json` actually carries (via `settingsPresent`) and drops the `:level` suffix entirely when none is written — `pi --model provider/model` uses Pi's own default rather than a fabricated one. The now-unused `defaultThinkingLevel` field is removed from the provider draft and its save payload so the write cannot be reintroduced by wiring a live field back to disk.
 ## 0.4.1 - 2026-09-20
 
 - Validated against Pi `0.86.1` and Codex `0.154.0`; the full suite ran with no skips. This release advances the Pi baseline to `0.86.1` and makes the 获取模型 dialog explain a TLS-against-HTTP failure instead of relaying the raw OpenSSL error.

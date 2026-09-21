@@ -90,6 +90,19 @@ const API_OPTIONS = [
   },
 ];
 
+// The `:level` suffix is Pi's runtime thinking level, a global setting owned by
+// the Settings screen — not the per-model "推理能力" ceiling and not anything the
+// wizard sets. Reflect the level settings.json actually carries, and drop the
+// suffix entirely when it carries none, so the command never invents a level.
+function piModelCommand(providerId, modelId, settings, settingsPresent) {
+  const base = `pi --model ${providerId}/${modelId}`;
+  const present = new Set(
+    Array.isArray(settingsPresent) ? settingsPresent : Object.keys(settings || {}),
+  );
+  const level = settings?.defaultThinkingLevel;
+  return present.has("defaultThinkingLevel") && level ? `${base}:${level}` : base;
+}
+
 const THINKING_OPTIONS = [
   { value: "off", label: "不支持" },
   { value: "medium", label: "支持 · 中等" },
@@ -217,7 +230,6 @@ function blankForm() {
     // Keyed by row, not by model id: the id is an editable field, and keying on it
     // silently dropped the default the moment a user corrected a typo.
     defaultRowId: firstModel.rowId,
-    defaultThinkingLevel: "high",
     compat: {},
     userAgent: "",
     userAgentKind: "none",
@@ -339,7 +351,6 @@ function providerToForm(provider, state) {
       convertedModels.find((model) => state.settings.defaultProvider === provider.id && model.id === state.settings.defaultModel)
       || convertedModels[0]
     ).rowId,
-    defaultThinkingLevel: state.settings.defaultThinkingLevel || "high",
     compat: provider.compat || {},
     userAgent: provider.userAgent?.kind === "literal" ? provider.userAgent.value : "",
     userAgentKind: provider.userAgent?.kind || "none",
@@ -1948,7 +1959,8 @@ export function App() {
       })),
       setDefault,
       defaultModelId: selectedModel.id.trim(),
-      defaultThinkingLevel: form.defaultThinkingLevel,
+      // Thinking level is not sent: it is a global setting owned by the Settings
+      // screen, and the server ignores it here so a stale tab cannot reset it.
       compat: form.compat,
       revision: state.revision,
     };
@@ -1997,7 +2009,7 @@ export function App() {
           ],
           authProviders: [...new Set([...state.authProviders, payload.providerId])],
           settings: setDefault
-            ? { ...state.settings, defaultProvider: payload.providerId, defaultModel: payload.defaultModelId, defaultThinkingLevel: payload.defaultThinkingLevel }
+            ? { ...state.settings, defaultProvider: payload.providerId, defaultModel: payload.defaultModelId }
             : state.settings,
         };
         setState(demoState);
@@ -2007,11 +2019,10 @@ export function App() {
           providerId: payload.providerId,
           modelCount: payload.models.length,
           defaultModelId: payload.defaultModelId,
-          defaultThinkingLevel: payload.defaultThinkingLevel,
           setDefault,
           userAgent: demoProvider.userAgent,
           hasModelUserAgentOverride: demoProvider.hasModelUserAgentOverride,
-          command: `pi --model ${payload.providerId}/${payload.defaultModelId}:${payload.defaultThinkingLevel}`,
+          command: piModelCommand(payload.providerId, payload.defaultModelId, demoState.settings, demoState.settingsPresent),
         };
         setSaveResult(result);
         setView("success");
@@ -2026,11 +2037,10 @@ export function App() {
         providerId: payload.providerId,
         modelCount: payload.models.length,
         defaultModelId: payload.defaultModelId,
-        defaultThinkingLevel: payload.defaultThinkingLevel,
         setDefault,
         userAgent: saved?.userAgent,
         hasModelUserAgentOverride: saved?.hasModelUserAgentOverride,
-        command: `pi --model ${payload.providerId}/${payload.defaultModelId}:${payload.defaultThinkingLevel}`,
+        command: piModelCommand(payload.providerId, payload.defaultModelId, data.state.settings, data.state.settingsPresent),
       });
       setView("success");
     } catch (requestError) {

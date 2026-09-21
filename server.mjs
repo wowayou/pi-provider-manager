@@ -972,9 +972,9 @@ function saveProvider(payload) {
     if (!normalizedModels.some((model) => model.id === defaultModelId)) throw new Error("默认模型不在模型列表中。");
     settings.defaultProvider = providerId;
     settings.defaultModel = defaultModelId;
-    settings.defaultThinkingLevel = ALLOWED_THINKING.has(payload.defaultThinkingLevel)
-      ? payload.defaultThinkingLevel
-      : "high";
+    // Thinking level is an independent, global setting owned by the Settings
+    // screen (/api/settings). The provider wizard has no control for it, so
+    // writing it here silently clobbered whatever the user had chosen there.
   }
 
   const originals = stableManagedSnapshots();
