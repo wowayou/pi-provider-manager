@@ -555,11 +555,11 @@ function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd
               </span>
               <span className="provider-trailing">
                 <span className="provider-badge">{provider.badge}</span>
-                {provider.ready ? (
-                  <CheckCircle className="status-ok" size={18} weight="fill" aria-label={provider.readyLabel} />
-                ) : (
-                  <WarningCircle className="status-warn" size={18} weight="fill" aria-label={provider.notReadyLabel} />
-                )}
+                <span
+                  className={`status-dot ${provider.ready ? "is-ok" : "is-warn"}`}
+                  role="img"
+                  aria-label={provider.ready ? provider.readyLabel : provider.notReadyLabel}
+                />
               </span>
             </button>
           );

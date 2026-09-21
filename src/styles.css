@@ -375,6 +375,13 @@ code { color: var(--ink); background: transparent; }
 .list-empty-first span { max-width: 240px; }
 .status-ok { color: var(--green); }
 .status-warn { color: var(--status-warn); }
+/* A single dot carries the connectivity read: green when the credential is in
+   place, amber when it still needs one. The orange 生效中/默认 badge beside it is a
+   different fact (which one is live), so the two no longer read as one crowded
+   cluster of ticks. */
+.status-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; }
+.status-dot.is-ok { background: var(--green); }
+.status-dot.is-warn { background: var(--status-warn); }
 
 .beginner-tip { position: relative; margin-top: auto; border: 1px solid var(--line); border-radius: 12px; padding: 14px 30px 14px 14px; display: flex; gap: 10px; color: var(--tip-text); background: var(--surface-warm); }
 /* 24px is WCAG 2.2's minimum target size, and the offset is 6px rather than 8px
