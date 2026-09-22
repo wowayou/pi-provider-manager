@@ -314,7 +314,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   outline-offset: 2px;
   border-radius: 6px;
 }
-.protocol-card:focus-visible, .provider-item:focus-visible, .add-provider:focus-visible { outline-offset: 3px; }
+.protocol-card:focus-visible, .provider-item:focus-visible, .provider-select:focus-visible, .add-provider:focus-visible { outline-offset: 3px; }
 
 code, .mono, input.mono, .command-row code, kbd {
   font-family: var(--mono);
@@ -353,7 +353,19 @@ code { color: var(--ink); background: transparent; }
 .provider-search input::-webkit-search-cancel-button { cursor: pointer; }
 
 .provider-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; display: flex; flex-direction: column; gap: 4px; }
-.provider-item { width: 100%; border: 0; background: transparent; display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 11px 10px; border-radius: 10px; text-align: left; color: inherit; position: relative; box-shadow: inset 0 0 0 var(--orange); transition: background var(--fast) var(--ease), box-shadow var(--base) var(--ease); }
+.provider-item { position: relative; width: 100%; display: flex; align-items: center; border-radius: 10px; box-shadow: inset 0 0 0 var(--orange); transition: background var(--fast) var(--ease), box-shadow var(--base) var(--ease); }
+.provider-select { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 11px 10px; border-radius: 10px; text-align: left; color: inherit; }
+/* An overflow menu revealed on hover/focus so a long list stays quiet, but kept
+   in the tab order — focus reveals it — so keyboard users reach 复制/删除 too. */
+.row-menu { position: relative; flex: none; margin-right: 4px; }
+.row-menu-trigger { width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--ink-3); display: grid; place-items: center; opacity: 0; cursor: pointer; transition: opacity var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease); }
+.provider-item:hover .row-menu-trigger, .row-menu-trigger:focus-visible, .row-menu-trigger[aria-expanded="true"] { opacity: 1; }
+.row-menu-trigger:hover, .row-menu-trigger[aria-expanded="true"] { background: var(--surface-active); color: var(--ink-2); }
+.row-menu-popup { position: absolute; top: calc(100% + 4px); right: 0; z-index: 20; min-width: 148px; padding: 5px; display: flex; flex-direction: column; gap: 2px; background: var(--surface-overlay); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-modal); }
+.row-menu-popup button { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font-size: 13px; text-align: left; cursor: pointer; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
+.row-menu-popup button:hover { background: var(--surface-hover); }
+.row-menu-popup button.is-danger { color: var(--danger-text); }
+.row-menu-popup button.is-danger:hover { background: var(--danger-bg); }
 .provider-list.has-more-below { -webkit-mask-image: var(--fade-below); mask-image: var(--fade-below); }
 .provider-list.has-more-above { -webkit-mask-image: var(--fade-above); mask-image: var(--fade-above); }
 .provider-list.has-more-above.has-more-below { -webkit-mask-image: var(--fade-both); mask-image: var(--fade-both); }
@@ -937,7 +949,9 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
   .provider-search { margin-bottom: 8px; }
   /* keep provider switching reachable on narrow screens: a scrollable chip rail */
   .provider-list { flex: none; min-height: 48px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; scrollbar-gutter: auto; flex-direction: row; gap: 8px; padding-bottom: 4px; scrollbar-width: thin; }
-  .provider-item { width: auto; flex: none; grid-template-columns: 28px auto auto; padding: 8px 12px 8px 8px; border: 1px solid var(--line); }
+  .provider-item { width: auto; flex: none; border: 1px solid var(--line); }
+  .provider-select { grid-template-columns: 28px auto auto; padding: 8px 12px 8px 8px; }
+  .row-menu { display: none; }
   /* Horizontal rail: a vertical fade would mask the wrong edge. */
   .provider-list.has-more-above, .provider-list.has-more-below,
   .provider-list.has-more-above.has-more-below { -webkit-mask-image: none; mask-image: none; }
