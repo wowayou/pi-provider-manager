@@ -659,7 +659,7 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     assert.ok(mobile.toastLeft >= 0 && mobile.toastRight <= 420);
     assert.deepEqual(mobile.rowHeights, [85, 85, 85]);
 
-    await cdp.evaluate(`document.querySelectorAll('.provider-item')[1].click()`);
+    await cdp.evaluate(`document.querySelectorAll('.provider-select')[1].click()`);
     await cdp.waitFor(`document.querySelectorAll('.model-row').length === 1 && document.querySelector('.model-name-cell input').value === 'only/model'`);
     const onlyRemove = await cdp.evaluate(`({
       disabled: document.querySelector('.model-row .icon-button').disabled,
@@ -1229,7 +1229,7 @@ test("the form does not offer to reuse a bridge key that cannot be used", { time
     // Opening a provider that has models lands on the model step; the credentials
     // step is reached back through the stepper, the way a person would.
     const openCredentials = async (name) => {
-      await clickText(".provider-item", name);
+      await clickText(".provider-select", name);
       await cdp.waitFor(`document.querySelector('.models-step')`);
       await clickText(".step", "填写凭据");
       await cdp.waitFor(`document.querySelector('.credential-box .key-field input')`);
@@ -1792,14 +1792,14 @@ test("every piece of text meets WCAG AA contrast in both themes", { timeout: 90_
     // exactly how the palette drifted out of contrast in the first place.
     const auditTransients = async (label) => {
       // A plain toast: arming a model delete explains what Pi will read.
-      await cdp.evaluate(`document.querySelectorAll('.provider-item')[0].click()`);
+      await cdp.evaluate(`document.querySelectorAll('.provider-select')[0].click()`);
       await cdp.waitFor(`document.querySelectorAll('.model-row').length === 3`);
       await cdp.evaluate(`document.querySelector('.model-row .icon-button').click()`);
       await cdp.waitFor(`document.querySelector('.toast')`);
       await audit(`${label} with a toast`);
 
       // The delete dialog, reached the way a single-model provider forces it.
-      await cdp.evaluate(`document.querySelectorAll('.provider-item')[1].click()`);
+      await cdp.evaluate(`document.querySelectorAll('.provider-select')[1].click()`);
       await cdp.waitFor(`document.querySelectorAll('.model-row').length === 1`);
       await cdp.evaluate(`document.querySelector('.model-row .icon-button').click()`);
       await cdp.waitFor(`document.querySelector('.toast-action')`);
@@ -1829,7 +1829,7 @@ test("every piece of text meets WCAG AA contrast in both themes", { timeout: 90_
       // differ after the dialog path above. Keep both theme measurements on
       // the same three-model page so the page signature tests theme parity,
       // not navigation state.
-      await cdp.evaluate(`document.querySelectorAll('.provider-item')[0].click()`);
+      await cdp.evaluate(`document.querySelectorAll('.provider-select')[0].click()`);
       await cdp.waitFor(`document.querySelector('.models-step') && document.querySelectorAll('.model-row').length === 3 && !document.querySelector('.error-banner')`);
     };
 
@@ -2456,7 +2456,7 @@ test("the credentials step says when saving would replace another provider", { t
     // Editing review-router itself is not a collision with review-router. This is
     // the half a plain "does this ID exist" check gets wrong, and getting it wrong
     // puts an overwrite warning on every edit of every saved provider.
-    await cdp.evaluate(`document.querySelectorAll('.provider-item')[0].click()`);
+    await cdp.evaluate(`document.querySelectorAll('.provider-select')[0].click()`);
     await cdp.waitFor(`document.querySelector('.model-row')`);
     await cdp.evaluate(`document.querySelectorAll('.stepper .step')[1].click()`);
     await cdp.waitFor(`document.querySelector('.form-grid input')`);
@@ -2746,7 +2746,7 @@ test("production UI keeps new-draft User-Agent intent and locates invalid whites
     // The same production page must locate a server-invalid value even after
     // the advanced details have been collapsed before Save is pressed.
     await cdp.evaluate(
-      "[...document.querySelectorAll('.provider-item')].find((node) => node.title.includes('review-router')).click()",
+      "[...document.querySelectorAll('.provider-select')].find((node) => node.title.includes('review-router')).click()",
     );
     await cdp.waitFor("document.querySelector('.models-table')");
     await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
@@ -2806,7 +2806,7 @@ test("production UI edits Anthropic Beta and preserves unrelated draft edits", {
     await cdp.waitFor("document.querySelectorAll('.model-row').length === 2");
     const clickText = (selector, text) => cdp.evaluate("[...document.querySelectorAll(" + JSON.stringify(selector) + ")].find((node) => node.textContent.includes(" + JSON.stringify(text) + ")).click()");
     const setValue = (selector, value) => cdp.evaluate("(() => { const input = document.querySelector(" + JSON.stringify(selector) + "); const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(input, " + JSON.stringify(value) + "); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
-    await cdp.evaluate("[...document.querySelectorAll('.provider-item')].find((node) => node.title.includes('review-router')).click()");
+    await cdp.evaluate("[...document.querySelectorAll('.provider-select')].find((node) => node.title.includes('review-router')).click()");
     await cdp.waitFor("document.querySelector('.models-table')");
     await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
     await cdp.waitFor("document.querySelector('.beta-group select')");
@@ -2815,7 +2815,7 @@ test("production UI edits Anthropic Beta and preserves unrelated draft edits", {
     await cdp.waitFor("document.querySelector('.success-page')");
     let saved = JSON.parse(fs.readFileSync(modelsPath, "utf8"));
     assert.equal(saved.providers["review-router"].models[0].headers["anthropic-beta"], "context-1m-2025-08-07");
-    await cdp.evaluate("[...document.querySelectorAll('.provider-item')].find((node) => node.title.includes('review-router')).click()");
+    await cdp.evaluate("[...document.querySelectorAll('.provider-select')].find((node) => node.title.includes('review-router')).click()");
     await cdp.waitFor("document.querySelector('.beta-value-field input')");
     assert.equal(await cdp.evaluate("document.querySelector('.beta-value-field input').value"), "context-1m-2025-08-07");
     await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
@@ -2839,7 +2839,7 @@ test("production UI edits Anthropic Beta and preserves unrelated draft edits", {
     assert.equal(saved.providers["review-router"].models[1].api, "openai-completions");
     assert.equal(saved.providers["review-router"].models[1].headers["anthropic-beta"], "beta-on-openai");
     assert.equal(Object.hasOwn(saved.providers["review-router"].models[0], "headers"), false, "the cleared override on the first model came back");
-    await cdp.evaluate("[...document.querySelectorAll('.provider-item')].find((node) => node.title.includes('review-router')).click()");
+    await cdp.evaluate("[...document.querySelectorAll('.provider-select')].find((node) => node.title.includes('review-router')).click()");
     await cdp.waitFor("document.querySelector('.models-table')");
     await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
     await cdp.waitFor("document.querySelector('.advanced-panel').open");
@@ -2992,6 +2992,78 @@ test("production UI imports the models a gateway lists, and explains a gateway i
   } finally {
     if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }
     await stopProcess(chrome, true); await stopProcess(server); await stopProcess(gateway);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("the sidebar row menu deletes a provider without opening it first", { timeout: 60_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-rowmenu-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-rowmenu-"));
+  writeFixture(agentDir);
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server;
+  let chrome;
+  let cdp;
+  let serverOutput = "";
+
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
+        PI_PROVIDER_MANAGER_SERVE_UI: "1",
+        PI_PROVIDER_MANAGER_PORT: String(appPort),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; });
+    server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${appPort}/api/state`);
+    chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profileDir}`, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
+    const target = await fetch(`http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(`http://127.0.0.1:${appPort}`)}`, { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl); await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    await cdp.send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
+    await cdp.waitFor("document.querySelectorAll('.provider-item').length === 2");
+
+    // The default (review-router) is auto-opened in the wizard; single-router is
+    // not the open provider. Deleting it must not require navigating to it first.
+    assert.match(await cdp.evaluate("document.querySelector('.provider-item.is-selected .provider-copy strong')?.textContent || ''"), /Review Router/);
+    assert.equal(await cdp.evaluate("[...document.querySelectorAll('.provider-select')].find((node) => node.title.includes('single-router')).closest('.provider-item').classList.contains('is-selected')"), false);
+
+    // Open the row menu for single-router and delete it, never clicking the row.
+    await cdp.evaluate(`[...document.querySelectorAll('.provider-select')].find((node) => node.title.includes('single-router')).parentElement.querySelector('.row-menu-trigger').click()`);
+    await cdp.waitFor("document.querySelector('.row-menu-popup')");
+    await cdp.evaluate(`[...document.querySelectorAll('.row-menu-popup button')].find((node) => node.textContent.includes('删除供应商')).click()`);
+    await cdp.waitFor("document.querySelector('.provider-delete-dialog') && document.activeElement === document.querySelector('.provider-delete-dialog .secondary-button')");
+
+    // The dialog names the row's own provider, not the (unselected) wizard draft.
+    assert.match(await cdp.evaluate("document.querySelector('#provider-delete-description').textContent"), /single-router/);
+    // single-router is not Pi's default, so no replacement is required.
+    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.replacement-panel'))"), false);
+    await cdp.evaluate("document.querySelector('.provider-delete-dialog .danger-button').click()");
+    await cdp.waitFor("!document.querySelector('.provider-delete-dialog') && document.querySelectorAll('.provider-item').length === 1 && document.querySelector('.toast')");
+
+    // The right provider was removed from disk, the default left intact.
+    const models = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+    assert.deepEqual(Object.keys(models.providers), ["review-router"]);
+    const settings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+    assert.equal(settings.defaultProvider, "review-router");
+    // Its credential went with it by default.
+    const auth = JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"));
+    assert.equal(Object.hasOwn(auth, "single-router"), false);
+    assert.equal(cdp.errors.length, 0);
+  } catch (error) {
+    error.message += `\nServer output:\n${serverOutput}`;
+    throw error;
+  } finally {
+    if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }
+    await stopProcess(chrome, true); await stopProcess(server);
     fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }

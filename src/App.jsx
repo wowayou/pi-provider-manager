@@ -13,6 +13,7 @@ import {
   CloudArrowDown,
   Copy,
   Cube,
+  DotsThree,
   FileText,
   Gear,
   GoogleLogo,
@@ -462,7 +463,55 @@ function TargetSwitch({ target, onTarget }) {
   );
 }
 
-function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd, onSettings, onPrompts, activeView, theme, onTheme }) {
+// A per-row overflow menu so 复制 / 删除 do not require opening the provider into
+// the wizard first. It is a menu, not the model-row arm flow: 删除 opens the same
+// named confirmation dialog the in-wizard button does, which is where the
+// destructive step and its undo live. Closes on outside click, Escape, or a
+// choice, and returns focus to the trigger.
+function ProviderRowMenu({ provider, onDuplicate, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDocClick = (event) => {
+      if (!menuRef.current?.contains(event.target) && !triggerRef.current?.contains(event.target)) setOpen(false);
+    };
+    const onKey = (event) => {
+      if (event.key === "Escape") { setOpen(false); triggerRef.current?.focus(); }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  const choose = (action) => { setOpen(false); action(); };
+  return (
+    <span className="row-menu">
+      <button
+        type="button"
+        ref={triggerRef}
+        className="row-menu-trigger"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`${provider.name} 的更多操作`}
+        onClick={(event) => { event.stopPropagation(); setOpen((value) => !value); }}
+      >
+        <DotsThree size={20} weight="bold" />
+      </button>
+      {open && (
+        <span className="row-menu-popup" role="menu" ref={menuRef}>
+          <button type="button" role="menuitem" onClick={(event) => { event.stopPropagation(); choose(() => onDuplicate(provider.id)); }}><Copy size={16} />复制供应商</button>
+          <button type="button" role="menuitem" className="is-danger" onClick={(event) => { event.stopPropagation(); choose(() => onDelete(provider.id)); }}><Trash size={16} />删除供应商</button>
+        </span>
+      )}
+    </span>
+  );
+}
+
+function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd, onSettings, onPrompts, activeView, theme, onTheme, onDuplicate, onDelete }) {
   const [query, setQuery] = useState("");
   const providers = sidebarProviders(state, target);
   const listRef = useRef(null);
@@ -542,29 +591,34 @@ function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd
           const Icon = provider.icon;
           const isSelected = selectedId === provider.id && activeView === "wizard";
           return (
-            <button
-              type="button"
+            <div
               key={provider.id}
               ref={provider.id === activeId ? activeRowRef : undefined}
               className={`provider-item ${isSelected ? "is-selected" : ""}`}
-              onClick={() => onSelect(provider.source)}
-              aria-current={isSelected ? "true" : undefined}
-              title={`${provider.name} · ${provider.id}`}
             >
-              <span className="provider-icon"><Icon size={23} weight="duotone" aria-hidden="true" /></span>
-              <span className="provider-copy">
-                <strong>{provider.name}</strong>
-                <small>{provider.subtitle}</small>
-              </span>
-              <span className="provider-trailing">
-                <span className="provider-badge">{provider.badge}</span>
-                <span
-                  className={`status-dot ${provider.ready ? "is-ok" : "is-warn"}`}
-                  role="img"
-                  aria-label={provider.ready ? provider.readyLabel : provider.notReadyLabel}
-                />
-              </span>
-            </button>
+              <button
+                type="button"
+                className="provider-select"
+                onClick={() => onSelect(provider.source)}
+                aria-current={isSelected ? "true" : undefined}
+                title={`${provider.name} · ${provider.id}`}
+              >
+                <span className="provider-icon"><Icon size={23} weight="duotone" aria-hidden="true" /></span>
+                <span className="provider-copy">
+                  <strong>{provider.name}</strong>
+                  <small>{provider.subtitle}</small>
+                </span>
+                <span className="provider-trailing">
+                  <span className="provider-badge">{provider.badge}</span>
+                  <span
+                    className={`status-dot ${provider.ready ? "is-ok" : "is-warn"}`}
+                    role="img"
+                    aria-label={provider.ready ? provider.readyLabel : provider.notReadyLabel}
+                  />
+                </span>
+              </button>
+              <ProviderRowMenu provider={provider} onDuplicate={onDuplicate} onDelete={onDelete} />
+            </div>
           );
         })}
         {providers.length === 0 && !loading && (
@@ -1067,7 +1121,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
               </button>
             )}
             {canDeleteProvider && (
-              <button type="button" className="delete-provider-button" onClick={onDeleteProvider}>
+              <button type="button" className="delete-provider-button" onClick={() => onDeleteProvider()}>
                 <Trash size={18} />删除供应商
               </button>
             )}
@@ -1894,11 +1948,42 @@ export function App() {
     setError("");
   };
 
-  const openDeleteProvider = () => {
-    const providerId = selectedId;
+  const openDeleteProvider = (providerId = selectedId) => {
     if (!state.providers.some((provider) => provider.id === providerId)) return;
     setDeleteProviderError("");
     setDeleteTargetId(providerId);
+  };
+
+  // Row-level actions from the sidebar operate on any provider by id, not only the
+  // one open in the wizard. Duplicate builds the draft from the provider's stored
+  // form first, then applies the same copy transform the in-wizard button uses, so
+  // the two paths produce an identical draft.
+  const duplicateProviderById = (providerId) => {
+    const provider = state.providers.find((item) => item.id === providerId);
+    if (!provider) return;
+    const sourceForm = providerToForm(provider, state);
+    const copiedExternalUserAgent = sourceForm.userAgentKind === "external" && !sourceForm.userAgentEdited;
+    const copiedExternalBeta = sourceForm.models.some((model) => model.anthropicBetaKind === "external");
+    setForm(duplicatePiForm(sourceForm, state.providers.map((item) => item.id)));
+    setSelectedId("");
+    setStep(2);
+    setView("wizard");
+    setError("");
+    showToast(copiedExternalUserAgent || copiedExternalBeta
+      ? "已复制模型与兼容设置；外部配置未复制，请在第三步重新填写"
+      : "已复制模型与兼容设置；改好 ID 和网关地址，填入新 key 后保存");
+  };
+
+  const duplicateCodexProviderById = (providerId) => {
+    const provider = codex.providers.find((item) => item.id === providerId);
+    if (!provider) return;
+    const sourceForm = codexProviderToForm(provider, codex);
+    setCodexForm(duplicateCodexForm(sourceForm, codex.providers.map((item) => item.id)));
+    setCodexSelectedId("");
+    setCodexStep(2);
+    setView("wizard");
+    setError("");
+    showToast("已复制模型与推理强度；改好 ID 和网关地址，填入新 key 后保存");
   };
 
   const closeDeleteProvider = useCallback(() => {
@@ -2599,6 +2684,8 @@ export function App() {
         activeView={view}
         theme={theme}
         onTheme={setTheme}
+        onDuplicate={target === "codex" ? duplicateCodexProviderById : duplicateProviderById}
+        onDelete={target === "codex" ? (id) => { setDeleteProviderError(""); setCodexDeleteTargetId(id); } : openDeleteProvider}
       />
       <section className="workspace">
         {loading ? (
