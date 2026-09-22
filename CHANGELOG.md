@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Validated against Pi `0.87.0`; baseline moved from `0.86.1`.** The four API identifiers (`openai-responses`, `openai-completions`, `anthropic-messages`, `google-generative-ai`) and the seven thinking levels (`off`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`) are unchanged upstream, with no new token. `npm test` ran with 0 skips — 188 tests — including the real Pi `0.87.0`, real Codex `0.154.0`, and LiteLLM `1.72.0` suites; `test:pi-real` confirms the model-level `anthropic-beta` replace-not-append behaviour still reaches the wire unchanged. `piValidatedVersion` is advanced to `0.87.0`.
+
+- **The provider sidebar gains bulk deletion and a per-row action menu.** Each provider row carries an overflow menu (复制供应商 / 删除供应商) so neither requires opening the provider into the wizard first; delete still runs through the named confirmation dialog. A 选择 mode turns the rows into checkboxes with a 全选 / 取消全选 bar and deletes the set in one write through `POST /api/providers/delete-bulk` — all-or-nothing under one revision, refusing to strand Pi's default without a surviving replacement. Pi only.
+
 ## 0.4.3 - 2026-09-22
 
 - Validated against Pi `0.86.1` and Codex `0.154.0`; the full suite ran with no skips, including the real Pi `0.86.1` and real Codex binary suites. This release is a round of sidebar refinements and the accumulated wizard/settings work merged since `0.4.2`.
