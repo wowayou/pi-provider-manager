@@ -346,6 +346,22 @@ code { color: var(--ink); background: transparent; }
 
 .sidebar-label { margin: 28px 5px 12px; color: var(--ink-2); font-size: 13px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
 .count-pill { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 8px; border-radius: 999px; background: var(--chip); color: var(--ink-2); font-size: 11px; font-weight: 700; font-family: var(--mono); }
+/* The bulk-delete affordances: an entry into selection mode beside the count, a
+   check box the row grows in that mode, and a bottom bar carrying the count and
+   the destructive action. */
+.select-toggle { margin-left: auto; border: 0; background: transparent; color: var(--orange-dark); font-size: 12px; font-weight: 650; padding: 2px 4px; border-radius: 6px; cursor: pointer; }
+.select-toggle:hover { text-decoration: underline; }
+.provider-item.is-selecting .provider-select { padding-left: 34px; }
+.provider-check { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); z-index: 1; width: 18px; height: 18px; border: 1.5px solid var(--line-strong); border-radius: 5px; background: var(--field); display: grid; place-items: center; color: var(--on-brand); transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease); }
+.provider-item.is-checked { background: var(--orange-soft); }
+.provider-item.is-checked .provider-check { background: var(--orange); border-color: var(--orange); }
+.bulk-action-bar { flex: none; display: flex; align-items: center; gap: 8px; margin: 8px 2px 0; padding-top: 10px; border-top: 1px solid var(--line); }
+.bulk-select-all { display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; color: var(--ink-2); font-size: 12px; font-weight: 650; padding: 4px 2px; border-radius: 6px; cursor: pointer; }
+.bulk-select-all:hover { color: var(--orange-dark); }
+.bulk-select-all .provider-check { position: static; transform: none; }
+.bulk-select-all .provider-check.is-on { background: var(--orange); border-color: var(--orange); }
+.bulk-action-count { font-size: 12px; color: var(--ink-3); margin-left: auto; font-family: var(--mono); }
+.bulk-action-bar .compact-button { min-height: 34px; padding-inline: 12px; font-size: 12px; }
 
 .provider-search { position: relative; display: flex; align-items: center; margin: 0 2px 10px; }
 .provider-search svg { position: absolute; left: 11px; color: var(--ink-3); pointer-events: none; }
@@ -776,6 +792,13 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .keep-credential-option input { margin-top: 2px; }
 .keep-credential-option span { display: flex; flex-direction: column; gap: 4px; line-height: 1.45; }
 .delete-consequence { margin: 14px 0 0; color: var(--danger-text); font-size: 12.5px; font-weight: 650; }
+/* The set a bulk delete will remove: one scannable row per provider, scrolling
+   inside itself so a long selection cannot push the actions off a short window. */
+.bulk-delete-list { list-style: none; margin: 16px 0 0; padding: 0; max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.bulk-delete-list li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: var(--surface-sunken); }
+.bulk-delete-name { font-weight: 650; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bulk-delete-list code { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.bulk-delete-count { margin-left: auto; flex: none; font-size: 12px; color: var(--ink-3); }
 .provider-delete-dialog .error-banner { margin-top: 14px; }
 kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 5px; padding: 1px 5px; background: var(--surface-sunken); color: var(--ink-2); font-size: 11px; }
 
