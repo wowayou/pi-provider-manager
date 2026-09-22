@@ -1048,6 +1048,75 @@ function deleteProvider(payload) {
   }
 }
 
+// Removing several providers in one write, so a shifting revision cannot 409 the
+// second removal onward, and so the set is all-or-nothing under one snapshot
+// rollback. Same invariants as the single delete, extended to a set: the
+// replacement for Pi's default must survive the deletion, so it cannot itself be
+// one of the providers being removed.
+function deleteProvidersBulk(payload) {
+  if (!isObject(payload)) throw new Error("请求内容无效。");
+  const revision = requireCurrentRevision(payload);
+  const rawIds = Array.isArray(payload.providerIds) ? payload.providerIds : null;
+  if (!rawIds || rawIds.length === 0) {
+    throw new Error("请选择要删除的供应商。");
+  }
+  const providerIds = [...new Set(rawIds.map((id) => String(id || "").trim()))];
+  for (const id of providerIds) {
+    if (!PROVIDER_ID_PATTERN.test(id)) throw new Error("要删除的供应商 ID 无效。");
+  }
+
+  const auth = readJson(AUTH_PATH);
+  const models = readJson(MODELS_PATH);
+  const settings = readJson(SETTINGS_PATH);
+  const providers = isObject(models.providers) ? models.providers : null;
+  if (!providers) throw new Error("要删除的供应商不存在。");
+  for (const id of providerIds) {
+    if (!Object.hasOwn(providers, id) || !isObject(providers[id])) {
+      throw new Error("要删除的供应商不存在。");
+    }
+  }
+
+  const deleting = new Set(providerIds);
+  if (deleting.has(settings.defaultProvider)) {
+    const replacementProviderId = String(payload.replacementProviderId || "").trim();
+    const replacementModelId = String(payload.replacementModelId || "").trim();
+    if (
+      !PROVIDER_ID_PATTERN.test(replacementProviderId)
+      || deleting.has(replacementProviderId)
+      || !Object.hasOwn(providers, replacementProviderId)
+      || !isObject(providers[replacementProviderId])
+    ) {
+      throw new Error("删除 Pi 当前默认供应商前，请从不在删除列表中的供应商里选择一个有效供应商。");
+    }
+    const replacementModels = Array.isArray(providers[replacementProviderId].models)
+      ? providers[replacementProviderId].models
+      : [];
+    if (!replacementModels.some((model) => isObject(model) && model.id === replacementModelId)) {
+      throw new Error("替代模型不属于所选供应商。");
+    }
+    settings.defaultProvider = replacementProviderId;
+    settings.defaultModel = replacementModelId;
+  }
+
+  for (const id of providerIds) {
+    delete providers[id];
+    if (payload.keepCredentials !== true) delete auth[id];
+  }
+
+  const originals = stableManagedSnapshots();
+  if (revision !== configRevision(originals)) {
+    throw new ConflictError("Pi 配置在删除期间发生了变化。没有删除任何内容，请重新读取配置后再试。");
+  }
+  try {
+    writeJsonAtomic(MODELS_PATH, models);
+    writeJsonAtomic(AUTH_PATH, auth);
+    writeJsonAtomic(SETTINGS_PATH, settings);
+  } catch (error) {
+    for (const [filePath, bytes] of originals) restore(filePath, bytes);
+    throw error;
+  }
+}
+
 function saveSettings(payload) {
   if (!isObject(payload)) throw new Error("设置内容无效。");
   const revision = requireCurrentRevision(payload);
@@ -1352,6 +1421,11 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "POST" && request.url === "/api/providers/delete") {
       deleteProvider(await readBody(request));
+      sendJson(response, 200, { ok: true, state: publicState() });
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/providers/delete-bulk") {
+      deleteProvidersBulk(await readBody(request));
       sendJson(response, 200, { ok: true, state: publicState() });
       return;
     }

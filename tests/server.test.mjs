@@ -959,6 +959,106 @@ test("deletes providers transactionally and can retain credentials", async () =>
   }
 });
 
+test("bulk-deletes providers transactionally under one revision", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-bulk-delete-"));
+  const model = (id) => ({ id, name: id, contextWindow: 200000, maxTokens: 16000, supportsImages: false, reasoning: true });
+  fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({
+    "default-router": { type: "api_key", key: "default-key-not-a-secret" },
+    "alpha-router": { type: "api_key", key: "alpha-key-not-a-secret" },
+    "beta-router": { type: "api_key", key: "beta-key-not-a-secret" },
+    "keeper-router": { type: "api_key", key: "keeper-key-not-a-secret" },
+  }));
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
+    providers: {
+      "default-router": { baseUrl: "https://default.example/v1", api: "openai-completions", models: [model("default/model")] },
+      "alpha-router": { baseUrl: "https://alpha.example/v1", api: "openai-completions", models: [model("alpha/model")] },
+      "beta-router": { baseUrl: "https://beta.example/v1", api: "openai-completions", models: [model("beta/model")] },
+      "keeper-router": { baseUrl: "https://keeper.example/v1", api: "openai-completions", models: [model("keeper/model")] },
+    },
+  }));
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({
+    defaultProvider: "default-router",
+    defaultModel: "default/model",
+    defaultThinkingLevel: "high",
+  }));
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+    cwd: projectRoot,
+    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const submit = (body, revision) => postJson(baseUrl, "/api/providers/delete-bulk", body, revision);
+  const readAgentFile = (name) => JSON.parse(fs.readFileSync(path.join(agentDir, name), "utf8"));
+
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+
+    // An empty set, a malformed id, and a non-existent id are each refused, and
+    // an otherwise-valid set that names one missing provider deletes nothing.
+    assert.equal((await submit({ providerIds: [] })).status, 400);
+    assert.equal((await submit({ providerIds: ["__proto__"] })).status, 400);
+    assert.equal((await submit({ providerIds: ["missing-router"] })).status, 400);
+    const partialMissing = await submit({ providerIds: ["alpha-router", "missing-router"] });
+    assert.equal(partialMissing.status, 400);
+    assert.deepEqual(Object.keys(readAgentFile("models.json").providers).sort(), [
+      "alpha-router", "beta-router", "default-router", "keeper-router",
+    ]);
+
+    // Deleting a set that leaves the default alone: both go, their credentials go
+    // with them by default, the default is untouched.
+    const twoGone = await submit({ providerIds: ["alpha-router", "beta-router"] });
+    assert.equal(twoGone.status, 200);
+    const twoGoneBody = await twoGone.json();
+    assert.equal(JSON.stringify(twoGoneBody).includes("alpha-key-not-a-secret"), false);
+    assert.deepEqual(twoGoneBody.state.providers.map((provider) => provider.id).sort(), [
+      "default-router", "keeper-router",
+    ]);
+    const afterTwo = readAgentFile("auth.json");
+    assert.equal(Object.hasOwn(afterTwo, "alpha-router"), false);
+    assert.equal(Object.hasOwn(afterTwo, "beta-router"), false);
+    assert.equal(readAgentFile("settings.json").defaultProvider, "default-router");
+
+    // A set containing the default needs a replacement that survives the delete:
+    // no replacement, and a replacement that is itself in the set, are both refused.
+    const noReplacement = await submit({ providerIds: ["default-router"] });
+    assert.equal(noReplacement.status, 400);
+    assert.match((await noReplacement.json()).error, /不在删除列表中/);
+    const replacementInSet = await submit({
+      providerIds: ["default-router", "keeper-router"],
+      replacementProviderId: "keeper-router",
+      replacementModelId: "keeper/model",
+    });
+    assert.equal(replacementInSet.status, 400);
+    assert.deepEqual(Object.keys(readAgentFile("models.json").providers).sort(), [
+      "default-router", "keeper-router",
+    ]);
+
+    // The default in the set, with a surviving replacement and keepCredentials:
+    // the default moves and the removed provider's credential is retained.
+    const moved = await submit({
+      providerIds: ["default-router"],
+      replacementProviderId: "keeper-router",
+      replacementModelId: "keeper/model",
+      keepCredentials: true,
+    });
+    assert.equal(moved.status, 200);
+    const movedBody = await moved.json();
+    assert.equal(movedBody.state.settings.defaultProvider, "keeper-router");
+    assert.equal(movedBody.state.settings.defaultModel, "keeper/model");
+    assert.equal(movedBody.state.providers.some((provider) => provider.id === "default-router"), false);
+    assert.equal(movedBody.state.authProviders.includes("default-router"), true);
+
+    // A stale revision deletes nothing and 409s.
+    const stale = await submit({ providerIds: ["keeper-router"] }, "0".repeat(64));
+    assert.equal(stale.status, 409);
+    assert.equal(Object.hasOwn(readAgentFile("models.json").providers, "keeper-router"), true);
+  } finally {
+    child.kill("SIGTERM");
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
 test("rejects cross-origin and rebound requests, and bogus credential sources", async () => {
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-security-"));
   fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({ acme: { type: "api_key", key: "real-key-not-a-secret" } }));

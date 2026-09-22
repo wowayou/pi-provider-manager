@@ -511,7 +511,7 @@ function ProviderRowMenu({ provider, onDuplicate, onDelete }) {
   );
 }
 
-function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd, onSettings, onPrompts, activeView, theme, onTheme, onDuplicate, onDelete }) {
+function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd, onSettings, onPrompts, activeView, theme, onTheme, onDuplicate, onDelete, canBulkDelete, selectMode, selectedForDelete, onEnterSelect, onExitSelect, onToggleSelect, onReplaceSelection, onBulkDelete }) {
   const [query, setQuery] = useState("");
   const providers = sidebarProviders(state, target);
   const listRef = useRef(null);
@@ -568,6 +568,9 @@ function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd
       <p className="sidebar-label">
         {isCodex ? "Codex 供应商" : "我的供应商 / API 网关"}
         {providers.length > 0 && <span className="count-pill">{providers.length}</span>}
+        {canBulkDelete && providers.length > 0 && !selectMode && (
+          <button type="button" className="select-toggle" onClick={onEnterSelect}>选择</button>
+        )}
       </p>
       {providers.length > 6 && (
         <div className="provider-search">
@@ -590,19 +593,23 @@ function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd
         {visible.map((provider) => {
           const Icon = provider.icon;
           const isSelected = selectedId === provider.id && activeView === "wizard";
+          const checked = selectMode && selectedForDelete.has(provider.id);
           return (
             <div
               key={provider.id}
               ref={provider.id === activeId ? activeRowRef : undefined}
-              className={`provider-item ${isSelected ? "is-selected" : ""}`}
+              className={`provider-item ${!selectMode && isSelected ? "is-selected" : ""} ${selectMode ? "is-selecting" : ""} ${checked ? "is-checked" : ""}`}
             >
               <button
                 type="button"
                 className="provider-select"
-                onClick={() => onSelect(provider.source)}
-                aria-current={isSelected ? "true" : undefined}
+                onClick={selectMode ? () => onToggleSelect(provider.id) : () => onSelect(provider.source)}
+                aria-current={!selectMode && isSelected ? "true" : undefined}
+                role={selectMode ? "checkbox" : undefined}
+                aria-checked={selectMode ? checked : undefined}
                 title={`${provider.name} · ${provider.id}`}
               >
+                {selectMode && <span className="provider-check" aria-hidden="true">{checked && <Check size={13} weight="bold" />}</span>}
                 <span className="provider-icon"><Icon size={23} weight="duotone" aria-hidden="true" /></span>
                 <span className="provider-copy">
                   <strong>{provider.name}</strong>
@@ -617,7 +624,7 @@ function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd
                   />
                 </span>
               </button>
-              <ProviderRowMenu provider={provider} onDuplicate={onDuplicate} onDelete={onDelete} />
+              {!selectMode && <ProviderRowMenu provider={provider} onDuplicate={onDuplicate} onDelete={onDelete} />}
             </div>
           );
         })}
@@ -635,6 +642,21 @@ function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd
           <p className="list-empty">没有名称或 ID 包含“{query.trim()}”的供应商。</p>
         )}
       </nav>
+      {selectMode && (() => {
+        const visibleIds = visible.map((provider) => provider.id);
+        const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedForDelete.has(id));
+        return (
+          <div className="bulk-action-bar">
+            <button type="button" className="bulk-select-all" onClick={() => onReplaceSelection(allSelected ? [] : visibleIds)}>
+              <span className={`provider-check ${allSelected ? "is-on" : ""}`} aria-hidden="true">{allSelected && <Check size={13} weight="bold" />}</span>
+              {allSelected ? "取消全选" : "全选"}
+            </button>
+            <span className="bulk-action-count" aria-live="polite">已选 {selectedForDelete.size} 个</span>
+            <button type="button" className="secondary-button compact-button" onClick={onExitSelect}>取消</button>
+            <button type="button" className="danger-button compact-button" disabled={selectedForDelete.size === 0} onClick={onBulkDelete}><Trash size={16} />删除{selectedForDelete.size > 0 ? ` (${selectedForDelete.size})` : "选中"}</button>
+          </div>
+        );
+      })()}
       {!tipDismissed && (
       <div className="beginner-tip">
         <Info size={22} weight="duotone" />
@@ -1420,6 +1442,109 @@ function ProviderDeleteDialog({ provider, state, deleting, requestError, conflic
   );
 }
 
+// The bulk counterpart to ProviderDeleteDialog. It names the whole set, and when
+// Pi's default is among them it asks for a replacement drawn only from the
+// survivors — the server refuses a replacement that is itself being deleted, so
+// the picker must never offer one.
+function ProviderBulkDeleteDialog({ providerIds, state, deleting, requestError, conflict, onClose, onConfirm }) {
+  const idSet = new Set(providerIds);
+  const chosen = state.providers.filter((item) => idSet.has(item.id));
+  const defaultIncluded = Boolean(state.settings.defaultProvider) && idSet.has(state.settings.defaultProvider);
+  const survivors = state.providers.filter((item) => !idSet.has(item.id) && item.models.length > 0);
+  const [keepCredentials, setKeepCredentials] = useState(false);
+  const [replacementProviderId, setReplacementProviderId] = useState(survivors[0]?.id || "");
+  const [replacementModelId, setReplacementModelId] = useState(survivors[0]?.models[0]?.id || "");
+  const [localError, setLocalError] = useState("");
+  const cancelRef = useRef(null);
+  const dialogRef = useRef(null);
+  const replacementProvider = survivors.find((item) => item.id === replacementProviderId);
+  const anyCredential = chosen.some((item) => item.credentialConfigured);
+  const canDelete = !defaultIncluded || Boolean(replacementProvider && replacementModelId);
+
+  useDialog({ ref: dialogRef, initialFocusRef: cancelRef, onClose, locked: deleting });
+
+  const changeReplacementProvider = (providerId) => {
+    const next = survivors.find((item) => item.id === providerId);
+    setReplacementProviderId(providerId);
+    setReplacementModelId(next?.models[0]?.id || "");
+    setLocalError("");
+  };
+  const confirm = () => {
+    if (!canDelete) {
+      setLocalError("待删除的集合包含 Pi 当前默认供应商，请先选一个保留下来的供应商作为替代。");
+      return;
+    }
+    setLocalError("");
+    onConfirm({
+      providerIds,
+      keepCredentials,
+      replacementProviderId: defaultIncluded ? replacementProviderId : undefined,
+      replacementModelId: defaultIncluded ? replacementModelId : undefined,
+    });
+  };
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !deleting) onClose(); }}>
+      <section ref={dialogRef} className="provider-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="provider-bulk-delete-title" aria-describedby="provider-bulk-delete-description">
+        <div className="delete-dialog-heading">
+          <span className="delete-dialog-icon"><Trash size={24} weight="duotone" /></span>
+          <div>
+            <h2 id="provider-bulk-delete-title">删除选中的 {chosen.length} 个供应商？</h2>
+            <p id="provider-bulk-delete-description">以下供应商及其全部模型会从 <code>models.json</code> 移除。</p>
+          </div>
+        </div>
+
+        <ul className="bulk-delete-list">
+          {chosen.map((item) => (
+            <li key={item.id}>
+              <span className="bulk-delete-name">{item.name || titleFromId(item.id)}</span>
+              <code>{item.id}</code>
+              <span className="bulk-delete-count">{item.models.length} 个模型</span>
+              {state.settings.defaultProvider === item.id && <span className="provider-badge">默认</span>}
+            </li>
+          ))}
+        </ul>
+
+        {defaultIncluded && (
+          <div className="replacement-panel">
+            <div className="replacement-warning"><WarningCircle size={20} weight="fill" /><span><strong>集合里包含 Pi 当前的默认供应商</strong>删除前必须从保留下来的供应商里选一个替代模型。</span></div>
+            {survivors.length > 0 ? (
+              <div className="replacement-fields">
+                <label><span>替代供应商</span><select value={replacementProviderId} onChange={(event) => changeReplacementProvider(event.target.value)}>{survivors.map((item) => <option key={item.id} value={item.id}>{item.name || titleFromId(item.id)} · {item.id}</option>)}</select></label>
+                <label><span>替代模型</span><select value={replacementModelId} onChange={(event) => { setReplacementModelId(event.target.value); setLocalError(""); }}>{(replacementProvider?.models || []).map((model) => <option key={model.id} value={model.id}>{model.name || model.id} · {model.id}</option>)}</select></label>
+              </div>
+            ) : (
+              <p className="no-replacement">删除这些之后没有带模型的供应商了。请取消后保留至少一个可承载默认的供应商。</p>
+            )}
+          </div>
+        )}
+
+        {anyCredential && (
+          <label className="keep-credential-option">
+            <input type="checkbox" checked={keepCredentials} onChange={(event) => setKeepCredentials(event.target.checked)} />
+            <span><strong>保留凭据，供以后重新配置使用</strong><small>凭据会留在 <code>auth.json</code>，但不会继续显示为供应商。</small></span>
+          </label>
+        )}
+        <p className="delete-consequence">
+          {!anyCredential
+            ? "选中的供应商和全部模型会被永久删除。"
+            : keepCredentials
+            ? "选中的供应商和模型会被永久删除，已保存的凭据会保留。"
+            : "选中的供应商、全部模型和已保存的凭据会被永久删除。"}
+        </p>
+        <ErrorBanner message={localError || requestError} conflict={conflict && !localError} />
+
+        <div className="modal-actions">
+          <button ref={cancelRef} type="button" className="secondary-button" disabled={deleting} onClick={onClose}>取消</button>
+          <button type="button" className="danger-button" disabled={deleting} aria-disabled={!canDelete || deleting} onClick={confirm}>
+            {deleting ? <><Spinner />正在删除…</> : <><Trash size={18} />删除 {chosen.length} 个供应商</>}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function SuccessScreen({ result, onCopy, onReturn, onAdd }) {
   const [copied, setCopied] = useState(false);
   const commandRef = useRef(null);
@@ -1838,6 +1963,12 @@ export function App() {
   const [deleteTargetId, setDeleteTargetId] = useState("");
   const [deletingProvider, setDeletingProvider] = useState(false);
   const [deleteProviderError, setDeleteProviderError] = useState("");
+  // Pi-only bulk delete: a selection set the sidebar fills, and the ids handed to
+  // the confirmation dialog. Kept here rather than in the sidebar so success can
+  // clear both the dialog and the selection in one place.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedForDelete, setSelectedForDelete] = useState(() => new Set());
+  const [bulkDeleteIds, setBulkDeleteIds] = useState([]);
   const [userAgentFocusRequest, setUserAgentFocusRequest] = useState(0);
   const [betaFocusRequest, setBetaFocusRequest] = useState({ rowId: "", serial: 0 });
   const [target, setTarget] = useState("pi");
@@ -2290,12 +2421,89 @@ export function App() {
     }
   };
 
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedForDelete(new Set());
+  };
+  const toggleSelectForDelete = (providerId) => {
+    setSelectedForDelete((current) => {
+      const next = new Set(current);
+      if (next.has(providerId)) next.delete(providerId); else next.add(providerId);
+      return next;
+    });
+  };
+
+  const deleteProvidersBulk = async (payload) => {
+    setDeletingProvider(true);
+    setDeleteProviderError("");
+    setConflict(false);
+    try {
+      const removing = new Set(payload.providerIds);
+      let nextState;
+      if (demoMode) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        const deletingDefault = removing.has(state.settings.defaultProvider);
+        nextState = {
+          ...state,
+          providers: state.providers
+            .filter((provider) => !removing.has(provider.id))
+            .map((provider) => ({
+              ...provider,
+              isDefault: deletingDefault ? provider.id === payload.replacementProviderId : provider.isDefault,
+            })),
+          authProviders: payload.keepCredentials
+            ? state.authProviders
+            : state.authProviders.filter((id) => !removing.has(id)),
+          settings: deletingDefault
+            ? { ...state.settings, defaultProvider: payload.replacementProviderId, defaultModel: payload.replacementModelId }
+            : state.settings,
+        };
+      } else {
+        const response = await fetch("/api/providers/delete-bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...payload, revision: state.revision }),
+        });
+        const data = await readApiResponse(response, "批量删除供应商失败");
+        nextState = data.state;
+      }
+
+      const removedCount = payload.providerIds.length;
+      setState(nextState);
+      setBulkDeleteIds([]);
+      exitSelectMode();
+      setDeleteProviderError("");
+      setSaveResult(null);
+      setView("wizard");
+      setError("");
+      const nextProvider = nextState.providers.find((provider) => provider.id === nextState.settings.defaultProvider)
+        || nextState.providers[0];
+      if (nextProvider) {
+        setSelectedId(nextProvider.id);
+        setForm(providerToForm(nextProvider, nextState));
+        setStep(nextProvider.models.length > 0 ? 3 : 1);
+      } else {
+        const fresh = blankForm();
+        fresh.migrateFrom = nextState.authProviders[0] || "";
+        setSelectedId("");
+        setForm(fresh);
+        setStep(1);
+      }
+      showToast(<>已删除 {removedCount} 个供应商{payload.keepCredentials ? "；凭据已保留" : ""}</>);
+    } catch (requestError) {
+      reportRequestError(requestError, setDeleteProviderError);
+    } finally {
+      setDeletingProvider(false);
+    }
+  };
+
   const codex = state.codex || { providers: [], settings: {}, revision: "" };
   const codexProvider = (id) => codex.providers.find((provider) => provider.id === id);
 
   const switchTarget = (next) => {
     if (next === target) return;
     setTarget(next);
+    exitSelectMode();
     if (view !== "prompts" && view !== "settings") setView("wizard");
     setError("");
     setSaveResult(null);
@@ -2686,6 +2894,14 @@ export function App() {
         onTheme={setTheme}
         onDuplicate={target === "codex" ? duplicateCodexProviderById : duplicateProviderById}
         onDelete={target === "codex" ? (id) => { setDeleteProviderError(""); setCodexDeleteTargetId(id); } : openDeleteProvider}
+        canBulkDelete={target !== "codex"}
+        selectMode={target === "codex" ? false : selectMode}
+        selectedForDelete={selectedForDelete}
+        onEnterSelect={() => { setSelectMode(true); setSelectedForDelete(new Set()); }}
+        onExitSelect={exitSelectMode}
+        onToggleSelect={toggleSelectForDelete}
+        onReplaceSelection={(ids) => setSelectedForDelete(new Set(ids))}
+        onBulkDelete={() => { setDeleteProviderError(""); setBulkDeleteIds(Array.from(selectedForDelete)); }}
       />
       <section className="workspace">
         {loading ? (
@@ -2766,6 +2982,17 @@ export function App() {
           conflict={conflict}
           onClose={closeDeleteProvider}
           onConfirm={deleteProvider}
+        />
+      )}
+      {bulkDeleteIds.length > 0 && (
+        <ProviderBulkDeleteDialog
+          providerIds={bulkDeleteIds}
+          state={state}
+          deleting={deletingProvider}
+          requestError={deleteProviderError}
+          conflict={conflict}
+          onClose={() => { setBulkDeleteIds([]); setDeleteProviderError(""); }}
+          onConfirm={deleteProvidersBulk}
         />
       )}
       <div className="toast-region" role="status" aria-live="polite">

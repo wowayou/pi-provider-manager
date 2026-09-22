@@ -3068,3 +3068,71 @@ test("the sidebar row menu deletes a provider without opening it first", { timeo
     fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
+
+test("selection mode bulk-deletes providers from the sidebar", { timeout: 60_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-bulk-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-bulk-"));
+  writeFixture(agentDir);
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server;
+  let chrome;
+  let cdp;
+  let serverOutput = "";
+
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
+        PI_PROVIDER_MANAGER_SERVE_UI: "1",
+        PI_PROVIDER_MANAGER_PORT: String(appPort),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; });
+    server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${appPort}/api/state`);
+    chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profileDir}`, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
+    const target = await fetch(`http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(`http://127.0.0.1:${appPort}`)}`, { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl); await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    await cdp.send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
+    await cdp.waitFor("document.querySelectorAll('.provider-item').length === 2");
+
+    // Enter selection mode from the entry beside the count.
+    await cdp.evaluate("[...document.querySelectorAll('.select-toggle')].find((node) => node.textContent.includes('选择')).click()");
+    await cdp.waitFor("document.querySelector('.bulk-action-bar')");
+
+    // Check single-router (not Pi's default) by clicking its row.
+    await cdp.evaluate(`[...document.querySelectorAll('.provider-select')].find((node) => node.title.includes('single-router')).click()`);
+    await cdp.waitFor("document.querySelector('.bulk-action-count').textContent === '已选 1 个'");
+
+    await cdp.evaluate("[...document.querySelectorAll('.bulk-action-bar button')].find((node) => node.textContent.includes('删除')).click()");
+    await cdp.waitFor("document.querySelector('.provider-delete-dialog')");
+    // The set names single-router; the default is not in it, so no replacement panel.
+    assert.match(await cdp.evaluate("document.querySelector('.bulk-delete-list').textContent"), /single-router/);
+    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.replacement-panel'))"), false);
+    await cdp.evaluate("document.querySelector('.provider-delete-dialog .danger-button').click()");
+    await cdp.waitFor("!document.querySelector('.provider-delete-dialog') && document.querySelectorAll('.provider-item').length === 1 && !document.querySelector('.bulk-action-bar')");
+
+    const models = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+    assert.deepEqual(Object.keys(models.providers), ["review-router"]);
+    const settings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+    assert.equal(settings.defaultProvider, "review-router");
+    const auth = JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"));
+    assert.equal(Object.hasOwn(auth, "single-router"), false);
+    assert.equal(cdp.errors.length, 0);
+  } catch (error) {
+    error.message += `\nServer output:\n${serverOutput}`;
+    throw error;
+  } finally {
+    if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }
+    await stopProcess(chrome, true); await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
