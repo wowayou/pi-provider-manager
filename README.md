@@ -29,6 +29,7 @@ Codex has the opposite problem. Its configuration is small but unforgiving: one 
 - **Validated atomic writes** — updates to `models.json`, `auth.json`, and `settings.json` use validated temporary files and rollback on failure.
 - **Concurrent-edit protection** — every write carries an opaque revision; changes made by CC Switch, another tab, or a text editor cause a `409` instead of being overwritten by stale form data.
 - **Guarded provider deletion** — removing a gateway names every affected model, deletes its credential by default with an option to retain it, and requires a valid replacement before deleting Pi's current default.
+- **Row menu and bulk deletion** — every provider row carries a menu to duplicate or delete it without opening it into the wizard first, and a 选择 mode deletes several at once in a single all-or-nothing write (Pi only).
 - **Forward-compatible edits** — unknown provider, model, and settings fields are preserved when known fields are updated.
 - **Beginner save handoff** — after saving, the app gives the exact `pi --model provider/model:thinking` command and `/model` verification steps.
 - **Large catalog UX** — sticky model header, internal scrolling, bulk model-ID import, a 获取模型 dialog that lists the gateway's own catalogue as checkboxes (fetched server-side with the credential a save would use, never returned to the browser, with an overridable listing path for relays that put their catalogue elsewhere), and warnings when `-max`/`-xhigh` may be thinking levels rather than real model IDs.
