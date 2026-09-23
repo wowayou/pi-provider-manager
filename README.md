@@ -306,6 +306,14 @@ The normal development command starts the real writable API. Set `PI_CODING_AGEN
 
 Released under the [MIT License](LICENSE). See [OPEN_SOURCE_CHECKLIST.md](OPEN_SOURCE_CHECKLIST.md) for repository hardening tasks that remain after the first push.
 
+## Support
+
+If this project has been useful to you, you can support my work here:
+
+❤️ [Support the creator](https://eigentime.org/support?from=pi-provider-manager)
+
+Entirely voluntary. It unlocks nothing, gates nothing, and the tool stays free either way.
+
 ## Roadmap
 
 - Stable maintenance: security fixes, confirmed correctness defects, and Pi or Codex compatibility updates
@@ -313,3 +321,13 @@ Released under the [MIT License](LICENSE). See [OPEN_SOURCE_CHECKLIST.md](OPEN_S
 - Broader all-in-one workflows belong in CC Switch; this project stays focused on Pi and Codex credentials, defaults, and native-file consistency
 
 See `design-qa.md` and `qa/` for visual comparisons, interaction evidence, and QA history.
+
+## Star History
+
+<a href="https://star-history.com/#wowayou/pi-provider-manager&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=wowayou/pi-provider-manager&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=wowayou/pi-provider-manager&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=wowayou/pi-provider-manager&type=Date" width="640" />
+  </picture>
+</a>

@@ -382,6 +382,84 @@ test("refuses to delete the active provider without a replacement", async () => 
   });
 });
 
+test("deletes several providers in one write and moves the live slot to a survivor", async () => {
+  await withServer(null, async (api) => {
+    await api.post("/api/codex/providers", newProvider());
+    for (const id of ["kimi", "zhipu"]) {
+      await api.post("/api/codex/providers", newProvider({
+        providerId: id,
+        name: id,
+        baseUrl: `https://${id}.example/v1`,
+        credential: { mode: "new", apiKey: OTHER_SECRET },
+        models: [{ id: `${id}-model`, reasoningEffort: "medium" }],
+        defaultModelId: `${id}-model`,
+        setActive: false,
+      }));
+    }
+
+    // The active provider (packy) is in the set, so a survivor must take over.
+    let response = await api.post("/api/codex/providers/delete-bulk", {
+      providerIds: ["packy", "kimi"],
+    });
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /保留下来/);
+
+    // A replacement that is itself being deleted is refused.
+    response = await api.post("/api/codex/providers/delete-bulk", {
+      providerIds: ["packy", "kimi"],
+      replacementProviderId: "kimi",
+    });
+    assert.equal(response.status, 400);
+
+    response = await api.post("/api/codex/providers/delete-bulk", {
+      providerIds: ["packy", "kimi"],
+      replacementProviderId: "zhipu",
+    });
+    assert.equal(response.status, 200);
+    assert.match(api.config(), /^base_url = "https:\/\/zhipu\.example\/v1"$/m);
+    const { codex } = await api.state();
+    assert.deepEqual(codex.providers.map((provider) => provider.id), ["zhipu"]);
+    assert.equal(codex.activeProviderId, "zhipu");
+  });
+});
+
+test("bulk delete leaves the live slot untouched when it is not in the set", async () => {
+  await withServer(null, async (api) => {
+    await api.post("/api/codex/providers", newProvider());
+    for (const id of ["kimi", "zhipu"]) {
+      await api.post("/api/codex/providers", newProvider({
+        providerId: id,
+        name: id,
+        baseUrl: `https://${id}.example/v1`,
+        credential: { mode: "new", apiKey: OTHER_SECRET },
+        models: [{ id: `${id}-model`, reasoningEffort: "medium" }],
+        defaultModelId: `${id}-model`,
+        setActive: false,
+      }));
+    }
+    // packy stays active; only the two inactive ones go, so no replacement is needed.
+    const response = await api.post("/api/codex/providers/delete-bulk", {
+      providerIds: ["kimi", "zhipu"],
+    });
+    assert.equal(response.status, 200);
+    const { codex } = await api.state();
+    assert.deepEqual(codex.providers.map((provider) => provider.id), ["packy"]);
+    assert.equal(codex.activeProviderId, "packy");
+    assert.match(api.config(), /^base_url = "https:\/\/packy\.example\/v1"$/m);
+  });
+});
+
+test("bulk delete rejects a stale revision without touching disk", async () => {
+  await withServer(null, async (api) => {
+    await api.post("/api/codex/providers", newProvider());
+    const before = api.config();
+    const stale = "0".repeat(64);
+    const response = await api.post("/api/codex/providers/delete-bulk", { providerIds: ["packy"] }, stale);
+    assert.equal(response.status, 409);
+    assert.equal(api.config(), before);
+  });
+});
+
 test("bridge-check only ever probes the local machine", async () => {
   await withServer(null, async (api) => {
     const bridge = http.createServer((_request, response) => {

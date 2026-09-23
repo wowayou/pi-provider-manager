@@ -1,7 +1,7 @@
 {
   "name": "pi-provider-manager-ui",
-  "version": "0.4.4",
-  "piValidatedVersion": "0.87.0",
+  "version": "0.4.5",
+  "piValidatedVersion": "0.87.1",
   "codexValidatedVersion": "0.154.0",
   "private": true,
   "license": "MIT",
@@ -23,7 +23,7 @@
     "check:pi-update": "node scripts/check-pi-update.mjs",
     "test": "npm run build && npm run test:server && npm run test:codex && npm run test:prompts && npm run test:sites && npm run test:pi-update && npm run test:release && npm run test:launcher && npm run test:ui && npm run test:codex-real && npm run test:pi-real",
     "test:server": "node --test tests/server.test.mjs tests/model-draft.test.mjs tests/pi-anthropic-beta.test.mjs tests/model-discovery.test.mjs tests/pi-user-agent.test.mjs tests/version-detect.test.mjs tests/self-update.test.mjs",
-    "test:codex": "node --test tests/toml-document.test.mjs tests/litellm-bridge.test.mjs tests/codex-server.test.mjs",
+    "test:codex": "node --test tests/toml-document.test.mjs tests/litellm-bridge.test.mjs tests/codex-server.test.mjs tests/codex-shared.test.mjs",
     "test:prompts": "node --test tests/prompt-library.test.mjs",
     "test:launcher": "node --test tests/launcher.test.mjs",
     "test:codex-real": "node --test tests/codex-real-binary.test.mjs",
