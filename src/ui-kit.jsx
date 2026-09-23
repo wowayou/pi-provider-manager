@@ -3,7 +3,7 @@
 // each other.
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowsClockwise, CircleNotch, WarningCircle, X } from "@phosphor-icons/react";
+import { ArrowsClockwise, CheckCircle, CircleNotch, WarningCircle, X } from "@phosphor-icons/react";
 
 // Marks which edges of a scroll container have content beyond them, so the
 // list can fade there. A list that clips mid-row with no cue reads as a
@@ -156,4 +156,152 @@ export function BulkModal({ text, ids, newIds, onText, onClose, onImport }) {
       </section>
     </div>
   );
+}
+
+// A monospace editor for the people who would rather edit the config as text:
+// a line-numbered gutter, live syntax checking through a caller-supplied
+// `validate`, and 校验 / 自动格式化 buttons — the pair CC-Switch offers — when the
+// caller can validate and pretty-print. It stays a plain <textarea> underneath
+// — the gutter mirrors its scroll — so keyboard support, selection, and IME all
+// come for free. Highlighting is deliberately left out: an overlay that has to
+// stay pixel-aligned with the textarea is the usual source of drift, and the
+// functional asks here are validation and formatting, not colour.
+//
+// `validate(value)` returns `{ ok: true }` or `{ ok: false, message, line }`.
+// `format(value)` returns the formatted string, or throws to decline.
+export function ConfigEditor({
+  value,
+  onChange,
+  validate,
+  format,
+  rows = 14,
+  label,
+  language = "json",
+  placeholder,
+  ariaLabel,
+}) {
+  const textareaRef = useRef(null);
+  const gutterRef = useRef(null);
+  const [checked, setChecked] = useState(false);
+  const lineCount = Math.max(1, value.split("\n").length);
+  const result = validate ? validate(value) : { ok: true };
+  const invalid = value.trim() !== "" && result && result.ok === false;
+  // Keep the gutter's scroll locked to the textarea's, so line numbers track
+  // the visible content. The frame is one fixed-height, internally scrolling
+  // box: the textarea scrolls, the gutter follows. Resizing is offered on the
+  // frame, never on the textarea alone — an independently resized textarea was
+  // what let the two heights drift apart and the numbers fall out of step.
+  const syncScroll = () => {
+    if (gutterRef.current && textareaRef.current) {
+      gutterRef.current.scrollTop = textareaRef.current.scrollTop;
+    }
+  };
+  // On open the value is seeded and the caret can land at the end, scrolling the
+  // textarea before the first user scroll event fires. Start both at the top.
+  useEffect(() => {
+    if (textareaRef.current) textareaRef.current.scrollTop = 0;
+    if (gutterRef.current) gutterRef.current.scrollTop = 0;
+    // Runs once when the editor appears.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const doFormat = () => {
+    if (!format) return;
+    try {
+      const next = format(value);
+      if (typeof next === "string" && next !== value) onChange(next);
+    } catch {
+      // A value that will not parse cannot be formatted; the validation line
+      // already says why, so formatting simply declines rather than shouting.
+    }
+  };
+  // On-demand check: the status line already tracks validity live, but the
+  // button is the deliberate "tell me now" moment. On a good parse it flashes a
+  // confirmation; on a bad one it drops the caret at the offending line and
+  // scrolls it into view, so the error is not just named but reachable.
+  const doValidate = () => {
+    if (invalid && result.line && textareaRef.current) {
+      const lines = value.split("\n");
+      let offset = 0;
+      for (let i = 0; i < result.line - 1 && i < lines.length; i += 1) offset += lines[i].length + 1;
+      const node = textareaRef.current;
+      node.focus();
+      node.setSelectionRange(offset, offset + (lines[result.line - 1]?.length || 0));
+      node.scrollTop = Math.max(0, (result.line - 1) * 20 - node.clientHeight / 2);
+      syncScroll();
+      return;
+    }
+    setChecked(true);
+    setTimeout(() => setChecked(false), 1600);
+  };
+  return (
+    <div className={`config-editor ${invalid ? "is-invalid" : ""}`} style={{ "--editor-rows": rows }}>
+      <div className="config-editor-frame">
+        <div className="config-editor-gutter" ref={gutterRef} aria-hidden="true">
+          {Array.from({ length: lineCount }, (_, index) => (
+            <span key={index}>{index + 1}</span>
+          ))}
+        </div>
+        <textarea
+          ref={textareaRef}
+          className="config-editor-input mono"
+          value={value}
+          onChange={(event) => { setChecked(false); onChange(event.target.value); }}
+          onScroll={syncScroll}
+          rows={rows}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          autoComplete="off"
+          placeholder={placeholder}
+          aria-label={ariaLabel || label}
+          aria-invalid={invalid || undefined}
+        />
+      </div>
+      <div className="config-editor-footer">
+        <span className={`config-editor-status ${invalid ? "is-error" : checked && result?.ok ? "is-ok" : result?.ok ? "is-ok" : ""}`} aria-live="polite">
+          {invalid
+            ? <><WarningCircle size={15} weight="fill" />{result.line ? `第 ${result.line} 行：` : ""}{result.message}</>
+            : value.trim() === ""
+              ? `空内容`
+              : checked
+                ? <><CheckCircle size={15} weight="fill" />{language.toUpperCase()} 语法正确</>
+                : <>{language.toUpperCase()} 语法正确</>}
+        </span>
+        <div className="config-editor-buttons">
+          {validate && (
+            <button type="button" className="outline-button compact-button" onClick={doValidate} disabled={value.trim() === ""}>
+              <CheckCircle size={16} />校验
+            </button>
+          )}
+          {format && (
+            <button type="button" className="outline-button compact-button" onClick={doFormat} disabled={invalid || value.trim() === ""}>
+              <ArrowsClockwise size={16} />自动格式化
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// A JSON validator shaped for ConfigEditor: parses, and on failure digs a line
+// number out of V8's "position N" message so the gutter can point at it.
+export function validateJson(value) {
+  try {
+    JSON.parse(value);
+    return { ok: true };
+  } catch (error) {
+    const message = String(error?.message || "JSON 无法解析");
+    const at = message.match(/position (\d+)/);
+    let line;
+    if (at) {
+      const position = Number(at[1]);
+      line = value.slice(0, position).split("\n").length;
+    }
+    return { ok: false, message: message.replace(/ in JSON.*$/, ""), line };
+  }
+}
+
+export function formatJson(value) {
+  return JSON.stringify(JSON.parse(value), null, 2);
 }

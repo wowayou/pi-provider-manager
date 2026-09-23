@@ -17,6 +17,7 @@ import {
   FileText,
   Gear,
   GoogleLogo,
+  Heart,
   Info,
   Key,
   ListPlus,
@@ -39,14 +40,15 @@ import {
 } from "@phosphor-icons/react";
 import { PROVIDER_ID_PATTERN, normalizeUrl } from "../lib/validation.mjs";
 import { validateUserAgent } from "../lib/pi-user-agent.mjs";
-import { changedPersistedModel, duplicateCodexForm, duplicatePiForm, selectedNamedModel, userAgentSaveIntent, anthropicBetaSaveIntent } from "./model-draft.mjs";
+import { changedPersistedModel, duplicateCodexForm, duplicatePiForm, selectedNamedModel, userAgentSaveIntent, anthropicBetaSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "./model-draft.mjs";
 import { normalizeAnthropicBeta } from "../lib/pi-anthropic-beta.mjs";
 import { defaultDiscoveryPath } from "../lib/model-discovery.mjs";
 import { USER_AGENT_PRESETS } from "./user-agent-presets.mjs";
 import { PromptsScreen } from "./prompts-view.jsx";
-import { BulkModal, ErrorBanner, Spinner, createRadioKeyHandler, readApiResponse, titleFromId, useDialog, useScrollEdges } from "./ui-kit.jsx";
+import { BulkModal, ConfigEditor, ErrorBanner, Spinner, createRadioKeyHandler, readApiResponse, titleFromId, useDialog, useScrollEdges, validateJson, formatJson } from "./ui-kit.jsx";
 import {
   CodexDeleteDialog,
+  CodexProviderBulkDeleteDialog,
   CodexSettingsScreen,
   CodexStepper,
   CodexSuccessScreen,
@@ -511,7 +513,7 @@ function ProviderRowMenu({ provider, onDuplicate, onDelete }) {
   );
 }
 
-function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd, onSettings, onPrompts, activeView, theme, onTheme, onDuplicate, onDelete, canBulkDelete, selectMode, selectedForDelete, onEnterSelect, onExitSelect, onToggleSelect, onReplaceSelection, onBulkDelete }) {
+function Sidebar({ state, target, loading, loadFailed, onTarget, onReload, onSelect, onAdd, onSettings, onPrompts, activeView, theme, onTheme, onDuplicate, onDelete, canBulkDelete, selectMode, selectedForDelete, onEnterSelect, onExitSelect, onToggleSelect, onReplaceSelection, onBulkDelete, selectedId }) {
   const [query, setQuery] = useState("");
   const providers = sidebarProviders(state, target);
   const listRef = useRef(null);
@@ -628,7 +630,13 @@ function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd
             </div>
           );
         })}
-        {providers.length === 0 && !loading && (
+        {providers.length === 0 && !loading && loadFailed && (
+          <p className="list-empty list-empty-first">
+            <WarningCircle size={22} weight="duotone" aria-hidden="true" />
+            <span>读取配置失败。<button type="button" className="link-button" onClick={onReload}>重新加载</button>后重试。</span>
+          </p>
+        )}
+        {providers.length === 0 && !loading && !loadFailed && (
           <p className="list-empty list-empty-first">
             <Tray size={22} weight="duotone" aria-hidden="true" />
             <span>
@@ -668,9 +676,24 @@ function Sidebar({ state, target, loading, onTarget, selectedId, onSelect, onAdd
       </div>
       )}
       <div className="sidebar-footer">
-        <button type="button" className={`settings-button nav-prompts ${activeView === "prompts" ? "is-active" : ""}`} onClick={onPrompts}><FileText size={20} />提示词</button>
-        <div className="footer-settings-row">
+        <nav className="footer-nav" aria-label="次要导航">
+          <button type="button" className={`settings-button nav-prompts ${activeView === "prompts" ? "is-active" : ""}`} onClick={onPrompts}><FileText size={20} />提示词</button>
           <button type="button" className={`settings-button nav-settings ${activeView === "settings" ? "is-active" : ""}`} onClick={onSettings}><Gear size={20} />设置与兼容性</button>
+        </nav>
+        {/* A utility row balanced at the two ends: the voluntary support link on
+            the left, the appearance control on the right. The link leaves for
+            eigentime.org/support — the one place that owns the payment platform
+            — carrying a source so that page can tell this project apart. Nothing
+            is tracked here: a loopback tool with a strict CSP and no analytics. */}
+        <div className="footer-utility">
+          <a
+            className="sidebar-support"
+            href="https://eigentime.org/support?from=pi-provider-manager"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Heart size={16} weight="fill" />支持作者
+          </a>
           <ThemeToggle theme={theme} onTheme={onTheme} />
         </div>
       </div>
@@ -755,6 +778,7 @@ function CredentialsStep({ form, setForm, state, error, overwrites, onBack, onNe
     <section className="step-content form-step">
       <div className="step-scroll">
         <div className="section-heading"><div><h1>填写网关地址与凭据</h1><p>key 只会写入 Pi 的 auth.json，保存后不会再显示。</p></div></div>
+        <div className="step-card">
         <div className="form-grid">
           <label><span>供应商 ID</span><small>例如 any-router；用于 Pi 内部识别</small><input className="mono" value={form.providerId} onChange={(event) => setForm((current) => {
             const providerId = event.target.value.toLowerCase().replace(/\s+/g, "-");
@@ -775,6 +799,7 @@ function CredentialsStep({ form, setForm, state, error, overwrites, onBack, onNe
           {form.credentialMode === "new" && <label className="key-field"><span>API Key</span><div><Key size={20} /><input className="mono" type="password" autoComplete="new-password" value={form.apiKey} onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))} placeholder="输入后不会回显" /></div></label>}
           {form.credentialMode === "migrate" && <div className="migrate-fields"><label><span>选择已有供应商</span><select value={form.migrateFrom} onChange={(event) => setForm((current) => ({ ...current, migrateFrom: event.target.value }))}>{sources.map((id) => <option key={id} value={id}>{titleFromId(id)} ({id})</option>)}</select></label><label className="checkbox-row"><input type="checkbox" checked={form.moveCredential} onChange={(event) => setForm((current) => ({ ...current, moveCredential: event.target.checked }))} />迁移成功后删除旧条目</label></div>}
         </fieldset>
+        </div>
         <ErrorBanner message={error} />
       </div>
       <footer className="wizard-footer"><button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={19} />上一步</button><button type="button" className="primary-button" onClick={onNext}>下一步<ArrowRight size={19} /></button></footer>
@@ -935,6 +960,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
   const [bulkText, setBulkText] = useState("");
   const [showDiscover, setShowDiscover] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [jsonDraft, setJsonDraft] = useState(null);
   const advancedRef = useRef(null);
   const userAgentRef = useRef(null);
   const betaRef = useRef(null);
@@ -1126,6 +1152,33 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
     });
   };
   const clearUserAgent = () => fillUserAgent("");
+  // The advanced JSON editor holds its own text while open, seeded from the
+  // current draft. 应用到表单 parses it and maps it back through the same form the
+  // table edits, so Save still runs every check (default model, identity drift,
+  // and the server's revision/409). Editing is opt-in: the seed is taken when
+  // the editor opens, not kept in sync, so table edits and the textarea never
+  // fight over the same state.
+  const openJsonEditor = () => setJsonDraft(piFormToConfigJson(form));
+  const applyJsonDraft = () => {
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonDraft);
+    } catch {
+      onNotify("JSON 无法解析，请先修正语法。", "error");
+      return;
+    }
+    let next;
+    try {
+      next = piConfigJsonToForm(parsed, form);
+    } catch (problem) {
+      onNotify(problem.message, "error");
+      return;
+    }
+    const previous = form;
+    setForm(next);
+    setJsonDraft(null);
+    onNotify("已把配置 JSON 应用到表单；保存前不会写入 Pi。", "success", { label: "撤销", onAction: () => setForm(previous) });
+  };
   return (
     <section className="step-content models-step">
       <div className="step-scroll">
@@ -1209,6 +1262,29 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
             <div className="advanced-group protocol-group">
               <div className="advanced-group-heading"><h3>模型协议覆盖</h3><p>只有网关针对某个模型使用不同接口时才需要设置。</p></div>
               {form.models.map((model) => <label key={model.rowId}><span className="mono">{model.id || "未命名模型"}</span><select value={model.api} onChange={(event) => updateModel(model.rowId, { ...model, api: event.target.value })}><option value="inherit">继承网关默认协议</option>{API_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label>)}
+            </div>
+            <div className="advanced-group json-group">
+              <div className="advanced-group-heading"><h3>配置 JSON（进阶）</h3><p>直接编辑该供应商的地址、协议与模型列表（不包含凭据）。应用后仍需点保存，服务端会做完整校验。</p></div>
+              {jsonDraft === null ? (
+                <button type="button" className="outline-button compact-button" onClick={openJsonEditor}><SlidersHorizontal size={16} />编辑原始配置</button>
+              ) : (
+                <>
+                  <ConfigEditor
+                    value={jsonDraft}
+                    onChange={setJsonDraft}
+                    validate={validateJson}
+                    format={formatJson}
+                    rows={16}
+                    language="json"
+                    ariaLabel="供应商配置 JSON"
+                  />
+                  <div className="json-editor-actions">
+                    <button type="button" className="secondary-button compact-button" onClick={() => setJsonDraft(null)}>取消</button>
+                    <button type="button" className="primary-button compact-button" onClick={applyJsonDraft}>应用到表单</button>
+                  </div>
+                  <p className="user-agent-disclaimer">在这里改模型 ID 等同于删掉旧模型、新增一个：旧模型保存的兼容信息会一并丢失。</p>
+                </>
+              )}
             </div>
           </div>
         </details>
@@ -1947,12 +2023,15 @@ export function App() {
   const demoMode = useMemo(() => new URLSearchParams(window.location.search).get("demo") === "1", []);
   const [theme, setTheme] = useTheme();
   const [state, setState] = useState(demoMode ? DEMO_STATE : { revision: "", providers: [], authProviders: [], settings: {}, compatibility: {}, agentDir: "" });
-  const [loading, setLoading] = useState(!demoMode);
-  const [selectedId, setSelectedId] = useState(demoMode ? "any-claude" : "");
+  const [loading, setLoading] = useState(!demoMode);  const [selectedId, setSelectedId] = useState(demoMode ? "any-claude" : "");
   const [step, setStep] = useState(demoMode ? 3 : 1);
   const [view, setView] = useState("wizard");
   const [form, setForm] = useState(() => demoMode ? providerToForm(DEMO_STATE.providers[0], DEMO_STATE) : blankForm());
   const [error, setError] = useState("");
+  // The initial /api/state read failing is its own state, separate from the
+  // per-action `error`: without it a failed first load fell through to an empty
+  // wizard with no hint. Cleared once a state read succeeds.
+  const [loadError, setLoadError] = useState("");
   // Set alongside a 409 request error and cleared at the entry of every save:
   // it is what lets the persistent banner carry the 重新读取 action after the
   // toast that also offers it has expired.
@@ -1969,6 +2048,7 @@ export function App() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState(() => new Set());
   const [bulkDeleteIds, setBulkDeleteIds] = useState([]);
+  const [codexBulkDeleteIds, setCodexBulkDeleteIds] = useState([]);
   const [userAgentFocusRequest, setUserAgentFocusRequest] = useState(0);
   const [betaFocusRequest, setBetaFocusRequest] = useState({ rowId: "", serial: 0 });
   const [target, setTarget] = useState("pi");
@@ -2006,6 +2086,7 @@ export function App() {
     fetch("/api/state", { cache: "no-store" })
       .then(async (response) => {
         const data = await readApiResponse(response, "读取配置失败");
+        setLoadError("");
         setState(data);
         if (data.providers.length > 0) {
           const provider = data.providers.find((item) => item.isDefault) || data.providers[0];
@@ -2014,7 +2095,7 @@ export function App() {
           setStep(provider.models.length > 0 ? 3 : 1);
         }
       })
-      .catch((requestError) => setError(requestError.message))
+      .catch((requestError) => setLoadError(requestError.message))
       .finally(() => setLoading(false));
   }, [demoMode]);
 
@@ -2828,6 +2909,68 @@ export function App() {
     }
   };
 
+  const deleteCodexProvidersBulk = async (payload) => {
+    setDeletingProvider(true);
+    setDeleteProviderError("");
+    setConflict(false);
+    try {
+      const removing = new Set(payload.providerIds);
+      let data;
+      if (demoMode) {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        const activeRemoved = removing.has(codex.activeProviderId);
+        const providers = codex.providers
+          .filter((provider) => !removing.has(provider.id))
+          .map((provider) => (activeRemoved && payload.replacementProviderId
+            ? { ...provider, isActive: provider.id === payload.replacementProviderId }
+            : provider));
+        data = {
+          state: {
+            ...state,
+            codex: {
+              ...codex,
+              providers,
+              activeProviderId: activeRemoved
+                ? (payload.replacementProviderId || providers[0]?.id || "")
+                : codex.activeProviderId,
+            },
+          },
+        };
+      } else {
+        const response = await fetch("/api/codex/providers/delete-bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...payload, revision: codex.revision }),
+        });
+        data = await readApiResponse(response, "批量删除供应商失败");
+      }
+      const removedCount = payload.providerIds.length;
+      setState(data.state);
+      setCodexBulkDeleteIds([]);
+      exitSelectMode();
+      setCodexSaveResult(null);
+      setView("wizard");
+      setError("");
+      const next = (data.state.codex?.providers || []).find((provider) => provider.id === payload.replacementProviderId)
+        || (data.state.codex?.providers || []).find((provider) => provider.isActive)
+        || (data.state.codex?.providers || [])[0];
+      if (next) {
+        setCodexSelectedId(next.id);
+        setCodexForm(codexProviderToForm(next, data.state.codex));
+        setCodexStep(3);
+      } else {
+        setCodexSelectedId("");
+        setCodexForm(blankCodexForm());
+        setCodexStep(1);
+      }
+      showToast(<>已删除 {removedCount} 个 Codex 供应商</>);
+    } catch (requestError) {
+      reportRequestError(requestError, setDeleteProviderError);
+    } finally {
+      setDeletingProvider(false);
+    }
+  };
+
   const saveCodexSettings = async (draft) => {
     setConflict(false);
     setSaving(true);
@@ -2883,6 +3026,8 @@ export function App() {
         state={state}
         target={target}
         loading={loading}
+        loadFailed={Boolean(loadError)}
+        onReload={() => window.location.reload()}
         onTarget={switchTarget}
         selectedId={target === "codex" ? codexSelectedId : selectedId}
         onSelect={target === "codex" ? selectCodexProvider : selectProvider}
@@ -2894,14 +3039,14 @@ export function App() {
         onTheme={setTheme}
         onDuplicate={target === "codex" ? duplicateCodexProviderById : duplicateProviderById}
         onDelete={target === "codex" ? (id) => { setDeleteProviderError(""); setCodexDeleteTargetId(id); } : openDeleteProvider}
-        canBulkDelete={target !== "codex"}
-        selectMode={target === "codex" ? false : selectMode}
+        canBulkDelete
+        selectMode={selectMode}
         selectedForDelete={selectedForDelete}
         onEnterSelect={() => { setSelectMode(true); setSelectedForDelete(new Set()); }}
         onExitSelect={exitSelectMode}
         onToggleSelect={toggleSelectForDelete}
         onReplaceSelection={(ids) => setSelectedForDelete(new Set(ids))}
-        onBulkDelete={() => { setDeleteProviderError(""); setBulkDeleteIds(Array.from(selectedForDelete)); }}
+        onBulkDelete={() => { setDeleteProviderError(""); if (target === "codex") setCodexBulkDeleteIds(Array.from(selectedForDelete)); else setBulkDeleteIds(Array.from(selectedForDelete)); }}
       />
       <section className="workspace">
         {loading ? (
@@ -2910,6 +3055,14 @@ export function App() {
             <span className="skeleton skeleton-line" />
             <span className="skeleton skeleton-block" />
             <p>正在读取{target === "codex" ? " Codex " : " Pi "}配置…</p>
+          </div>
+        ) : loadError ? (
+          <div className="load-error" role="alert">
+            <WarningCircle size={40} weight="duotone" />
+            <h1>读取配置失败</h1>
+            <p>{loadError}</p>
+            <p className="load-error-hint">本地服务可能未启动或已重启。重新加载页面再试。</p>
+            <button type="button" className="primary-button" onClick={() => window.location.reload()}><ArrowsClockwise size={18} />重新加载</button>
           </div>
         ) : view === "prompts" ? (
           <PromptsScreen
@@ -2993,6 +3146,17 @@ export function App() {
           conflict={conflict}
           onClose={() => { setBulkDeleteIds([]); setDeleteProviderError(""); }}
           onConfirm={deleteProvidersBulk}
+        />
+      )}
+      {codexBulkDeleteIds.length > 0 && (
+        <CodexProviderBulkDeleteDialog
+          providerIds={codexBulkDeleteIds}
+          codex={codex}
+          deleting={deletingProvider}
+          requestError={deleteProviderError}
+          conflict={conflict}
+          onClose={() => { setCodexBulkDeleteIds([]); setDeleteProviderError(""); }}
+          onConfirm={deleteCodexProvidersBulk}
         />
       )}
       <div className="toast-region" role="status" aria-live="polite">

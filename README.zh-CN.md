@@ -306,6 +306,14 @@ npm run test:pi-update
 
 项目使用 [MIT License](LICENSE) 开源。首次推送后的仓库加固事项见 [OPEN_SOURCE_CHECKLIST.md](OPEN_SOURCE_CHECKLIST.md)。
 
+## 支持
+
+如果这个项目对你有帮助，可以在这里支持我的创作：
+
+❤️ [支持作者](https://eigentime.org/support?from=pi-provider-manager)
+
+完全自愿。不解锁任何功能、不设任何门槛，工具始终免费。
+
 ## 路线图
 
 - 稳定维护：安全修复、确认过的正确性缺陷和 Pi / Codex 兼容更新
@@ -313,3 +321,13 @@ npm run test:pi-update
 - 更广的一站式工作流交给 CC Switch；本项目保持聚焦于 Pi 与 Codex 的凭据、默认项和原生文件一致性
 
 视觉对照、交互验证和历史 QA 记录见 `design-qa.md` 与 `qa/`。
+
+## Star History
+
+<a href="https://star-history.com/#wowayou/pi-provider-manager&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=wowayou/pi-provider-manager&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=wowayou/pi-provider-manager&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=wowayou/pi-provider-manager&type=Date" width="640" />
+  </picture>
+</a>

@@ -28,10 +28,10 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 
-import { CODEX_REASONING_EFFORTS, CODEX_VERBOSITIES, adoptableEffort, effortOptions, idSlug } from "../lib/codex-shared.mjs";
+import { CODEX_REASONING_EFFORTS, CODEX_VERBOSITIES, adoptableEffort, codexConfigJsonToForm, codexFormToConfigJson, effortOptions, idSlug } from "../lib/codex-shared.mjs";
 import { TomlDocument } from "../lib/toml-document.mjs";
 import { isLoopbackHostname } from "../lib/validation.mjs";
-import { BulkModal, ErrorBanner, Spinner, createRadioKeyHandler, titleFromId, useDialog } from "./ui-kit.jsx";
+import { BulkModal, ConfigEditor, ErrorBanner, Spinner, createRadioKeyHandler, formatJson, titleFromId, useDialog, validateJson } from "./ui-kit.jsx";
 
 
 const UPSTREAM_OPTIONS = [
@@ -365,14 +365,16 @@ function CodexCredentialsStep({ form, setForm, codex, selectedId, error, conflic
         </div>
         {showSnippet && (
           <div className="hint-panel" id="snippet-panel">
-            <p>把供应商文档里的那段 TOML 贴进来，会自动填好下面的字段。</p>
-            <textarea
-              className="snippet-input mono"
-              rows={8}
+            <p>把供应商文档里的那段 TOML 贴进来，会自动填好下面的字段。支持语法检查与格式化。</p>
+            <ConfigEditor
               value={snippet}
-              onChange={(event) => setSnippet(event.target.value)}
+              onChange={setSnippet}
+              language="toml"
+              rows={8}
+              ariaLabel="粘贴 config.toml 片段"
+              validate={(value) => (parseCodexSnippet(value) ? { ok: true } : { ok: false, message: "没有找到 [model_providers.*] 表" })}
+              format={(value) => TomlDocument.parse(value).render()}
               placeholder={'model_provider = "custom"\nmodel = "gpt-5.6-sol"\n\n[model_providers.custom]\nname = "示例网关"\nbase_url = "https://api.example.com/v1"\nwire_api = "responses"\nrequires_openai_auth = true'}
-              spellCheck={false}
             />
             <div className="modal-actions">
               <button type="button" className="secondary-button" onClick={() => setShowSnippet(false)}>取消</button>
@@ -380,6 +382,7 @@ function CodexCredentialsStep({ form, setForm, codex, selectedId, error, conflic
             </div>
           </div>
         )}
+        <div className="step-card">
         <div className="form-grid">
           <label>
             <span>供应商 ID</span><small>本管理器内部标识</small>
@@ -484,6 +487,7 @@ function CodexCredentialsStep({ form, setForm, codex, selectedId, error, conflic
             </div>
           )}
         </fieldset>
+        </div>
         <ErrorBanner message={error} conflict={conflict} />
       </div>
       <footer className="wizard-footer"><button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={19} />上一步</button><button type="button" className="primary-button" onClick={onNext}>下一步<ArrowRight size={19} /></button></footer>
@@ -560,6 +564,7 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [scrolled, setScrolled] = useState(false);
+  const [jsonDraft, setJsonDraft] = useState(null);
   const liveModel = isActive ? codex.settings?.model || "" : "";
   const updateModel = (rowId, value) => setForm((current) => ({ ...current, models: current.models.map((model) => model.rowId === rowId ? value : model) }));
   const addModel = () => setForm((current) => ({ ...current, models: [...current.models, blankCodexModel()], defaultRowId: current.defaultRowId || current.models[0]?.rowId || "" }));
@@ -651,6 +656,31 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
   // The step-one choice, not only the saved record: before the first save
   // there is no record, and the summary still has to describe the draft.
   const isBridge = form.upstream === "bridge" || Boolean(codexProviderOf(codex, form)?.bridge);
+  // The advanced JSON editor holds its own text while open, seeded from the
+  // current draft. 应用到表单 parses and maps it back so the normal Save still
+  // runs every check. The credential never appears — direct key and bridge
+  // upstream key both stay out.
+  const openJsonEditor = () => setJsonDraft(codexFormToConfigJson(form));
+  const applyJsonDraft = () => {
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonDraft);
+    } catch {
+      onNotify("JSON 无法解析，请先修正语法。", "error");
+      return;
+    }
+    let next;
+    try {
+      next = codexConfigJsonToForm(parsed, form);
+    } catch (problem) {
+      onNotify(problem.message, "error");
+      return;
+    }
+    const previous = form;
+    setForm(next);
+    setJsonDraft(null);
+    onNotify("已把配置 JSON 应用到表单；保存前不会写入 Codex。", "success", { label: "撤销", onAction: () => setForm(previous) });
+  };
   return (
     <section className="step-content models-step">
       <div className="step-scroll">
@@ -729,6 +759,34 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
               <code> would become two flex items and break the sentence. */}
           <span>切换供应商只对<strong>新开的</strong> codex 会话生效；正在运行的会话不受影响，也不要指望 <code className="mono">codex resume</code> 能跨供应商续聊。</span>
         </div>
+        <details className="advanced-panel">
+          <summary><span><SlidersHorizontal size={21} />配置 JSON（进阶） <small>直接编辑名称、地址与模型列表（不包含凭据）</small></span><CaretDown size={19} /></summary>
+          <div className="advanced-content">
+            <div className="advanced-group json-group">
+              <div className="advanced-group-heading"><h3>配置 JSON</h3><p>应用后仍需点保存，服务端会做完整校验。</p></div>
+              {jsonDraft === null ? (
+                <button type="button" className="outline-button compact-button" onClick={openJsonEditor}><SlidersHorizontal size={16} />编辑原始配置</button>
+              ) : (
+                <>
+                  <ConfigEditor
+                    value={jsonDraft}
+                    onChange={setJsonDraft}
+                    validate={validateJson}
+                    format={formatJson}
+                    rows={12}
+                    language="json"
+                    ariaLabel="Codex 供应商配置 JSON"
+                  />
+                  <div className="json-editor-actions">
+                    <button type="button" className="secondary-button compact-button" onClick={() => setJsonDraft(null)}>取消</button>
+                    <button type="button" className="primary-button compact-button" onClick={applyJsonDraft}>应用到表单</button>
+                  </div>
+                  <p className="user-agent-disclaimer">在这里改模型 ID 等同于删掉旧模型、新增一个。</p>
+                </>
+              )}
+            </div>
+          </div>
+        </details>
         <ErrorBanner message={error} conflict={conflict} />
       </div>
       <footer className="wizard-footer">
@@ -796,6 +854,73 @@ export function CodexDeleteDialog({ provider, codex, deleting, requestError, con
             onClick={() => onConfirm({ providerId: provider.id, replacementProviderId: isActive ? replacementProviderId : undefined })}
           >
             {deleting ? <><Spinner />正在删除…</> : "删除供应商"}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// The bulk counterpart to CodexDeleteDialog. Codex keeps one live provider, so
+// when it is among the set the dialog asks for a survivor to take over the
+// owned config.toml table. There is no keep-credential option: a Codex
+// credential lives inside its store entry, so removing the entry removes the
+// key with it.
+export function CodexProviderBulkDeleteDialog({ providerIds, codex, deleting, requestError, conflict, onClose, onConfirm }) {
+  const idSet = new Set(providerIds);
+  const chosen = codex.providers.filter((item) => idSet.has(item.id));
+  const activeIncluded = chosen.some((item) => item.isActive);
+  const survivors = codex.providers.filter((item) => !idSet.has(item.id));
+  const [replacementProviderId, setReplacementProviderId] = useState(survivors[0]?.id || "");
+  const cancelRef = useRef(null);
+  const dialogRef = useRef(null);
+  const blocked = activeIncluded && survivors.length === 0;
+  useDialog({ ref: dialogRef, initialFocusRef: cancelRef, onClose, locked: deleting });
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !deleting) onClose(); }}>
+      <section ref={dialogRef} className="bulk-modal" role="dialog" aria-modal="true" aria-labelledby="codex-bulk-delete-title" aria-describedby="codex-bulk-delete-description">
+        <div className="modal-heading">
+          <div>
+            <h2 id="codex-bulk-delete-title">删除选中的 {chosen.length} 个 Codex 供应商？</h2>
+            <p id="codex-bulk-delete-description">会移除它们的地址、模型列表和保存的 key。Codex 的 config.toml 只保留当前生效的那一个供应商表。</p>
+          </div>
+        </div>
+        <ul className="bulk-delete-list">
+          {chosen.map((item) => (
+            <li key={item.id}>
+              <span className="bulk-delete-name">{item.name || titleFromId(item.id)}</span>
+              <code>{item.id}</code>
+              <span className="bulk-delete-count">{item.models.length} 个模型</span>
+              {item.isActive && <span className="provider-badge">生效中</span>}
+            </li>
+          ))}
+        </ul>
+        {activeIncluded && (
+          blocked ? (
+            <div className="error-banner" role="alert">
+              <WarningCircle size={20} weight="fill" />
+              选中的供应商里包含当前生效的那个，而删完之后没有别的供应商可以接替。请先保留至少一个再删除。
+            </div>
+          ) : (
+            <label>
+              <span>接替它成为当前生效的供应商</span>
+              <select value={replacementProviderId} onChange={(event) => setReplacementProviderId(event.target.value)}>
+                {survivors.map((item) => <option key={item.id} value={item.id}>{item.name || titleFromId(item.id)}（{item.id}）</option>)}
+              </select>
+              <small>删除后会立即把这个供应商写入 config.toml 并换上它的 key。</small>
+            </label>
+          )
+        )}
+        <ErrorBanner message={requestError} conflict={conflict} />
+        <div className="modal-actions">
+          <button type="button" ref={cancelRef} className="secondary-button" disabled={deleting} onClick={onClose}>取消</button>
+          <button
+            type="button"
+            className="primary-button is-destructive"
+            disabled={deleting || blocked}
+            onClick={() => onConfirm({ providerIds, replacementProviderId: activeIncluded ? replacementProviderId : undefined })}
+          >
+            {deleting ? <><Spinner />正在删除…</> : `删除 ${chosen.length} 个供应商`}
           </button>
         </div>
       </section>

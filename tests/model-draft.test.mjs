@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { changedPersistedModel, duplicateCodexForm, duplicatePiForm, selectedNamedModel, suggestCopyId, userAgentSaveIntent, anthropicBetaSaveIntent } from "../src/model-draft.mjs";
+import { changedPersistedModel, duplicateCodexForm, duplicatePiForm, selectedNamedModel, suggestCopyId, userAgentSaveIntent, anthropicBetaSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "../src/model-draft.mjs";
 
 test("persisted model identities cannot be renamed or cleared in a draft", () => {
   const unchanged = { rowId: "stored", persistedId: "anthropic/claude-opus", id: "anthropic/claude-opus" };
@@ -174,4 +174,69 @@ test("model beta save intent preserves external target and clears new targets", 
   assert.deepEqual(anthropicBetaSaveIntent(literal, "source", "other", false), { write: true, value: "context-1m-2025-08-07" });
   const edited = { ...external, anthropicBeta: "beta-a, beta-b", anthropicBetaEdited: true };
   assert.deepEqual(anthropicBetaSaveIntent(edited, "source", "source", true), { write: true, value: "beta-a, beta-b" });
+});
+
+function jsonEditorForm() {
+  return {
+    providerId: "any-claude",
+    baseUrl: "https://api.any-claude.com/v1",
+    api: "anthropic-messages",
+    credentialMode: "keep",
+    apiKey: "",
+    compat: { foo: true },
+    models: [
+      { rowId: "row-a", persistedId: "claude-opus", id: "claude-opus", name: "Opus", contextWindow: 200000, maxTokens: 8192, supportsImages: true, maximumThinking: "on", api: "inherit", forceAdaptiveThinking: false, anthropicBeta: "context-1m-2025-08-07", anthropicBetaKind: "literal", anthropicBetaEdited: false },
+      { rowId: "row-b", persistedId: "claude-haiku", id: "claude-haiku", name: "Haiku", contextWindow: 200000, maxTokens: 8192, supportsImages: false, maximumThinking: "off", api: "openai-completions", forceAdaptiveThinking: false, anthropicBeta: "", anthropicBetaKind: "none", anthropicBetaEdited: false },
+    ],
+    defaultRowId: "row-a",
+    userAgent: "",
+    userAgentKind: "none",
+    userAgentEdited: false,
+  };
+}
+
+test("the config JSON editor renders the credential-free draft and never the credential", () => {
+  const json = piFormToConfigJson(jsonEditorForm());
+  const parsed = JSON.parse(json);
+  assert.equal(parsed.baseUrl, "https://api.any-claude.com/v1");
+  assert.equal(parsed.api, "anthropic-messages");
+  assert.deepEqual(parsed.compat, { foo: true });
+  assert.equal(parsed.models.length, 2);
+  assert.equal(parsed.models[0].thinking, "on");
+  assert.equal(parsed.models[0].anthropicBeta, "context-1m-2025-08-07");
+  // Nothing about a key ever appears.
+  assert.equal(/apiKey|api_key|credential|providerId/i.test(json), false);
+});
+
+test("applying edited config JSON keeps persistedId for surviving model IDs", () => {
+  const form = jsonEditorForm();
+  const json = piFormToConfigJson(form);
+  const parsed = JSON.parse(json);
+  parsed.baseUrl = "https://api.any-claude.com/v2";
+  parsed.models[0].maxTokens = 4096;
+  const next = piConfigJsonToForm(parsed, form);
+  assert.equal(next.baseUrl, "https://api.any-claude.com/v2");
+  assert.equal(next.models[0].persistedId, "claude-opus");
+  assert.equal(next.models[0].rowId, "row-a");
+  assert.equal(next.models[0].maxTokens, 4096);
+  // The default follows its model ID across the round trip.
+  assert.equal(next.defaultRowId, next.models.find((model) => model.id === "claude-opus").rowId);
+});
+
+test("a model ID renamed through the JSON editor becomes a fresh row with no persisted identity", () => {
+  const form = jsonEditorForm();
+  const parsed = JSON.parse(piFormToConfigJson(form));
+  parsed.models[0].id = "claude-opus-4";
+  const next = piConfigJsonToForm(parsed, form);
+  const renamed = next.models.find((model) => model.id === "claude-opus-4");
+  assert.equal(renamed.persistedId, "");
+  assert.notEqual(renamed.rowId, "row-a");
+});
+
+test("the config JSON editor refuses a non-object, empty models, and duplicate IDs", () => {
+  const form = jsonEditorForm();
+  assert.throws(() => piConfigJsonToForm([], form), /JSON 对象/);
+  assert.throws(() => piConfigJsonToForm({ models: [] }, form), /至少/);
+  assert.throws(() => piConfigJsonToForm({ models: [{ id: "x" }, { id: "x" }] }, form), /重复/);
+  assert.throws(() => piConfigJsonToForm({ models: [{ name: "no id" }] }, form), /缺少 id/);
 });

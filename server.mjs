@@ -1511,6 +1511,12 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, { ok: true, state: publicState() });
       return;
     }
+    if (request.method === "POST" && request.url === "/api/codex/providers/delete-bulk") {
+      codex.deleteProvidersBulk(await readBody(request));
+      syncBridgeConfig();
+      sendJson(response, 200, { ok: true, state: publicState() });
+      return;
+    }
     if (request.method === "POST" && request.url === "/api/codex/activate") {
       codex.activate(await readBody(request));
       syncBridgeConfig();

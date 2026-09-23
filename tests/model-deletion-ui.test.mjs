@@ -333,7 +333,7 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     })`);
     assert.equal(initial.readOnlyCount, 3);
     assert.equal(initial.liveId, "anthropic/claude-opus");
-    assert.deepEqual(initial.rows.map((row) => row.height), [85, 85, 85]);
+    assert.deepEqual(initial.rows.map((row) => row.height), [80, 80, 80]);
     for (const row of initial.rows) assert.equal(new Set(row.tops).size, 1);
     assert.deepEqual({
       pageOverflowX: initial.frame.pageOverflowX,
@@ -657,7 +657,7 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     assert.equal(mobile.removeVisible, true);
     assert.equal(mobile.removeTopmost, true);
     assert.ok(mobile.toastLeft >= 0 && mobile.toastRight <= 420);
-    assert.deepEqual(mobile.rowHeights, [85, 85, 85]);
+    assert.deepEqual(mobile.rowHeights, [80, 80, 80]);
 
     await cdp.evaluate(`document.querySelectorAll('.provider-select')[1].click()`);
     await cdp.waitFor(`document.querySelectorAll('.model-row').length === 1 && document.querySelector('.model-name-cell input').value === 'only/model'`);
@@ -2150,7 +2150,7 @@ test("every control is big enough to hit", { timeout: 60_000 }, async () => {
         fieldKeepsItsEdge: true,
       },
     );
-    assert.deepEqual(await cdp.evaluate(rowMeasurements).then((rows) => rows.map((row) => row.height)), [85, 85, 85]);
+    assert.deepEqual(await cdp.evaluate(rowMeasurements).then((rows) => rows.map((row) => row.height)), [80, 80, 80]);
 
     assert.equal(cdp.errors.length, 0, JSON.stringify(cdp.errors));
   } catch (error) {

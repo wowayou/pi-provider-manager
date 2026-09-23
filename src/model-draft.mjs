@@ -99,6 +99,105 @@ export function duplicatePiForm(form, takenIds) {
   };
 }
 
+// The advanced "配置 JSON" editor works on the draft, not on disk: it renders the
+// credential-free provider fields as JSON, and maps an edited copy back into the
+// form so the normal Save path — with its default-model check, identity-drift
+// guard, and the server's revision/409 — still runs. The credential and the
+// provider ID are deliberately absent: the ID is storage identity owned by step
+// two, and the key never travels to the browser at all.
+const PI_THINKING_VALUES = new Set(["off", "on", "xhigh", "max"]);
+
+export function piFormToConfigJson(form) {
+  const models = form.models.filter((model) => String(model.id || "").trim()).map((model) => {
+    const entry = {
+      id: String(model.id).trim(),
+      name: model.name || String(model.id).trim(),
+      contextWindow: Number(model.contextWindow),
+      maxTokens: Number(model.maxTokens),
+      supportsImages: Boolean(model.supportsImages),
+      thinking: PI_THINKING_VALUES.has(model.maximumThinking) ? model.maximumThinking : "on",
+      api: model.api || "inherit",
+    };
+    if (model.forceAdaptiveThinking) entry.forceAdaptiveThinking = true;
+    // Only a literal override is shown. An external value is never surfaced
+    // (the app never brings it back to the browser), and "none" is the default.
+    if (model.anthropicBetaKind === "literal" && model.anthropicBeta) entry.anthropicBeta = model.anthropicBeta;
+    return entry;
+  });
+  return JSON.stringify(
+    { baseUrl: form.baseUrl || "", api: form.api || "openai-responses", compat: form.compat || {}, models },
+    null,
+    2,
+  );
+}
+
+export function piConfigJsonToForm(parsed, form) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("配置必须是一个 JSON 对象。");
+  }
+  const rawModels = Array.isArray(parsed.models) ? parsed.models : null;
+  if (!rawModels || rawModels.length === 0) {
+    throw new Error("models 必须是至少包含一个模型的数组。");
+  }
+  const byId = new Map(form.models.map((model) => [String(model.id || "").trim(), model]));
+  const usedRowIds = new Set();
+  const seenIds = new Set();
+  const models = rawModels.map((raw, index) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error(`第 ${index + 1} 个模型不是对象。`);
+    }
+    const id = String(raw.id || "").trim();
+    if (!id) throw new Error(`第 ${index + 1} 个模型缺少 id。`);
+    if (seenIds.has(id)) throw new Error(`模型 ID 重复：${id}。`);
+    seenIds.add(id);
+    // Reuse the matching row's rowId and persistedId so the draft's identity
+    // tracking survives a round trip: a model kept under the same ID keeps its
+    // storage identity, and the drift check still sees an unchanged persistedId.
+    const prior = byId.get(id);
+    const rowId = prior && !usedRowIds.has(prior.rowId) ? prior.rowId : freshRowId();
+    if (prior) usedRowIds.add(prior.rowId);
+    const contextWindow = Number(raw.contextWindow);
+    const maxTokens = Number(raw.maxTokens);
+    let anthropicBeta = prior?.anthropicBeta || "";
+    let anthropicBetaKind = prior?.anthropicBetaKind || "none";
+    let anthropicBetaEdited = prior ? Boolean(prior.anthropicBetaEdited) : false;
+    // Omission preserves whatever the row carried (including an external value);
+    // an explicit string sets a literal override, an empty string clears it.
+    if (Object.hasOwn(raw, "anthropicBeta")) {
+      const value = String(raw.anthropicBeta || "");
+      anthropicBeta = value;
+      anthropicBetaKind = value ? "literal" : "none";
+      anthropicBetaEdited = true;
+    }
+    return {
+      rowId,
+      persistedId: prior ? prior.persistedId : "",
+      id,
+      name: raw.name ? String(raw.name) : id,
+      contextWindow: Number.isFinite(contextWindow) && contextWindow > 0 ? contextWindow : (prior?.contextWindow || 128000),
+      maxTokens: Number.isFinite(maxTokens) && maxTokens > 0 ? maxTokens : (prior?.maxTokens || 16384),
+      supportsImages: Object.hasOwn(raw, "supportsImages") ? Boolean(raw.supportsImages) : Boolean(prior?.supportsImages),
+      maximumThinking: PI_THINKING_VALUES.has(raw.thinking) ? raw.thinking : (prior?.maximumThinking || "on"),
+      api: typeof raw.api === "string" ? raw.api : (prior?.api || "inherit"),
+      forceAdaptiveThinking: Object.hasOwn(raw, "forceAdaptiveThinking") ? Boolean(raw.forceAdaptiveThinking) : Boolean(prior?.forceAdaptiveThinking),
+      anthropicBeta,
+      anthropicBetaKind,
+      anthropicBetaEdited,
+    };
+  });
+  // Keep the default on the same model ID it was on, when that ID survives.
+  const previousDefaultId = form.models.find((model) => model.rowId === form.defaultRowId)?.id.trim();
+  const defaultRow = models.find((model) => model.id === previousDefaultId) || models[0];
+  return {
+    ...form,
+    baseUrl: typeof parsed.baseUrl === "string" ? parsed.baseUrl : form.baseUrl,
+    api: typeof parsed.api === "string" ? parsed.api : form.api,
+    compat: parsed.compat && typeof parsed.compat === "object" && !Array.isArray(parsed.compat) ? parsed.compat : (form.compat || {}),
+    models,
+    defaultRowId: defaultRow.rowId,
+  };
+}
+
 export function duplicateCodexForm(form, takenIds) {
   const models = form.models.map((model) => ({ ...model, rowId: freshRowId() }));
   const sourceDefault = form.models.find((model) => model.rowId === form.defaultRowId);
