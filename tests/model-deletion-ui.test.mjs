@@ -3644,3 +3644,50 @@ test("the Codex settings screen carries the shared manager card", { timeout: 90_
     fs.rmSync(codexDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
+
+test("CJK text renders at 12px or larger in both themes", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-cjk-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-cjk-"));
+  writeFixture(agentDir);
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server; let chrome; let cdp; let serverOutput = "";
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
+    chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl("http://127.0.0.1:" + debugPort + "/json/version", 30_000);
+    const target = await fetch("http://127.0.0.1:" + debugPort + "/json/new?" + encodeURIComponent("http://127.0.0.1:" + appPort), { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl); await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+    const cjkTooSmall = () => cdp.evaluate("(() => { const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); const cjk = /[\\u4e00-\\u9fff\\u3400-\\u4dbf]/; const bad = []; let node; while ((node = walker.nextNode())) { const text = node.nodeValue.trim(); if (!text || !cjk.test(text)) continue; const el = node.parentElement; if (!el) continue; const rect = el.getBoundingClientRect(); if (rect.width === 0 || rect.height === 0) continue; const size = parseFloat(getComputedStyle(el).fontSize); if (size < 12) bad.push({ text: text.slice(0, 24), size, cls: (el.className && el.className.baseVal) || el.className || el.tagName }); } return bad; })()");
+    const auditBoth = async (label) => {
+      const light = await cjkTooSmall();
+      assert.deepEqual(light, [], label + " (light): " + JSON.stringify(light));
+      await cdp.evaluate("(() => { localStorage.setItem('ppm-theme', 'dark'); document.documentElement.dataset.theme = 'dark'; })()");
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const dark = await cjkTooSmall();
+      assert.deepEqual(dark, [], label + " (dark): " + JSON.stringify(dark));
+      await cdp.evaluate("(() => { localStorage.setItem('ppm-theme', 'light'); document.documentElement.dataset.theme = 'light'; })()");
+    };
+    await cdp.send("Page.navigate", { url: "http://127.0.0.1:" + appPort });
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3 && document.querySelector('.provider-badge')");
+    await auditBoth("wizard step 3");
+    // Advanced panel surfaces disclaimers and per-model annotations.
+    await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
+    await cdp.waitFor("document.querySelector('.advanced-panel').open");
+    await auditBoth("advanced open");
+    // Settings, including the shared manager card.
+    await cdp.evaluate("document.querySelector('.nav-settings').click()");
+    await cdp.waitFor("document.querySelector('.manager-card')");
+    await auditBoth("settings");
+    assert.deepEqual(cdp.errors, []);
+  } finally {
+    if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }
+    await stopProcess(chrome, true); await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});

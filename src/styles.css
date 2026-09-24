@@ -379,7 +379,7 @@ code { color: var(--ink); background: transparent; }
 .add-provider:active { transform: translateY(1px); }
 
 .sidebar-label { margin: 28px 5px 12px; color: var(--ink-2); font-size: 13px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
-.count-pill { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 8px; border-radius: var(--radius-pill); background: var(--chip); color: var(--ink-2); font-size: 11px; font-weight: 700; font-family: var(--mono); }
+.count-pill { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 8px; border-radius: var(--radius-pill); background: var(--chip); color: var(--ink-2); font-size: 12px; font-weight: 700; font-family: var(--mono); }
 /* The bulk-delete affordances: an entry into selection mode beside the count, a
    check box the row grows in that mode, and a bottom bar carrying the count and
    the destructive action. */
@@ -489,7 +489,7 @@ code { color: var(--ink); background: transparent; }
 .step:not(:disabled):not(.is-active):hover .step-number { border-color: var(--orange); }
 .step-number { width: 32px; height: 32px; border-radius: 50%; border: 1.5px solid var(--step-border); display: grid; place-items: center; color: var(--step-num); font-weight: 700; font-family: var(--mono); font-size: 14px; transition: background var(--base) var(--ease), border-color var(--base) var(--ease), color var(--base) var(--ease); }
 .step strong { display: block; font-size: 14px; }
-.step small { display: block; font-size: 11px; color: var(--step-sub); margin-top: 2px; }
+.step small { display: block; font-size: 12px; color: var(--step-sub); margin-top: 2px; }
 .step.is-active strong, .step.is-active .step-number { color: var(--orange-dark); }
 .step.is-active .step-number { background: var(--orange-strong); color: var(--on-primary); border-color: var(--orange-strong); box-shadow: 0 0 0 3px var(--orange-soft); }
 .step.is-complete .step-number { color: var(--orange); border-color: var(--orange); }
@@ -561,7 +561,7 @@ code { color: var(--ink); background: transparent; }
 .form-grid, .credential-box { max-width: 880px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1.35fr; gap: var(--space-4); }
 label { display: flex; flex-direction: column; gap: var(--space-2); font-size: 13px; font-weight: 650; }
-label small { color: var(--muted); font-size: 11px; font-weight: 450; }
+label small { color: var(--muted); font-size: 12px; font-weight: 450; }
 input, select, textarea { width: 100%; height: 42px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); padding: 0 12px; background: var(--field); color: var(--ink); outline: none; transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), background var(--fast) var(--ease); }
 input:hover:not(:focus), select:hover:not(:focus) { border-color: var(--border-hover); }
 input:focus, select:focus, textarea:focus { border-color: var(--orange); box-shadow: var(--ring); }
@@ -702,7 +702,7 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
    here and 12px on a machine with none, making the target 20px — below the
    minimum, for the people with the fewest fonts rather than for CI. Padding only
    ever adds to the line box, so the box itself has to be a number. */
-.safe-default { border: 0; background: transparent; padding: 0 0 8px; margin-bottom: -8px; text-align: left; color: var(--blue); font-size: 11px; line-height: 16px; font-weight: 500; border-radius: var(--radius-sm); visibility: hidden; opacity: 0; transition: opacity var(--fast) var(--ease), color var(--fast) var(--ease); }
+.safe-default { border: 0; background: transparent; padding: 0 0 8px; margin-bottom: -8px; text-align: left; color: var(--blue); font-size: 12px; line-height: 16px; font-weight: 500; border-radius: var(--radius-sm); visibility: hidden; opacity: 0; transition: opacity var(--fast) var(--ease), color var(--fast) var(--ease); }
 .safe-default:hover { color: var(--blue-hover); text-decoration: underline; text-underline-offset: 2px; }
 .model-row:hover .safe-default, .model-row:focus-within .safe-default, .safe-default:focus-visible { visibility: visible; opacity: 1; }
 .model-row .model-name-cell { min-height: 60px; }
@@ -724,8 +724,8 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .model-action-cell .icon-button { border: 1px solid var(--danger-border); background: var(--danger-bg); color: var(--red); }
 .model-action-cell .icon-button:hover:not(:disabled), .model-action-cell .icon-button.is-confirming { border-color: var(--danger-solid); background: var(--danger-solid); color: var(--on-brand); }
 .model-action-cell .icon-button[aria-disabled="true"] { border-style: dashed; }
-.protocol-override { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--orange-dark); font-size: 11px; font-weight: 500; padding-left: 2px; }
-.live-default-badge { flex: none; padding: 1px 7px; border-radius: var(--radius-pill); background: var(--green-soft); color: var(--green); font-size: 10px; font-weight: 700; letter-spacing: 0; }
+.protocol-override { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--orange-dark); font-size: 12px; font-weight: 500; padding-left: 2px; }
+.live-default-badge { flex: none; padding: 1px 7px; border-radius: var(--radius-pill); background: var(--green-soft); color: var(--green); font-size: 12px; font-weight: 700; letter-spacing: 0; }
 
 .advanced-panel { margin-top: 32px; border: 1px solid var(--divider); border-radius: var(--radius-md); background: var(--surface-raised); box-shadow: var(--shadow-card); }
 .advanced-panel summary { list-style: none; min-height: 56px; padding: 0 18px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; border-radius: var(--radius-md); transition: background var(--fast) var(--ease); }
@@ -756,7 +756,7 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .user-agent-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .user-agent-actions > span { color: var(--muted); font-size: 12px; }
 .user-agent-actions .compact-button { min-height: 36px; padding-inline: 11px; font-size: 12px; }
-.user-agent-disclaimer { margin: 0; color: var(--muted) !important; font-size: 11px !important; line-height: 1.5; }
+.user-agent-disclaimer { margin: 0; color: var(--muted) !important; font-size: 12px !important; line-height: 1.5; }
 .beta-group { display: grid; gap: 12px; }
 .beta-model-field, .beta-value-field { grid-column: 1 / -1 !important; align-items: flex-start !important; max-width: 880px; }
 .beta-model-field select { width: min(100%, 420px); }
@@ -805,7 +805,7 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .bulk-modal textarea { height: auto; min-height: 190px; resize: vertical; margin-top: 18px; border-radius: var(--radius-md); padding: 12px; font: 13px/1.6 var(--mono); }
 .modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 .modal-count { margin-right: auto; color: var(--muted); font-size: 12px; }
-.modal-shortcut { margin: 14px 0 0; color: var(--ink-3); font-size: 11.5px; text-align: right; }
+.modal-shortcut { margin: 14px 0 0; color: var(--ink-3); font-size: 12px; text-align: right; }
 /* The dialog is a column that never outgrows the viewport: heading, path field
    and actions keep their size, the list takes what is left and scrolls inside
    itself. Before this the list had a fixed 420px cap and the dialog no cap at
@@ -824,7 +824,7 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .discover-row:last-child { border-bottom: 0; }
 .discover-row:hover { background: var(--surface-hover); }
 .discover-row .mono { font-size: 13px; overflow-wrap: anywhere; min-width: 0; }
-.discover-row small { margin-left: auto; color: var(--muted); font-size: 11.5px; text-align: right; overflow-wrap: anywhere; max-width: 45%; }
+.discover-row small { margin-left: auto; color: var(--muted); font-size: 12px; text-align: right; overflow-wrap: anywhere; max-width: 45%; }
 .discover-row.is-existing { cursor: default; color: var(--ink-3); }
 .discover-status { display: flex; align-items: center; gap: 10px; padding: 26px 0 8px; color: var(--muted); font-size: 13px; }
 .discover-empty { padding: 22px 12px; text-align: center; color: var(--muted); font-size: 13px; }
@@ -833,7 +833,7 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .discover-bulk-actions button { min-height: 32px; padding-inline: 10px; font-size: 12px; }
 .discover-path { display: grid; gap: 5px; margin-top: 16px; }
 .discover-path > span { font-size: 12.5px; font-weight: 600; }
-.discover-path small { color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+.discover-path small { color: var(--muted); font-size: 12px; line-height: 1.5; }
 .discover-path small code { font-family: var(--mono); font-size: 11px; }
 .discover-path-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .discover-path-row input { flex: 1 1 260px; min-width: 0; }
@@ -967,7 +967,7 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
 .adopted-note.is-warning { color: var(--warn-text); }
 .adopted-note.is-warning svg { color: var(--warn-icon); }
 .provider-badge:empty { display: none; }
-.provider-badge { white-space: nowrap; padding: 2px 7px; border-radius: var(--radius-pill); background: var(--orange-soft); color: var(--orange-dark); font-size: 11px; font-weight: 600; letter-spacing: .01em; }
+.provider-badge { white-space: nowrap; padding: 2px 7px; border-radius: var(--radius-pill); background: var(--orange-soft); color: var(--orange-dark); font-size: 12px; font-weight: 600; letter-spacing: .01em; }
 
 .protocol-grid.is-duo { grid-template-columns: repeat(2, 1fr); }
 
@@ -1084,7 +1084,7 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
   .provider-icon { width: 28px; height: 28px; border-radius: var(--radius-md); }
   .provider-icon svg { width: 17px; height: 17px; }
   .provider-copy strong { font-size: 13px; }
-  .provider-copy small { font-size: 11px; }
+  .provider-copy small { font-size: 12px; }
   .settings-button { margin-top: 10px; }
   .workspace { height: auto; padding: 12px; }
   .stepper { padding: 16px; }
@@ -1184,7 +1184,7 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
 .prompt-slot:hover { border-color: var(--border-hover); }
 .prompt-slot.is-active { border-color: var(--orange-edge); background: var(--orange-tint); color: var(--orange-dark); }
 .prompt-slot code { font-size: 13px; font-weight: 700; }
-.prompt-slot small { color: var(--muted); font-size: 11px; }
+.prompt-slot small { color: var(--muted); font-size: 12px; }
 .prompt-slot.is-active small { color: var(--orange-dark); opacity: .8; }
 
 .prompt-note { display: flex; align-items: flex-start; gap: 9px; margin: 18px 0 0; padding: 11px 14px; border: 1px solid var(--info-border); border-radius: var(--radius-md); background: var(--info-bg); color: var(--ink-2); font-size: 13px; line-height: 1.6; }
@@ -1203,7 +1203,7 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
 .prompt-editor { border: 1px solid var(--divider); border-radius: var(--radius-lg); padding: 20px; min-width: 0; background: var(--surface-raised); box-shadow: var(--shadow-card); }
 .prompt-editor label + label { margin-top: 15px; }
 .prompt-text > span { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.prompt-text small { color: var(--muted); font-size: 11px; font-family: var(--mono); }
+.prompt-text small { color: var(--muted); font-size: 12px; font-family: var(--mono); }
 .prompt-text small.is-error { color: var(--danger-text); font-weight: 700; }
 .prompt-editor textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 220px; padding: 11px 13px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--field); color: var(--ink); font-family: var(--mono); font-size: 12.5px; line-height: 1.65; tab-size: 2; }
 /* `--ring` is a box-shadow value, not a colour: an outline built from it is an

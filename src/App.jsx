@@ -480,11 +480,24 @@ function ProviderRowMenu({ provider, onDuplicate, onDelete }) {
   const menuRef = useRef(null);
   useEffect(() => {
     if (!open) return undefined;
+    // Opening a menu moves focus into it, so keyboard users land on the first
+    // item rather than being left on the trigger with no visible cursor.
+    requestAnimationFrame(() => menuRef.current?.querySelector('[role="menuitem"]')?.focus());
     const onDocClick = (event) => {
       if (!menuRef.current?.contains(event.target) && !triggerRef.current?.contains(event.target)) setOpen(false);
     };
     const onKey = (event) => {
-      if (event.key === "Escape") { setOpen(false); triggerRef.current?.focus(); }
+      if (event.key === "Escape") { setOpen(false); triggerRef.current?.focus(); return; }
+      // Tab leaves the menu the way a menu should: it closes rather than moving
+      // focus onto whatever happens to follow the popup in the DOM.
+      if (event.key === "Tab") { setOpen(false); return; }
+      const items = [...(menuRef.current?.querySelectorAll('[role="menuitem"]') || [])];
+      if (items.length === 0) return;
+      const index = items.indexOf(document.activeElement);
+      if (event.key === "ArrowDown") { event.preventDefault(); items[(Math.max(0, index) + 1) % items.length].focus(); }
+      else if (event.key === "ArrowUp") { event.preventDefault(); items[(index <= 0 ? items.length - 1 : index - 1)].focus(); }
+      else if (event.key === "Home") { event.preventDefault(); items[0].focus(); }
+      else if (event.key === "End") { event.preventDefault(); items[items.length - 1].focus(); }
     };
     document.addEventListener("mousedown", onDocClick);
     document.addEventListener("keydown", onKey);
