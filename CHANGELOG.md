@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.4.7 - 2026-09-24
+
+- **Validated against Pi `0.87.1` (unchanged baseline).** A patch release for prompt-file adoption, keyboard-reload focus, and initial configuration loading. Full `npm test` on the release candidate passed 214/214 with 0 skips, including 26 production-browser cases, 5 real-Codex cases, and 2 real-Pi cases. No configuration format or compatibility baseline changes.
+
+- **Empty pre-existing prompt files no longer appear as adopted documents.** An unmatched, zero-byte `AGENTS.md`, `SYSTEM.md`, or `APPEND_SYSTEM.md` starts with no active document instead of creating a misleading `现有内容` entry. Whitespace-only files still count as content, and a saved empty document can still match its active file. Reading the library never writes to disk.
+
+- **Keyboard reload no longer draws a focus box around the view heading.** Programmatic heading focus still announces the screen to assistive technology; interactive controls keep their keyboard focus indicators.
+
 - **Initial navigation waits for configuration.** Pi/Codex switching, adding a provider, Settings, and Prompts stay unavailable until the first configuration read succeeds. Clicking before that read used to initialise an empty Codex draft or let the response overwrite a new Pi draft. A failed read keeps the retry action available. Browser tests now wait for usable navigation and cover a deliberately held request, failure, and retry; DOM timeouts include the current page state without increasing the wait budget.
 
 - **`test:codex-real` adapts to Codex `0.156`'s stricter `doctor` (test-only).** Codex `0.156.1` now flags a deprecated setting in the user's own config (`disable_response_storage`) as an ignored setting, which turns `codex doctor --json`'s `config.load` status from `ok` to `warning` even though the config parses and loads. The real-binary test read that `warning` as a fixture failure. The assertion now checks what this file exists to answer — that Codex could load the config, i.e. the status is not `fail` — and adds a stronger check that the manager's own output introduces no new startup warning by comparing the notice before and after the save. No product code changed; the manager still preserves the user's deprecated key byte for byte. Verified against Codex `0.156.1` with `test:codex-real` 5/5 and full `npm test` green, 0 skips.
