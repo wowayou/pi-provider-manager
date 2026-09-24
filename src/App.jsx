@@ -440,7 +440,7 @@ function sidebarProviders(state, target) {
   }));
 }
 
-function TargetSwitch({ target, onTarget }) {
+function TargetSwitch({ target, onTarget, disabled = false }) {
   const buttonRefs = useRef([]);
   const selectedIndex = Math.max(0, TARGET_OPTIONS.findIndex((option) => option.value === target));
   const onKeyDown = createRadioKeyHandler({
@@ -450,7 +450,7 @@ function TargetSwitch({ target, onTarget }) {
     onSelect: onTarget,
   });
   return (
-    <div className="target-switch" role="radiogroup" aria-label="配置目标" onKeyDown={onKeyDown}>
+    <div className="target-switch" role="radiogroup" aria-label="配置目标" onKeyDown={disabled ? undefined : onKeyDown}>
       {TARGET_OPTIONS.map((option, index) => (
         <button
           key={option.value}
@@ -458,6 +458,7 @@ function TargetSwitch({ target, onTarget }) {
           ref={(node) => { buttonRefs.current[index] = node; }}
           role="radio"
           aria-checked={target === option.value}
+          disabled={disabled}
           tabIndex={index === selectedIndex ? 0 : -1}
           onClick={() => onTarget(option.value)}
         >
@@ -531,6 +532,9 @@ function ProviderRowMenu({ provider, onDuplicate, onDelete }) {
 
 function Sidebar({ state, target, loading, loadFailed, onTarget, onReload, onSelect, onAdd, onSettings, onPrompts, activeView, theme, onTheme, onDuplicate, onDelete, canBulkDelete, selectMode, selectedForDelete, onEnterSelect, onExitSelect, onToggleSelect, onReplaceSelection, onBulkDelete, selectedId }) {
   const [query, setQuery] = useState("");
+  // The shell appears before /api/state. Navigation must not initialise a
+  // draft from that empty state or let the late read overwrite a new one.
+  const navigationDisabled = loading || loadFailed;
   const providers = sidebarProviders(state, target);
   const listRef = useRef(null);
   const activeRowRef = useRef(null);
@@ -579,8 +583,8 @@ function Sidebar({ state, target, loading, loadFailed, onTarget, onReload, onSel
         <span className="brand-icon"><img src="/favicon.png" alt="" /></span>
         <span>Pi Provider Manager</span>
       </div>
-      <TargetSwitch target={target} onTarget={(value) => { setQuery(""); onTarget(value); }} />
-      <button type="button" className="add-provider" onClick={() => { setQuery(""); onAdd(); }}>
+      <TargetSwitch target={target} disabled={navigationDisabled} onTarget={(value) => { setQuery(""); onTarget(value); }} />
+      <button type="button" className="add-provider" disabled={navigationDisabled} onClick={() => { setQuery(""); onAdd(); }}>
         <Plus size={22} weight="bold" />添加供应商
       </button>
       <p className="sidebar-label">
@@ -693,8 +697,8 @@ function Sidebar({ state, target, loading, loadFailed, onTarget, onReload, onSel
       )}
       <div className="sidebar-footer">
         <nav className="footer-nav" aria-label="次要导航">
-          <button type="button" className={`settings-button nav-prompts ${activeView === "prompts" ? "is-active" : ""}`} onClick={onPrompts}><FileText size={20} />提示词</button>
-          <button type="button" className={`settings-button nav-settings ${activeView === "settings" ? "is-active" : ""}`} onClick={onSettings}><Gear size={20} />设置与兼容性</button>
+          <button type="button" className={`settings-button nav-prompts ${activeView === "prompts" ? "is-active" : ""}`} disabled={navigationDisabled} onClick={onPrompts}><FileText size={20} />提示词</button>
+          <button type="button" className={`settings-button nav-settings ${activeView === "settings" ? "is-active" : ""}`} disabled={navigationDisabled} onClick={onSettings}><Gear size={20} />设置与兼容性</button>
         </nav>
         {/* A utility row balanced at the two ends: the voluntary support link on
             the left, the appearance control on the right. The link leaves for

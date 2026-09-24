@@ -185,7 +185,20 @@ class CdpClient {
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    throw new Error(`Timed out waiting for ${expression}${lastError ? `: ${lastError.message}` : ""}`);
+    const page = await Promise.race([
+      this.evaluate(`({
+        readyState: document.readyState,
+        loading: Boolean(document.querySelector('.loading-state')),
+        loadFailed: Boolean(document.querySelector('.load-error')),
+        target: document.querySelector('.target-switch [aria-checked=true]')?.textContent,
+        heading: document.querySelector('.workspace h1')?.textContent,
+        protocolStep: Boolean(document.querySelector('.protocol-grid')),
+        modelRows: document.querySelectorAll('.model-row').length
+      })`).catch(() => null),
+      new Promise((resolve) => setTimeout(() => resolve(null), 500)),
+    ]);
+    throw new Error(`Timed out waiting for ${expression}${lastError ? `: ${lastError.message}` : ""}`
+      + `\nPage: ${JSON.stringify(page)}\nBrowser errors: ${JSON.stringify(this.errors.slice(-3)).slice(0, 4000)}`);
   }
 
   close() {
@@ -948,7 +961,7 @@ test("production UI drives the Codex workspace", { timeout: 90_000 }, async () =
     await cdp.send("Runtime.enable");
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
     await cdp.send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
-    await cdp.waitFor(`document.querySelector('.target-switch')`);
+    await cdp.waitFor(`document.querySelector('.target-switch button:not(:disabled)')`);
 
     // Both targets answer "which one is Pi/Codex actually using" in the sidebar.
     // On Pi that is settings.json's defaultProvider, and only that one row: the
@@ -1232,7 +1245,7 @@ test("the form does not offer to reuse a bridge key that cannot be used", { time
       width: 1280, height: 900, deviceScaleFactor: 1, mobile: false,
     });
     await cdp.send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
-    await cdp.waitFor(`document.querySelector('.target-switch')`);
+    await cdp.waitFor(`document.querySelector('.target-switch button:not(:disabled)')`);
 
     const clickText = (selector, text) =>
       cdp.evaluate(`[...document.querySelectorAll(${JSON.stringify(selector)})]
@@ -1342,7 +1355,7 @@ test("production UI drives the prompt library for both agents", { timeout: 90_00
     await cdp.send("Runtime.enable");
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
     await cdp.send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
-    await cdp.waitFor(`document.querySelector('.target-switch')`);
+    await cdp.waitFor(`document.querySelector('.target-switch button:not(:disabled)')`);
 
     const clickText = (selector, text) =>
       cdp.evaluate(`[...document.querySelectorAll(${JSON.stringify(selector)})]
@@ -2250,7 +2263,7 @@ test("the compatibility card says when the checkout has moved ahead of the proce
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false });
 
     const openSettings = async () => {
-      await cdp.waitFor(`document.querySelector('.nav-settings')`);
+      await cdp.waitFor(`document.querySelector('.nav-settings:not(:disabled)')`);
       await cdp.evaluate(`document.querySelector('.nav-settings').click()`);
       await cdp.waitFor(`document.querySelector('.manager-card')`);
       return cdp.evaluate(`(() => {
@@ -2304,7 +2317,7 @@ test("the compatibility card says when the checkout has moved ahead of the proce
     await cdp.evaluate(`document.querySelector('.restart-button').click()`);
     // The page reloads itself once a different process answers, so this covers the
     // whole handover rather than just the request being accepted.
-    await cdp.waitFor(`!window.__beforeRestart && document.querySelector('.nav-settings')`, 40_000);
+    await cdp.waitFor(`!window.__beforeRestart && document.querySelector('.nav-settings:not(:disabled)')`, 40_000);
     const applied = await openSettings();
     assert.equal(applied.managerVersion, "9.9.9");
     // Nothing left to announce: the version running is the version on disk.
@@ -2574,7 +2587,7 @@ test("leaving an edited prompt goes through the toast, not the first click", { t
     await cdp.send("Runtime.enable");
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 
-    await cdp.waitFor(`document.querySelector('.nav-prompts')`);
+    await cdp.waitFor(`document.querySelector('.nav-prompts:not(:disabled)')`);
     await cdp.evaluate(`document.querySelector('.nav-prompts').click()`);
     await cdp.waitFor(`document.querySelector('.prompt-editor textarea')`);
 
@@ -3311,7 +3324,7 @@ test("a saved bridged Codex provider gets its bridge control on the success scre
     await cdp.send("Page.navigate", { url: "http://127.0.0.1:" + appPort });
     const clickText = (selector, text) => cdp.evaluate("[...document.querySelectorAll(" + JSON.stringify(selector) + ")].find((node) => node.textContent.includes(" + JSON.stringify(text) + ")).click()");
     const setNth = (index, value) => cdp.evaluate("(() => { const input = document.querySelectorAll('.form-grid input')[" + index + "]; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(input, " + JSON.stringify(value) + "); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
-    await cdp.waitFor("document.querySelector('.target-switch')");
+    await cdp.waitFor("document.querySelector('.target-switch button:not(:disabled)')");
     await clickText(".target-switch button", "Codex");
     await cdp.waitFor("document.querySelector('.protocol-grid.is-duo')");
     // Pick the chat/completions (bridge) path — the second card.
@@ -3552,6 +3565,86 @@ test("the toast stack keeps an undo alive and pauses on hover", { timeout: 90_00
   }
 });
 
+test("initial navigation waits for configuration, including after a failed read", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-initial-state-"));
+  const codexDir = isolatedCodexDir(agentDir);
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-initial-state-"));
+  writeFixture(agentDir);
+  fs.mkdirSync(codexDir);
+  fs.writeFileSync(path.join(codexDir, "config.toml"), 'model_provider = "custom"\nmodel = "gpt-5.6-sol"\n\n[model_providers.custom]\nname = "现成的供应商"\nbase_url = "https://existing.example/v1"\nwire_api = "responses"\nrequires_openai_auth = true\n');
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server; let chrome; let cdp;
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: codexDir, PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: "ignore" });
+    await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
+    chrome = spawn(findChrome(), ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: "ignore" });
+    await waitForUrl("http://127.0.0.1:" + debugPort + "/json/version", 30_000);
+    const target = await fetch("http://127.0.0.1:" + debugPort + "/json/new?about:blank", { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl);
+    await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    // Hold the actual browser request until after navigation is exercised.
+    // No sleeps or product test hooks: the race is deterministic on fast hosts too.
+    await cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*/api/state", requestStage: "Request" }] });
+    const nextStateRequest = () => new Promise((resolve) => {
+      const listener = ({ data }) => {
+        const message = JSON.parse(data);
+        if (message.method !== "Fetch.requestPaused") return;
+        cdp.socket.removeEventListener("message", listener);
+        resolve(message.params.requestId);
+      };
+      cdp.socket.addEventListener("message", listener);
+    });
+    const navigation = ".target-switch button, .add-provider, .nav-settings, .nav-prompts";
+    const assertNavigationLocked = async () => {
+      assert.deepEqual(await cdp.evaluate(`Array.from(document.querySelectorAll('${navigation}'), (button) => button.disabled)`), [true, true, true, true, true]);
+      // Native clicks and the target radio group's arrow keys must both be inert.
+      await cdp.evaluate(`(() => {
+        document.querySelectorAll('${navigation}').forEach((button) => button.click());
+        document.querySelector('.target-switch button').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      })()`);
+      assert.equal(await cdp.evaluate("document.querySelector('.target-switch [aria-checked=true]').textContent"), "Pi");
+    };
+    let request = nextStateRequest();
+    await cdp.send("Page.navigate", { url: "http://127.0.0.1:" + appPort });
+    const initialRequestId = await request;
+    await cdp.waitFor("document.querySelector('.loading-state')");
+    await assertNavigationLocked();
+    await cdp.send("Fetch.continueRequest", { requestId: initialRequestId });
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
+    assert.equal(await cdp.evaluate(`Array.from(document.querySelectorAll('${navigation}')).some((button) => button.disabled)`), false);
+    await cdp.evaluate("document.querySelectorAll('.target-switch button')[1].click()");
+    await cdp.waitFor("document.querySelector('.model-row.is-codex') && document.querySelector('.delete-provider-button')");
+    assert.equal(await cdp.evaluate("document.querySelector('.model-row.is-codex input').value"), "gpt-5.6-sol");
+    await cdp.evaluate("document.querySelectorAll('.target-switch button')[0].click()");
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
+    await cdp.evaluate("document.querySelector('.add-provider').click()");
+    await cdp.waitFor("document.querySelector('.protocol-grid')");
+
+    // A failed first read must not unlock navigation against an empty state.
+    request = nextStateRequest();
+    await cdp.send("Page.navigate", { url: "http://127.0.0.1:" + appPort });
+    await cdp.send("Fetch.fulfillRequest", { requestId: await request, responseCode: 503, responseHeaders: [{ name: "Content-Type", value: "application/json" }], body: Buffer.from(JSON.stringify({ error: "fixture state read failed" })).toString("base64") });
+    await cdp.waitFor("document.querySelector('.load-error')");
+    await assertNavigationLocked();
+    assert.equal(await cdp.evaluate("document.querySelector('.load-error button').disabled"), false);
+    request = nextStateRequest();
+    await cdp.evaluate("document.querySelector('.load-error button').click()");
+    const retryRequestId = await request;
+    await cdp.waitFor("document.querySelector('.loading-state')");
+    await assertNavigationLocked();
+    await cdp.send("Fetch.continueRequest", { requestId: retryRequestId });
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
+    assert.equal(await cdp.evaluate(`Array.from(document.querySelectorAll('${navigation}')).some((button) => button.disabled)`), false);
+    assert.deepEqual(cdp.errors, []);
+  } finally {
+    if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }
+    await stopProcess(chrome, true); await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
 test("the Codex delete dialog keeps a blocked delete focusable and explains it", { timeout: 90_000 }, async () => {
   requireFreshBuiltUi();
   const chromePath = findChrome();
@@ -3575,7 +3668,7 @@ test("the Codex delete dialog keeps a blocked delete focusable and explains it",
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
     await cdp.send("Page.navigate", { url: "http://127.0.0.1:" + appPort });
     const clickText = (selector, text) => cdp.evaluate("[...document.querySelectorAll(" + JSON.stringify(selector) + ")].find((node) => node.textContent.includes(" + JSON.stringify(text) + ")).click()");
-    await cdp.waitFor("document.querySelector('.target-switch')");
+    await cdp.waitFor("document.querySelector('.target-switch button:not(:disabled)')");
     await clickText(".target-switch button", "Codex");
     await cdp.waitFor("document.querySelector('.model-row.is-codex') && document.querySelector('.delete-provider-button')");
     await cdp.evaluate("document.querySelector('.delete-provider-button').click()");
@@ -3623,7 +3716,7 @@ test("the Codex settings screen carries the shared manager card", { timeout: 90_
     await cdp.send("Page.navigate", { url: "http://127.0.0.1:" + appPort });
     const clickText = (selector, text) => cdp.evaluate("[...document.querySelectorAll(" + JSON.stringify(selector) + ")].find((node) => node.textContent.includes(" + JSON.stringify(text) + ")).click()");
     // Pi settings carry the manager card.
-    await cdp.waitFor("document.querySelector('.nav-settings')");
+    await cdp.waitFor("document.querySelector('.nav-settings:not(:disabled)')");
     await cdp.evaluate("document.querySelector('.nav-settings').click()");
     await cdp.waitFor("document.querySelector('.manager-card')");
     await cdp.evaluate("document.querySelector('.settings-title .secondary-button').click()");
