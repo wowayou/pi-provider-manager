@@ -2,7 +2,7 @@
 
 ## Scope
 
-Pi Provider Manager handles local API credentials and edits Pi configuration files. Security reports involving credential disclosure, unsafe network exposure, path traversal, cross-origin writes, or config corruption are high priority.
+Pi Provider Manager handles local API credentials and edits Pi and Codex configuration files. Security reports involving credential disclosure, unsafe network exposure, path traversal, cross-origin writes, or config corruption are high priority.
 
 The browser is not trusted merely because the API listens on localhost: any page a user visits can attempt requests to loopback, and DNS rebinding can make an attacker-controlled hostname resolve there. `server.mjs` is therefore an authorization boundary as well as a local file editor.
 
@@ -15,7 +15,7 @@ The browser is not trusted merely because the API listens on localhost: any page
 - The model-discovery endpoint sends a credential only to a URL that passes the same validation as a save (HTTPS unless loopback), does not follow redirects, bounds the response, and returns only model IDs and display names. Its listing path is caller-supplied and therefore resolved against the gateway's baseUrl and refused unless it lands on the same origin, so no path can redirect a stored key to another host, port, or scheme.
 - Request bodies are capped at 1 MB, and provider IDs, credential migration sources, URLs, protocols, models, and settings are validated before use.
 - Config writes use private permissions where supported.
-- Provider updates validate temporary JSON files and roll back multi-file failures.
+- Provider updates validate configuration before writing JSON or TOML, use private temporary files, and roll back multi-file failures.
 - `models-store.json` is never read or written.
 
 Do not relax the `Host` or JSON requirements to accommodate a new client without replacing them with an equally strong, tested authorization design. Security regression tests in `tests/server.test.mjs` must exercise real cross-origin-style and raw-`Host` requests; browser `fetch()` cannot set `Host` and is not a valid DNS-rebinding test.
@@ -33,12 +33,12 @@ Do not include any of the following in a public issue:
 - private Base URLs containing account identifiers
 - screenshots that show credentials
 
-Use fake credentials and a temporary `PI_CODING_AGENT_DIR` for reproductions.
+Use fake credentials and separate temporary `PI_CODING_AGENT_DIR` and `PI_PROVIDER_MANAGER_CODEX_DIR` directories for reproductions; the state endpoint reads both targets.
 
 ## Out of scope
 
 - Upstream provider outages or rate limits
-- Pi runtime defects unrelated to files written by this manager
-- Processes or users that already have permission to read the same Pi config directory
+- Pi or Codex runtime defects unrelated to files written by this manager
+- Processes or users that already have permission to read the same agent config directory
 - A compromised local operating-system account or browser
 - Risks caused by intentionally binding a modified fork to a public interface

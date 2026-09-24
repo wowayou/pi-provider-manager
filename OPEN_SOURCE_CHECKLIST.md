@@ -1,4 +1,8 @@
-# Open-source Publication Checklist
+# Completed First-publication Checklist
+
+This is the completed publication record, not a checklist for the next release.
+For release packaging, see [docs/release-install.md](docs/release-install.md);
+for compatibility validation, see [docs/compatibility.md](docs/compatibility.md).
 
 ## Required before the first public push
 
@@ -31,4 +35,6 @@
 - Public repository creation at `wowayou/pi-provider-manager`
 - Initial public push
 
-Publishing packages or binaries remains out of scope until explicitly requested. The unchecked archive item above is a recommendation, not standing publication authorization.
+Release archives were subsequently authorized and are published from release tags.
+Completion of this checklist does not authorize a new release; follow the owner’s
+release instruction and the protected-branch workflow in [CONTRIBUTING.md](CONTRIBUTING.md).
