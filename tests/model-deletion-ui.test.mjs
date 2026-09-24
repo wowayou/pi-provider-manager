@@ -2252,9 +2252,9 @@ test("the compatibility card says when the checkout has moved ahead of the proce
     const openSettings = async () => {
       await cdp.waitFor(`document.querySelector('.nav-settings')`);
       await cdp.evaluate(`document.querySelector('.nav-settings').click()`);
-      await cdp.waitFor(`document.querySelector('.compatibility-card')`);
+      await cdp.waitFor(`document.querySelector('.manager-card')`);
       return cdp.evaluate(`(() => {
-        const card = document.querySelector('.compatibility-card');
+        const card = document.querySelector('.manager-card');
         const labels = [...card.querySelectorAll('dt')].map((term) => term.textContent);
         return {
           managerVersion: card.querySelector('dl').children[[...labels].indexOf('管理器版本')].querySelector('dd').textContent,
@@ -3591,6 +3591,50 @@ test("the Codex delete dialog keeps a blocked delete focusable and explains it",
     assert.match(await cdp.evaluate("document.querySelector('.provider-delete-dialog .error-banner').textContent"), /没有别的供应商可以接替|先取消并添加/);
     assert.equal(await cdp.evaluate("Boolean(document.querySelector('.provider-delete-dialog'))"), true);
     assert.equal(fs.readFileSync(configPath, "utf8"), soleProvider);
+    assert.deepEqual(cdp.errors, []);
+  } finally {
+    if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }
+    await stopProcess(chrome, true); await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(codexDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("the Codex settings screen carries the shared manager card", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-mgr-pi-"));
+  const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-mgr-codex-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-mgr-"));
+  writeFixture(agentDir);
+  fs.writeFileSync(path.join(codexDir, "config.toml"), 'model_provider = "custom"\nmodel = "gpt-5.6-sol"\n\n[model_providers.custom]\nname = "现成的供应商"\nbase_url = "https://existing.example/v1"\nwire_api = "responses"\nrequires_openai_auth = true\n');
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server; let chrome; let cdp; let serverOutput = "";
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: codexDir, PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
+    chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl("http://127.0.0.1:" + debugPort + "/json/version", 30_000);
+    const target = await fetch("http://127.0.0.1:" + debugPort + "/json/new?" + encodeURIComponent("http://127.0.0.1:" + appPort), { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl); await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.send("Page.navigate", { url: "http://127.0.0.1:" + appPort });
+    const clickText = (selector, text) => cdp.evaluate("[...document.querySelectorAll(" + JSON.stringify(selector) + ")].find((node) => node.textContent.includes(" + JSON.stringify(text) + ")).click()");
+    // Pi settings carry the manager card.
+    await cdp.waitFor("document.querySelector('.nav-settings')");
+    await cdp.evaluate("document.querySelector('.nav-settings').click()");
+    await cdp.waitFor("document.querySelector('.manager-card')");
+    await cdp.evaluate("document.querySelector('.settings-title .secondary-button').click()");
+    await cdp.waitFor("document.querySelector('.stepper')");
+    // Switch to Codex and open its settings — the same manager card is there.
+    await clickText(".target-switch button", "Codex");
+    await cdp.waitFor("document.querySelector('.model-row.is-codex')");
+    await cdp.evaluate("document.querySelector('.nav-settings').click()");
+    await cdp.waitFor("document.querySelector('.manager-card')");
+    const managerCard = await cdp.evaluate("(() => { const card = document.querySelector('.manager-card'); return { hasManagerVersion: [...card.querySelectorAll('dt')].some((t) => t.textContent === '管理器版本'), hasCheck: [...card.querySelectorAll('button')].some((b) => b.textContent.includes('检查更新')), hasRestart: Boolean(card.querySelector('.restart-button')) }; })()");
+    assert.deepEqual(managerCard, { hasManagerVersion: true, hasCheck: true, hasRestart: true });
     assert.deepEqual(cdp.errors, []);
   } finally {
     if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }

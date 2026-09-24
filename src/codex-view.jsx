@@ -31,6 +31,7 @@ import {
 import { CODEX_REASONING_EFFORTS, CODEX_VERBOSITIES, adoptableEffort, codexConfigJsonToForm, codexFormToConfigJson, effortOptions, idSlug } from "../lib/codex-shared.mjs";
 import { TomlDocument } from "../lib/toml-document.mjs";
 import { isLoopbackHostname } from "../lib/validation.mjs";
+import { ManagerCard } from "./manager-card.jsx";
 import { BulkModal, ConfigEditor, ErrorBanner, Spinner, createRadioKeyHandler, formatJson, titleFromId, useDialog, validateJson } from "./ui-kit.jsx";
 
 
@@ -1024,7 +1025,7 @@ export function CodexSuccessScreen({ result, codex, onCopy, onReturn, onAdd, onS
   );
 }
 
-export function CodexSettingsScreen({ state, saving, error, conflict, onSave, onBack, onDirtyChange }) {
+export function CodexSettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBack, onDirtyChange }) {
   const codex = state.codex || {};
   const providers = codex.providers || [];
   const saved = useMemo(() => ({
@@ -1123,6 +1124,7 @@ export function CodexSettingsScreen({ state, saving, error, conflict, onSave, on
             )}
             <p className="compat-note"><ShieldCheck size={20} weight="duotone" />config.toml 里本管理器不认识的键、注释和你手写的其它 <code className="mono">[model_providers.*]</code> 表都会原样保留。</p>
           </section>
+          <ManagerCard state={state} demoMode={demoMode} edited={edited} />
         </div>
         <details className="advanced-panel">
           <summary><span><SlidersHorizontal size={21} />高级设置 <small>通常无需修改</small></span><CaretDown size={19} /></summary>
