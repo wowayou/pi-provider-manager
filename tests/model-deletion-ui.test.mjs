@@ -815,7 +815,7 @@ test("复制供应商 starts a fresh draft with the models and an empty credenti
     await cdp.waitFor(`document.querySelector('.duplicate-provider-button')`);
     const before = await cdp.evaluate(`({
       rows: document.querySelectorAll('.model-row').length,
-      baseUrl: document.querySelector('.gateway-summary code')?.textContent || "",
+      baseUrl: (document.querySelector('.gateway-address-button') || document.querySelector('.gateway-summary code'))?.textContent || "",
     })`);
     assert.equal(before.rows, 3);
 
@@ -3341,5 +3341,69 @@ test("a saved bridged Codex provider gets its bridge control on the success scre
     fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     fs.rmSync(codexDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("editing a saved provider jumps steps, focuses invalid fields, and moves the heading", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-jump-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-jump-"));
+  writeFixture(agentDir);
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server; let chrome; let cdp; let serverOutput = "";
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
+    chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl("http://127.0.0.1:" + debugPort + "/json/version", 30_000);
+    const target = await fetch("http://127.0.0.1:" + debugPort + "/json/new?" + encodeURIComponent("http://127.0.0.1:" + appPort), { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl); await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.send("Page.navigate", { url: "http://127.0.0.1:" + appPort });
+    const clickText = (selector, text) => cdp.evaluate("[...document.querySelectorAll(" + JSON.stringify(selector) + ")].find((node) => node.textContent.includes(" + JSON.stringify(text) + ")).click()");
+    const setValue = (selector, value) => cdp.evaluate("(() => { const input = document.querySelector(" + JSON.stringify(selector) + "); const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(input, " + JSON.stringify(value) + "); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
+
+    // Entering Settings via the sidebar sends focus to the settings heading.
+    await cdp.evaluate("document.querySelector('.nav-settings').click()");
+    await cdp.waitFor("document.querySelector('.settings-page') && document.activeElement === document.querySelector('.workspace h1')");
+    await cdp.evaluate("document.querySelector('.settings-title .secondary-button').click()");
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
+
+    // A saved provider's stepper allows a free jump: step three is reachable
+    // from step one, and its steps are not disabled.
+    assert.equal(await cdp.evaluate("[...document.querySelectorAll('.stepper .step')].every((step) => !step.disabled)"), true);
+    await cdp.evaluate("document.querySelectorAll('.stepper .step')[0].click()");
+    await cdp.waitFor("document.querySelector('.protocol-grid')");
+    // Footer 下一步 moves focus to the next heading.
+    await clickText(".wizard-footer .primary-button", "下一步");
+    await cdp.waitFor("document.querySelector('.form-grid input') && document.activeElement === document.querySelector('.workspace h1')");
+
+    // Clearing the API address and pressing 下一步 focuses that field and marks
+    // it invalid, with the banner in view.
+    await setValue(".form-grid input[type=url]", "");
+    await clickText(".wizard-footer .primary-button", "下一步");
+    await cdp.waitFor("document.activeElement === document.querySelector('.form-grid input[type=url]')");
+    assert.equal(await cdp.evaluate("document.querySelector('.form-grid input[type=url]').getAttribute('aria-invalid')"), "true");
+    assert.match(await cdp.evaluate("document.querySelector('.error-banner').textContent"), /API 地址/);
+
+    // Restore the address and jump straight to the models step from here.
+    await setValue(".form-grid input[type=url]", "https://router.example/v1");
+    await cdp.evaluate("document.querySelectorAll('.stepper .step')[2].click()");
+    await cdp.waitFor("document.querySelector('.models-table')");
+
+    // The gateway summary's address is a button that returns to step two with
+    // the caret on the API address.
+    await cdp.evaluate("document.querySelector('.gateway-address-button').click()");
+    await cdp.waitFor("document.activeElement === document.querySelector('.form-grid input[type=url]')");
+
+    assert.deepEqual(cdp.errors, []);
+  } finally {
+    if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }
+    await stopProcess(chrome, true); await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

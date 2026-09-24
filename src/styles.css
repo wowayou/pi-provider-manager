@@ -657,6 +657,10 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .gateway-summary strong { font-size: 18px; }
 .gateway-summary p { width: 100%; margin: 0; color: var(--muted); font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .protocol-badge { color: var(--orange-dark); background: var(--orange-soft); border-radius: var(--radius-pill); padding: 5px 9px; font-size: 12px; }
+.protocol-badge-button { border: 1px solid transparent; cursor: pointer; font: inherit; font-size: 12px; }
+.protocol-badge-button:hover { border-color: var(--orange); }
+.gateway-address-button { border: none; background: none; padding: 0; margin: 0; color: var(--ink-2); font-size: 13px; cursor: pointer; text-decoration: underline; text-decoration-color: var(--divider); text-underline-offset: 2px; }
+.gateway-address-button:hover { text-decoration-color: var(--orange); }
 .saved-credential { display: flex; align-items: center; gap: 9px; color: var(--green); }
 .saved-credential span { display: flex; flex-direction: column; gap: 3px; }
 .saved-credential small { color: var(--muted); }

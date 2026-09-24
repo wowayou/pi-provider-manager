@@ -143,7 +143,7 @@ export function parseCodexSnippet(text) {
   };
 }
 
-export function CodexStepper({ step, onStep }) {
+export function CodexStepper({ step, onStep, allowJump }) {
   const items = [
     [1, "接入方式", "上游是否支持 Responses"],
     [2, "填写凭据", "填写地址与访问凭据"],
@@ -151,22 +151,25 @@ export function CodexStepper({ step, onStep }) {
   ];
   return (
     <nav className="stepper" aria-label="配置步骤">
-      {items.map(([number, title, subtitle], index) => (
+      {items.map(([number, title, subtitle], index) => {
+        const clickable = allowJump || number < step;
+        return (
         <div className="step-wrap" key={number}>
           <button
             type="button"
             className={`step ${number === step ? "is-active" : ""} ${number < step ? "is-complete" : ""}`}
-            onClick={() => number < step && onStep(number)}
-            disabled={number > step}
+            onClick={() => clickable && onStep(number)}
+            disabled={!clickable}
             aria-current={number === step ? "step" : undefined}
-            title={number < step ? "回到这一步" : number > step ? "完成当前步骤后可用" : undefined}
+            title={allowJump ? "跳到这一步" : number < step ? "回到这一步" : number > step ? "完成当前步骤后可用" : undefined}
           >
             <span className="step-number">{number < step ? <CheckCircle size={24} weight="fill" /> : number}</span>
             <span><strong>{title}</strong><small>{subtitle}</small></span>
           </button>
           {index < items.length - 1 && <span className={`step-line ${number < step ? "is-complete" : ""}`} />}
         </div>
-      ))}
+        );
+      })}
     </nav>
   );
 }

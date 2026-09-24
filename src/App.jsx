@@ -356,7 +356,7 @@ function ProviderIcon({ api, size = 24 }) {
   return <Icon size={size} weight="duotone" aria-hidden="true" />;
 }
 
-function Stepper({ step, onStep }) {
+function Stepper({ step, onStep, allowJump }) {
   const items = [
     [1, "选择协议", "选择网关默认接口"],
     [2, "填写凭据", "填写地址与访问凭据"],
@@ -364,15 +364,17 @@ function Stepper({ step, onStep }) {
   ];
   return (
     <nav className="stepper" aria-label="配置步骤">
-      {items.map(([number, title, subtitle], index) => (
+      {items.map(([number, title, subtitle], index) => {
+        const clickable = allowJump || number < step;
+        return (
         <div className="step-wrap" key={number}>
           <button
             type="button"
             className={`step ${number === step ? "is-active" : ""} ${number < step ? "is-complete" : ""}`}
-            onClick={() => number < step && onStep(number)}
-            disabled={number > step}
+            onClick={() => clickable && onStep(number)}
+            disabled={!clickable}
             aria-current={number === step ? "step" : undefined}
-            title={number < step ? "回到这一步" : number > step ? "完成当前步骤后可用" : undefined}
+            title={allowJump ? "跳到这一步" : number < step ? "回到这一步" : number > step ? "完成当前步骤后可用" : undefined}
           >
             <span className="step-number">{number < step ? <CheckCircle size={24} weight="fill" /> : number}</span>
             <span>
@@ -382,7 +384,8 @@ function Stepper({ step, onStep }) {
           </button>
           {index < items.length - 1 && <span className={`step-line ${number < step ? "is-complete" : ""}`} />}
         </div>
-      ))}
+        );
+      })}
     </nav>
   );
 }
@@ -771,8 +774,25 @@ function ProtocolStep({ form, setForm, onNext }) {
   );
 }
 
-function CredentialsStep({ form, setForm, state, error, overwrites, onBack, onNext }) {
+function CredentialsStep({ form, setForm, state, error, overwrites, apiFocusRequest, credentialFocus, onBack, onNext }) {
   const sources = state.authProviders.filter((id) => id !== form.providerId);
+  const providerIdRef = useRef(null);
+  const baseUrlRef = useRef(null);
+  const apiKeyRef = useRef(null);
+  const migrateRef = useRef(null);
+  // A jump from the gateway summary lands the caret on the API address.
+  useEffect(() => {
+    if (!apiFocusRequest) return;
+    requestAnimationFrame(() => baseUrlRef.current?.focus());
+  }, [apiFocusRequest]);
+  // A failed credential check focuses the offending field so the fix starts
+  // where the problem is, not on the footer button that raised it.
+  const erroredField = credentialFocus?.field || "";
+  useEffect(() => {
+    if (!credentialFocus?.serial) return;
+    const target = { providerId: providerIdRef, baseUrl: baseUrlRef, apiKey: apiKeyRef, migrateFrom: migrateRef }[credentialFocus.field];
+    requestAnimationFrame(() => target?.current?.focus());
+  }, [credentialFocus?.serial]);
   const providerIdInvalid = form.providerId !== "" && !PROVIDER_ID_PATTERN.test(form.providerId);
   return (
     <section className="step-content form-step">
@@ -785,8 +805,8 @@ function CredentialsStep({ form, setForm, state, error, overwrites, onBack, onNe
             // "keep" only means something while the id still names a stored credential.
             const keepStillValid = state.authProviders.includes(providerId);
             return { ...current, providerId, credentialMode: current.credentialMode === "keep" && !keepStillValid ? "new" : current.credentialMode };
-          })} placeholder="any-router" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" aria-invalid={providerIdInvalid || undefined} />{providerIdInvalid && <span className="field-warning"><WarningCircle size={15} weight="fill" />只能使用小写字母、数字、点、下划线和连字符，且以字母或数字开头。</span>}{overwrites && !providerIdInvalid && <span className="field-warning"><WarningCircle size={15} weight="fill" />已有同名供应商，保存会替换它的地址与模型列表。</span>}</label>
-          <label><span>API 地址</span><small>填写接口根地址，不要包含具体模型路径</small><input className="mono" type="url" inputMode="url" value={form.baseUrl} onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))} placeholder="https://api.example.com/v1" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" /></label>
+          })} placeholder="any-router" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" ref={providerIdRef} aria-invalid={providerIdInvalid || erroredField === "providerId" || undefined} aria-describedby={erroredField === "providerId" ? "credential-error-banner" : undefined} />{providerIdInvalid && <span className="field-warning"><WarningCircle size={15} weight="fill" />只能使用小写字母、数字、点、下划线和连字符，且以字母或数字开头。</span>}{overwrites && !providerIdInvalid && <span className="field-warning"><WarningCircle size={15} weight="fill" />已有同名供应商，保存会替换它的地址与模型列表。</span>}</label>
+          <label><span>API 地址</span><small>填写接口根地址，不要包含具体模型路径</small><input ref={baseUrlRef} className="mono" type="url" inputMode="url" value={form.baseUrl} onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))} placeholder="https://api.example.com/v1" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" aria-invalid={erroredField === "baseUrl" || undefined} aria-describedby={erroredField === "baseUrl" ? "credential-error-banner" : undefined} /></label>
         </div>
         <fieldset className="credential-box">
           <legend>访问凭据</legend>
@@ -796,11 +816,11 @@ function CredentialsStep({ form, setForm, state, error, overwrites, onBack, onNe
             {sources.length > 0 && <button type="button" className={form.credentialMode === "migrate" ? "is-active" : ""} onClick={() => setForm((current) => ({ ...current, credentialMode: "migrate", migrateFrom: current.migrateFrom || sources[0] }))}>从已有凭据迁移</button>}
           </div>
           {form.credentialMode === "keep" && <div className="credential-status"><ShieldCheck size={24} weight="duotone" /><div><strong>凭据已安全保存</strong><span>浏览器无法读取已保存的 key。</span></div></div>}
-          {form.credentialMode === "new" && <label className="key-field"><span>API Key</span><div><Key size={20} /><input className="mono" type="password" autoComplete="new-password" value={form.apiKey} onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))} placeholder="输入后不会回显" /></div></label>}
-          {form.credentialMode === "migrate" && <div className="migrate-fields"><label><span>选择已有供应商</span><select value={form.migrateFrom} onChange={(event) => setForm((current) => ({ ...current, migrateFrom: event.target.value }))}>{sources.map((id) => <option key={id} value={id}>{titleFromId(id)} ({id})</option>)}</select></label><label className="checkbox-row"><input type="checkbox" checked={form.moveCredential} onChange={(event) => setForm((current) => ({ ...current, moveCredential: event.target.checked }))} />迁移成功后删除旧条目</label></div>}
+          {form.credentialMode === "new" && <label className="key-field"><span>API Key</span><div><Key size={20} /><input ref={apiKeyRef} className="mono" type="password" autoComplete="new-password" value={form.apiKey} onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))} placeholder="输入后不会回显" aria-invalid={erroredField === "apiKey" || undefined} aria-describedby={erroredField === "apiKey" ? "credential-error-banner" : undefined} /></div></label>}
+          {form.credentialMode === "migrate" && <div className="migrate-fields"><label><span>选择已有供应商</span><select ref={migrateRef} value={form.migrateFrom} onChange={(event) => setForm((current) => ({ ...current, migrateFrom: event.target.value }))} aria-invalid={erroredField === "migrateFrom" || undefined}>{sources.map((id) => <option key={id} value={id}>{titleFromId(id)} ({id})</option>)}</select></label><label className="checkbox-row"><input type="checkbox" checked={form.moveCredential} onChange={(event) => setForm((current) => ({ ...current, moveCredential: event.target.checked }))} />迁移成功后删除旧条目</label></div>}
         </fieldset>
         </div>
-        <ErrorBanner message={error} />
+        <ErrorBanner message={error} id="credential-error-banner" />
       </div>
       <footer className="wizard-footer"><button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={19} />上一步</button><button type="button" className="primary-button" onClick={onNext}>下一步<ArrowRight size={19} /></button></footer>
     </section>
@@ -955,7 +975,7 @@ function userAgentValidationError(value) {
   }
 }
 
-function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, onDiscover, canDeleteProvider, isExistingProvider, isCurrentDefault, hasProviders, dirty, liveDefaultModelId, userAgentFocusRequest, betaFocusRequest }) {
+function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, onDiscover, onEditProtocol, onEditGateway, canDeleteProvider, isExistingProvider, isCurrentDefault, hasProviders, dirty, liveDefaultModelId, userAgentFocusRequest, betaFocusRequest }) {
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [showDiscover, setShowDiscover] = useState(false);
@@ -1187,7 +1207,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
         </div>
         <div className="gateway-summary">
           <span className="summary-icon"><ProviderIcon api={form.api} size={34} /></span>
-          <div><strong>{titleFromId(form.providerId || "new-provider")}</strong><span className="protocol-badge">{currentApi.title}</span><p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p></div>
+          <div><strong>{titleFromId(form.providerId || "new-provider")}</strong>{isExistingProvider ? <button type="button" className="protocol-badge protocol-badge-button" onClick={onEditProtocol} title="回到第一步改协议">{currentApi.title}</button> : <span className="protocol-badge">{currentApi.title}</span>}{isExistingProvider ? <p>API 地址　<button type="button" className="gateway-address-button mono" onClick={onEditGateway} title={form.baseUrl || undefined}>{form.baseUrl || "尚未填写"}</button></p> : <p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p>}</div>
           <div className="gateway-side">
             <div className="saved-credential"><ShieldCheck size={29} weight="duotone" /><span><strong>{form.credentialMode === "keep" ? "凭据已安全保存" : "凭据将在保存时写入"}</strong><small>{form.credentialMode === "keep" ? "浏览器无法读取旧 key" : "当前草稿尚未写入 Pi 配置"}</small></span></div>
             {isExistingProvider && (
@@ -2144,12 +2164,24 @@ export function App() {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [piDirty, codexDirty, screenDirty]);
+  const firstViewRender = useRef(true);
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       document.querySelector(".step-scroll, .settings-scroll, .success-page")?.scrollTo({ top: 0, behavior: "instant" });
+      // Moving between steps and views unmounts the control that was focused, so
+      // focus falls back to <body> and a screen reader announces nothing. Send
+      // it to the new heading instead — unless a field-focus intent (a jump from
+      // the gateway summary, an invalid-field save) has already placed focus on
+      // a control inside the workspace, in which case that intent wins.
+      if (firstViewRender.current) { firstViewRender.current = false; return; }
+      const active = document.activeElement;
+      const alreadyPlaced = active && active !== document.body && active.closest(".workspace");
+      if (alreadyPlaced) return;
+      const heading = document.querySelector(".workspace h1");
+      if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [view, step]);
+  }, [view, step, target, codexStep]);
 
   useEffect(() => {
     if (demoMode) return;
@@ -2274,32 +2306,60 @@ export function App() {
   }, []);
 
   // The same rules `saveProvider` applies, asked here so the answer arrives
-  // on the step that owns the field rather than after a round trip.
+  // on the step that owns the field rather than after a round trip. Returns
+  // `{ field, message }` so the caller can mark and focus the offending field,
+  // or null when the credentials are valid.
   const validateCredentials = () => {
     const providerId = form.providerId.trim();
-    if (!providerId) return "请输入供应商 ID。";
-    if (!PROVIDER_ID_PATTERN.test(providerId)) return "供应商 ID 只能使用小写字母、数字、点、下划线和连字符，且以字母或数字开头。";
-    if (!form.baseUrl.trim()) return "请输入 API 地址。";
-    try { normalizeUrl(form.baseUrl); } catch (problem) { return problem.message; }
-    if (form.credentialMode === "new" && !form.apiKey.trim()) return "请输入 API Key。";
-    if (form.credentialMode === "migrate" && !form.migrateFrom) return "请选择要迁移的已有凭据。";
-    return "";
+    if (!providerId) return { field: "providerId", message: "请输入供应商 ID。" };
+    if (!PROVIDER_ID_PATTERN.test(providerId)) return { field: "providerId", message: "供应商 ID 只能使用小写字母、数字、点、下划线和连字符，且以字母或数字开头。" };
+    if (!form.baseUrl.trim()) return { field: "baseUrl", message: "请输入 API 地址。" };
+    try { normalizeUrl(form.baseUrl); } catch (problem) { return { field: "baseUrl", message: problem.message }; }
+    if (form.credentialMode === "new" && !form.apiKey.trim()) return { field: "apiKey", message: "请输入 API Key。" };
+    if (form.credentialMode === "migrate" && !form.migrateFrom) return { field: "migrateFrom", message: "请选择要迁移的已有凭据。" };
+    return null;
+  };
+  // Field-level focus for a failed credential check: the wizard jumps to step
+  // two, states the reason, and lands the caret on the field, which carries
+  // aria-invalid while the error stands.
+  const [credentialFocus, setCredentialFocus] = useState({ field: "", serial: 0 });
+  const failCredentials = (result) => {
+    setError(result.message);
+    setStep(2);
+    setCredentialFocus((current) => ({ field: result.field, serial: current.serial + 1 }));
   };
 
   const goToModels = () => {
-    const message = validateCredentials();
-    if (message) { setError(message); return; }
+    const result = validateCredentials();
+    if (result) { failCredentials(result); return; }
     setError("");
     setStep(3);
   };
+
+  // Free step-jump for a saved provider: moving to the models step still runs
+  // the credential check that step two would, so a jump cannot skip past an
+  // invalid gateway; a failure stops on step two with the reason. Backward and
+  // step-two jumps are unconditional.
+  const goToStep = (targetStep) => {
+    if (targetStep === step) return;
+    if (targetStep >= 3) {
+      const result = validateCredentials();
+      if (result) { failCredentials(result); return; }
+    }
+    setError("");
+    setStep(targetStep);
+  };
+  // A jump from the gateway summary that should land focus on a specific field.
+  const [apiFocusRequest, setApiFocusRequest] = useState(0);
+  const editGatewayAddress = () => { goToStep(2); setApiFocusRequest((current) => current + 1); };
 
   // What the discovery dialog runs. The credential is described the way a save
   // describes it, so the server resolves the same key a save would write with
   // and never hands it back; a draft the save endpoint would refuse is refused
   // here first, with the same words.
   const discoverModels = useCallback(async (path = "") => {
-    const message = validateCredentials();
-    if (message) throw new Error(`${message} 请先回到第二步补全。`);
+    const result = validateCredentials();
+    if (result) throw new Error(`${result.message} 请先回到第二步补全。`);
     if (demoMode) {
       await new Promise((resolve) => setTimeout(resolve, 600));
       return {
@@ -2334,8 +2394,8 @@ export function App() {
 
   const save = async (setDefault) => {
     setConflict(false);
-    const message = validateCredentials();
-    if (message) { setError(message); setStep(2); return; }
+    const result = validateCredentials();
+    if (result) { failCredentials(result); return; }
     if (!form.models.some((model) => model.id.trim())) { setError("至少填写一个模型 ID。"); return; }
     const userAgentError = userAgentValidationError(form.userAgent);
     if (userAgentError) {
@@ -2719,6 +2779,19 @@ export function App() {
     if (message) { setError(message); return; }
     setError("");
     setCodexStep(3);
+  };
+
+  // Free step-jump for a saved Codex provider, mirroring the Pi side: a jump to
+  // the models step still validates the credentials step and stops there on
+  // failure.
+  const goToCodexStep = (targetStep) => {
+    if (targetStep === codexStep) return;
+    if (targetStep >= 3) {
+      const message = validateCodexCredentials();
+      if (message) { setError(message); setCodexStep(2); return; }
+    }
+    setError("");
+    setCodexStep(targetStep);
   };
 
   const bridgeAction = async (action) => {
@@ -3194,7 +3267,7 @@ export function App() {
             <CodexSuccessScreen result={codexSaveResult} codex={codex} onCopy={copyCommand} onReturn={returnToSavedCodexProvider} onAdd={startNewCodex} onStartBridge={() => bridgeAction("start")} onStopBridge={() => bridgeAction("stop")} onNotify={showToast} />
           ) : (
             <>
-              <CodexStepper step={codexStep} onStep={setCodexStep} />
+              <CodexStepper step={codexStep} onStep={goToCodexStep} allowJump={Boolean(codexProvider(codexForm.providerId.trim()))} />
               <CodexWizard
                 step={codexStep}
                 form={codexForm}
@@ -3218,7 +3291,7 @@ export function App() {
               />
             </>
           )
-        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} overwrites={selectedId !== form.providerId.trim() && state.providers.some((provider) => provider.id === form.providerId.trim())} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} onDiscover={discoverModels} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} hasProviders={state.providers.length > 0} dirty={piDirty} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} userAgentFocusRequest={userAgentFocusRequest} betaFocusRequest={betaFocusRequest} />}</>}
+        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={goToStep} allowJump={state.providers.some((provider) => provider.id === form.providerId.trim())} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} overwrites={selectedId !== form.providerId.trim() && state.providers.some((provider) => provider.id === form.providerId.trim())} apiFocusRequest={apiFocusRequest} credentialFocus={credentialFocus} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} onDiscover={discoverModels} onEditProtocol={() => goToStep(1)} onEditGateway={editGatewayAddress} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} hasProviders={state.providers.length > 0} dirty={piDirty} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} userAgentFocusRequest={userAgentFocusRequest} betaFocusRequest={betaFocusRequest} />}</>}
       </section>
       {codexDeleteTargetId && codexProvider(codexDeleteTargetId) && (
         <CodexDeleteDialog

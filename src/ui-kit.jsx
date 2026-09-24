@@ -41,10 +41,17 @@ export function Spinner({ size = 18 }) {
 // The shared request-error banner. A 409 also arrives as a toast whose action
 // reloads the page, but that toast expires after seven seconds — the banner is
 // the part that persists, so on a conflict it carries the same action itself.
-export function ErrorBanner({ message, conflict }) {
+export function ErrorBanner({ message, conflict, id }) {
+  const ref = useRef(null);
+  // Bring the banner into view when its message changes: on the models step it
+  // can sit below a long model list and a collapsed advanced panel, well off
+  // screen when Save is pressed.
+  useEffect(() => {
+    if (message && ref.current) ref.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [message]);
   if (!message) return null;
   return (
-    <div className="error-banner" role="alert">
+    <div className="error-banner" role="alert" id={id} ref={ref}>
       <WarningCircle size={20} weight="fill" />
       <span>{message}</span>
       {conflict && (
