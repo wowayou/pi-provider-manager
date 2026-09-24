@@ -3715,8 +3715,11 @@ test("the Codex context-window field is bounded and the API key can be revealed"
     const clickText = (selector, text) => cdp.evaluate("[...document.querySelectorAll(" + JSON.stringify(selector) + ")].find((node) => node.textContent.includes(" + JSON.stringify(text) + ")).click()");
     const setValue = (selector, value) => cdp.evaluate("(() => { const input = document.querySelector(" + JSON.stringify(selector) + "); const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(input, " + JSON.stringify(value) + "); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
 
-    // #15 — the Pi new-key field can be revealed and re-masked.
-    await cdp.waitFor("document.querySelector('.add-provider')");
+    // #15 — the Pi new-key field can be revealed and re-masked. Wait for the
+    // initial /api/state load to finish before opening a new draft: clicking
+    // 添加供应商 before the default provider has loaded lets the load effect
+    // overwrite the fresh draft and jump back to the models step.
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
     await cdp.evaluate("document.querySelector('.add-provider').click()");
     await cdp.waitFor("document.querySelector('.protocol-grid')");
     await clickText(".wizard-footer .primary-button", "下一步");
