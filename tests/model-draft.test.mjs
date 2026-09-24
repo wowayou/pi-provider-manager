@@ -1,6 +1,42 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { changedPersistedModel, duplicateCodexForm, duplicatePiForm, selectedNamedModel, suggestCopyId, userAgentSaveIntent, anthropicBetaSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "../src/model-draft.mjs";
+import { changedPersistedModel, draftSignature, duplicateCodexForm, duplicatePiForm, selectedNamedModel, suggestCopyId, userAgentSaveIntent, anthropicBetaSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "../src/model-draft.mjs";
+
+test("draftSignature ignores rowId churn but tracks real edits", () => {
+  const form = {
+    providerId: "router",
+    baseUrl: "https://router.example/v1",
+    api: "openai-responses",
+    userAgent: "",
+    models: [
+      { rowId: "a", id: "opus", contextWindow: 200000, maxTokens: 8192 },
+      { rowId: "b", id: "haiku", contextWindow: 200000, maxTokens: 8192 },
+    ],
+    defaultRowId: "a",
+  };
+  // Fresh row keys, same values and same default model -> identical signature.
+  const reloaded = {
+    ...form,
+    models: [
+      { rowId: "x", id: "opus", contextWindow: 200000, maxTokens: 8192 },
+      { rowId: "y", id: "haiku", contextWindow: 200000, maxTokens: 8192 },
+    ],
+    defaultRowId: "x",
+  };
+  assert.equal(draftSignature(form), draftSignature(reloaded));
+
+  // Changing a token count changes the signature.
+  const editedTokens = { ...form, models: [{ ...form.models[0], contextWindow: 100000 }, form.models[1]] };
+  assert.notEqual(draftSignature(form), draftSignature(editedTokens));
+
+  // Moving the default to a different model changes the signature, even though
+  // the rows are untouched.
+  const editedDefault = { ...form, defaultRowId: "b" };
+  assert.notEqual(draftSignature(form), draftSignature(editedDefault));
+
+  // A scalar field edit changes the signature.
+  assert.notEqual(draftSignature(form), draftSignature({ ...form, userAgent: "custom/1.0" }));
+});
 
 test("persisted model identities cannot be renamed or cleared in a draft", () => {
   const unchanged = { rowId: "stored", persistedId: "anthropic/claude-opus", id: "anthropic/claude-opus" };

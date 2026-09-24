@@ -1000,7 +1000,7 @@ export function CodexSuccessScreen({ result, onCopy, onReturn, onAdd }) {
   );
 }
 
-export function CodexSettingsScreen({ state, saving, error, conflict, onSave, onBack }) {
+export function CodexSettingsScreen({ state, saving, error, conflict, onSave, onBack, onDirtyChange }) {
   const codex = state.codex || {};
   const providers = codex.providers || [];
   const saved = useMemo(() => ({
@@ -1018,6 +1018,10 @@ export function CodexSettingsScreen({ state, saving, error, conflict, onSave, on
   const present = new Set(Array.isArray(codex.settingsPresent) ? codex.settingsPresent : []);
   const unwritten = ["model", "model_provider", "model_reasoning_effort"].filter((key) => !present.has(key));
   const edited = JSON.stringify(saved) !== JSON.stringify(draft);
+  useEffect(() => {
+    onDirtyChange?.(edited);
+    return () => onDirtyChange?.(false);
+  }, [edited, onDirtyChange]);
   const installed = state.compatibility?.codexVersion;
   const validated = state.compatibility?.validatedCodexVersion;
   const versionDiffers = Boolean(installed) && installed !== "unknown"

@@ -119,6 +119,13 @@ class CdpClient {
       if (message.method === "Runtime.consoleAPICalled" && ["error", "warning"].includes(message.params.type)) {
         this.errors.push(message);
       }
+      // A dirty draft now arms window.beforeunload, so a programmatic reload or
+      // navigation raises a native leave prompt that would otherwise stall the
+      // headless page. Auto-accepting models the user choosing to leave — the
+      // same outcome the in-app discard toast produces.
+      if (message.method === "Page.javascriptDialogOpening") {
+        this.send("Page.handleJavaScriptDialog", { accept: true }).catch(() => {});
+      }
     });
   }
 
@@ -580,6 +587,10 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     assert.equal(radioAfterClick.outlineStyle, "none");
 
     await cdp.evaluate(`document.querySelector('.nav-settings').click()`);
+    // Selecting a different default radio above edited the draft, so the shared
+    // leave guard asks first; discard to reach Settings.
+    await cdp.waitFor(`document.querySelector('.toast-action')`);
+    await cdp.evaluate(`document.querySelector('.toast-action').click()`);
     await cdp.waitFor(`document.querySelector('.settings-page') && document.querySelector('.settings-footer')`);
     const settingsFrame = await cdp.evaluate(`(() => {
       const page = document.querySelector('.settings-page').getBoundingClientRect();
@@ -1041,6 +1052,10 @@ test("production UI drives the Codex workspace", { timeout: 90_000 }, async () =
 
     // Add a second provider through the wizard.
     await cdp.evaluate(`document.querySelector('.add-provider').click()`);
+    // The current Codex draft was edited above, so the shared leave guard asks
+    // first; discard to proceed to the fresh draft.
+    await cdp.waitFor(`document.querySelector('.toast-action')`);
+    await cdp.evaluate(`document.querySelector('.toast-action').click()`);
     await cdp.waitFor(`document.querySelector('.protocol-grid.is-duo')`);
     await clickText(".wizard-footer .primary-button", "下一步");
     await cdp.waitFor(`document.querySelector('.form-grid input')`);
@@ -2457,6 +2472,10 @@ test("the credentials step says when saving would replace another provider", { t
     // the half a plain "does this ID exist" check gets wrong, and getting it wrong
     // puts an overwrite warning on every edit of every saved provider.
     await cdp.evaluate(`document.querySelectorAll('.provider-select')[0].click()`);
+    // A new draft with typed-in fields is edited, so the shared leave guard asks
+    // first; discard to open the stored provider.
+    await cdp.waitFor(`document.querySelector('.toast-action')`);
+    await cdp.evaluate(`document.querySelector('.toast-action').click()`);
     await cdp.waitFor(`document.querySelector('.model-row')`);
     await cdp.evaluate(`document.querySelectorAll('.stepper .step')[1].click()`);
     await cdp.waitFor(`document.querySelector('.form-grid input')`);
@@ -2735,7 +2754,7 @@ test("production UI keeps new-draft User-Agent intent and locates invalid whites
     await clickText(".wizard-footer .primary-button", "下一步");
     await cdp.waitFor("document.querySelector('.models-table')");
     assert.equal(await cdp.evaluate("document.querySelector('.user-agent-field input').value"), "");
-    await clickText(".wizard-footer .primary-button", "保存并设为默认");
+    await clickText(".wizard-footer .primary-button", "保存更改");
     await cdp.waitFor("document.querySelector('.success-page')");
     const savedState = await (await fetch("http://127.0.0.1:" + appPort + "/api/state")).json();
     const savedProvider = savedState.providers.find((provider) => provider.id === "review-router");
@@ -2754,7 +2773,7 @@ test("production UI keeps new-draft User-Agent intent and locates invalid whites
     await setValue(".user-agent-field input", " ".repeat(513));
     await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
     await cdp.waitFor("!document.querySelector('.advanced-panel').open");
-    await clickText(".wizard-footer .primary-button", "保存并设为默认");
+    await clickText(".wizard-footer .primary-button", "保存更改");
     await cdp.waitFor("document.querySelector('.advanced-panel[open] input[aria-invalid=\"true\"]')");
     const invalid = await cdp.evaluate("({ open: document.querySelector('.advanced-panel').open, invalid: document.querySelector('.user-agent-field input').getAttribute('aria-invalid'), error: document.querySelector('.field-error').textContent, banner: document.querySelector('.error-banner').textContent })");
     assert.deepEqual(invalid, {
@@ -2811,7 +2830,7 @@ test("production UI edits Anthropic Beta and preserves unrelated draft edits", {
     await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
     await cdp.waitFor("document.querySelector('.beta-group select')");
     await setValue(".beta-value-field input", "context-1m-2025-08-07");
-    await clickText(".wizard-footer .primary-button", "保存并设为默认");
+    await clickText(".wizard-footer .primary-button", "保存更改");
     await cdp.waitFor("document.querySelector('.success-page')");
     let saved = JSON.parse(fs.readFileSync(modelsPath, "utf8"));
     assert.equal(saved.providers["review-router"].models[0].headers["anthropic-beta"], "context-1m-2025-08-07");
@@ -2833,7 +2852,7 @@ test("production UI edits Anthropic Beta and preserves unrelated draft edits", {
     assert.equal(await cdp.evaluate("document.querySelector('.beta-value-field input').readOnly"), false, "the beta field went read-only on a non-Anthropic protocol");
     assert.equal(await cdp.evaluate("[...document.querySelectorAll('.beta-actions button')].find((node) => node.textContent.includes('1M 示例')).disabled"), false);
     await setValue(".beta-value-field input", "beta-on-openai");
-    await clickText(".wizard-footer .primary-button", "保存并设为默认");
+    await clickText(".wizard-footer .primary-button", "保存更改");
     await cdp.waitFor("document.querySelector('.success-page')");
     saved = JSON.parse(fs.readFileSync(modelsPath, "utf8"));
     assert.equal(saved.providers["review-router"].models[1].api, "openai-completions");
@@ -2857,7 +2876,7 @@ test("production UI edits Anthropic Beta and preserves unrelated draft edits", {
     await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
     await setValue(".beta-value-field input", "$BETA");
     await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
-    await clickText(".wizard-footer .primary-button", "保存并设为默认");
+    await clickText(".wizard-footer .primary-button", "保存更改");
     await cdp.waitFor("document.querySelector('.advanced-panel[open] .beta-value-field input[aria-invalid=\"true\"]')");
     assert.equal(await cdp.evaluate("document.querySelector('.advanced-panel').open"), true);
     await cdp.waitFor("document.activeElement === document.querySelector('.beta-value-field input')");
@@ -3129,6 +3148,135 @@ test("selection mode bulk-deletes providers from the sidebar", { timeout: 60_000
   } catch (error) {
     error.message += `\nServer output:\n${serverOutput}`;
     throw error;
+  } finally {
+    if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }
+    await stopProcess(chrome, true); await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("the shared leave guard warns before dropping an edited draft", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-guard-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-guard-"));
+  writeFixture(agentDir);
+  const settingsPath = path.join(agentDir, "settings.json");
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server; let chrome; let cdp; let serverOutput = "";
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
+    chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl("http://127.0.0.1:" + debugPort + "/json/version", 30_000);
+    const target = await fetch("http://127.0.0.1:" + debugPort + "/json/new?" + encodeURIComponent("http://127.0.0.1:" + appPort), { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl); await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.send("Page.navigate", { url: "http://127.0.0.1:" + appPort });
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
+    const clickText = (selector, text) => cdp.evaluate("[...document.querySelectorAll(" + JSON.stringify(selector) + ")].find((node) => node.textContent.includes(" + JSON.stringify(text) + ")).click()");
+    const setValue = (selector, value) => cdp.evaluate("(() => { const input = document.querySelector(" + JSON.stringify(selector) + "); const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(input, " + JSON.stringify(value) + "); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+    const beforeUnloadPrevented = () => cdp.evaluate("(() => { const e = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented; })()");
+
+    // A clean draft leaves at once and does not arm the native prompt.
+    assert.equal(await beforeUnloadPrevented(), false);
+
+    // Edit the draft by moving the default-model radio to the second row.
+    await cdp.evaluate("document.querySelectorAll('.model-row input[type=radio]')[1].click()");
+    await cdp.waitFor("document.querySelectorAll('.model-row input[type=radio]')[1].checked");
+    // The footer now says there are unsaved changes, and the button reads 保存更改
+    // because review-router is Pi's current default.
+    assert.equal(await cdp.evaluate("document.querySelector('.wizard-footer .dirty-note').textContent"), "有未保存的修改");
+    assert.equal(await cdp.evaluate("document.querySelector('.wizard-footer .primary-button').textContent.trim()"), "保存更改");
+    // An edited draft arms window.beforeunload.
+    assert.equal(await beforeUnloadPrevented(), true);
+
+    // Selecting another provider does not navigate; it raises the discard toast.
+    await cdp.evaluate("[...document.querySelectorAll('.provider-select')].find((node) => node.title.includes('single-router')).click()");
+    await cdp.waitFor("document.querySelector('.toast-action')");
+    assert.match(await cdp.evaluate("document.querySelector('.toast').textContent"), /未保存的修改/);
+    assert.equal(await cdp.evaluate("document.querySelector('.toast-action').textContent"), "放弃修改并离开");
+    // Still on review-router: three model rows, nothing switched.
+    assert.equal(await cdp.evaluate("document.querySelectorAll('.model-row').length"), 3);
+
+    // Discarding proceeds to the other provider.
+    await cdp.evaluate("document.querySelector('.toast-action').click()");
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 1 && document.querySelector('.model-name-cell input').value === 'only/model'");
+    // The freshly loaded provider is clean, so no native prompt is armed and a
+    // second switch is immediate.
+    assert.equal(await beforeUnloadPrevented(), false);
+    await cdp.evaluate("[...document.querySelectorAll('.provider-select')].find((node) => node.title.includes('review-router')).click()");
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
+
+    // A new provider added alongside existing ones offers 只保存 as well as
+    // 保存并设为默认, and 只保存 leaves settings.json's default untouched.
+    const settingsBefore = fs.readFileSync(settingsPath, "utf8");
+    await cdp.evaluate("document.querySelector('.add-provider').click()");
+    await cdp.waitFor("document.querySelector('.protocol-grid')");
+    await clickText(".wizard-footer .primary-button", "下一步");
+    await cdp.waitFor("document.querySelectorAll('.form-grid input').length === 2");
+    await setValue(".form-grid input", "backup-router");
+    await cdp.evaluate("(() => { const input = document.querySelectorAll('.form-grid input')[1]; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(input, 'https://backup.example/v1'); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+    await setValue("input[type=password]", "backup-key-not-real");
+    await clickText(".wizard-footer .primary-button", "下一步");
+    await cdp.waitFor("document.querySelector('.models-table')");
+    const footerButtons = await cdp.evaluate("[...document.querySelectorAll('.wizard-footer .footer-actions button')].map((node) => node.textContent.trim())");
+    assert.deepEqual(footerButtons, ["只保存", "保存并设为默认"]);
+    await clickText(".wizard-footer .footer-actions button", "只保存");
+    await cdp.waitFor("document.querySelector('.success-page')");
+    assert.match(await cdp.evaluate("document.querySelector('.success-summary').textContent"), /全局默认模型没有改动/);
+    const settingsAfter = fs.readFileSync(settingsPath, "utf8");
+    assert.equal(JSON.parse(settingsAfter).defaultProvider, "review-router");
+    assert.equal(JSON.parse(settingsBefore).defaultProvider, "review-router");
+
+    assert.deepEqual(cdp.errors, []);
+    assert.equal(serverOutput.includes("Error"), false, serverOutput);
+  } finally {
+    if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }
+    await stopProcess(chrome, true); await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("the first Pi provider can only be saved as default", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-first-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-first-"));
+  // An empty Pi config: no providers, no credentials, no default.
+  fs.writeFileSync(path.join(agentDir, "auth.json"), "{}");
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({ providers: {} }));
+  fs.writeFileSync(path.join(agentDir, "settings.json"), "{}");
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server; let chrome; let cdp; let serverOutput = "";
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
+    chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl("http://127.0.0.1:" + debugPort + "/json/version", 30_000);
+    const target = await fetch("http://127.0.0.1:" + debugPort + "/json/new?" + encodeURIComponent("http://127.0.0.1:" + appPort), { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl); await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    await cdp.send("Page.navigate", { url: "http://127.0.0.1:" + appPort });
+    const clickText = (selector, text) => cdp.evaluate("[...document.querySelectorAll(" + JSON.stringify(selector) + ")].find((node) => node.textContent.includes(" + JSON.stringify(text) + ")).click()");
+    const setValue = (selector, value) => cdp.evaluate("(() => { const input = document.querySelector(" + JSON.stringify(selector) + "); const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(input, " + JSON.stringify(value) + "); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+    // Zero providers: the wizard is on step one with an empty sidebar.
+    await cdp.waitFor("document.querySelector('.protocol-grid')");
+    assert.equal(await cdp.evaluate("document.querySelectorAll('.provider-item').length"), 0);
+    await clickText(".wizard-footer .primary-button", "下一步");
+    await cdp.waitFor("document.querySelectorAll('.form-grid input').length === 2");
+    await setValue(".form-grid input", "first-router");
+    await cdp.evaluate("(() => { const input = document.querySelectorAll('.form-grid input')[1]; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(input, 'https://first.example/v1'); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+    await setValue("input[type=password]", "first-key-not-real");
+    await clickText(".wizard-footer .primary-button", "下一步");
+    await cdp.waitFor("document.querySelector('.models-table')");
+    // No 只保存 for the very first provider: there is nothing to displace.
+    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.wizard-footer .footer-actions'))"), false);
+    assert.equal(await cdp.evaluate("document.querySelector('.wizard-footer .primary-button').textContent.trim()"), "保存并设为默认");
+    assert.deepEqual(cdp.errors, []);
   } finally {
     if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }
     await stopProcess(chrome, true); await stopProcess(server);

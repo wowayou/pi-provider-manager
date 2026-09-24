@@ -40,7 +40,7 @@ import {
 } from "@phosphor-icons/react";
 import { PROVIDER_ID_PATTERN, normalizeUrl } from "../lib/validation.mjs";
 import { validateUserAgent } from "../lib/pi-user-agent.mjs";
-import { changedPersistedModel, duplicateCodexForm, duplicatePiForm, selectedNamedModel, userAgentSaveIntent, anthropicBetaSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "./model-draft.mjs";
+import { changedPersistedModel, draftSignature, duplicateCodexForm, duplicatePiForm, selectedNamedModel, userAgentSaveIntent, anthropicBetaSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "./model-draft.mjs";
 import { normalizeAnthropicBeta } from "../lib/pi-anthropic-beta.mjs";
 import { defaultDiscoveryPath } from "../lib/model-discovery.mjs";
 import { USER_AGENT_PRESETS } from "./user-agent-presets.mjs";
@@ -955,7 +955,7 @@ function userAgentValidationError(value) {
   }
 }
 
-function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, onDiscover, canDeleteProvider, isExistingProvider, isCurrentDefault, liveDefaultModelId, userAgentFocusRequest, betaFocusRequest }) {
+function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, onDiscover, canDeleteProvider, isExistingProvider, isCurrentDefault, hasProviders, dirty, liveDefaultModelId, userAgentFocusRequest, betaFocusRequest }) {
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [showDiscover, setShowDiscover] = useState(false);
@@ -1292,14 +1292,34 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
       </div>
       <footer className="wizard-footer">
         <button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={19} />上一步</button>
-        {isExistingProvider && !isCurrentDefault ? (
-          <div className="footer-actions">
-            <button type="button" className="outline-button" disabled={saving} onClick={() => onSave(true)}>保存并设为默认</button>
-            <button type="button" className="primary-button" disabled={saving} onClick={() => onSave(false)}>{saving ? <><Spinner />正在保存…</> : "保存更改"}</button>
-          </div>
-        ) : (
-          <button type="button" className="primary-button" disabled={saving} onClick={() => onSave(true)}>{saving ? <><Spinner />正在保存…</> : "保存并设为默认"}</button>
-        )}
+        <div className="footer-end">
+          {isExistingProvider && (
+            <span className="dirty-note" aria-live="polite">{dirty ? "有未保存的修改" : "没有改动"}</span>
+          )}
+          {isExistingProvider ? (
+            isCurrentDefault ? (
+              // Already Pi's default: one button, still setDefault:true so the
+              // default model follows the selected radio, worded as a plain save.
+              <button type="button" className="primary-button" disabled={saving || !dirty} onClick={() => onSave(true)}>{saving ? <><Spinner />正在保存…</> : "保存更改"}</button>
+            ) : (
+              <div className="footer-actions">
+                <button type="button" className="outline-button" disabled={saving || !dirty} onClick={() => onSave(true)}>保存并设为默认</button>
+                <button type="button" className="primary-button" disabled={saving || !dirty} onClick={() => onSave(false)}>{saving ? <><Spinner />正在保存…</> : "保存更改"}</button>
+              </div>
+            )
+          ) : hasProviders ? (
+            // A new provider added alongside existing ones must not silently
+            // steal the global default: offer 只保存 as well as 保存并设为默认.
+            <div className="footer-actions">
+              <button type="button" className="outline-button" disabled={saving} onClick={() => onSave(false)}>只保存</button>
+              <button type="button" className="primary-button" disabled={saving} onClick={() => onSave(true)}>{saving ? <><Spinner />正在保存…</> : "保存并设为默认"}</button>
+            </div>
+          ) : (
+            // The very first provider has nothing to displace, so setting it as
+            // the default is the only sensible action.
+            <button type="button" className="primary-button" disabled={saving} onClick={() => onSave(true)}>{saving ? <><Spinner />正在保存…</> : "保存并设为默认"}</button>
+          )}
+        </div>
       </footer>
       {showBulk && <BulkModal text={bulkText} ids={bulkIds} newIds={newBulkIds} onText={setBulkText} onClose={() => setShowBulk(false)} onImport={importModels} />}
       {showDiscover && <DiscoverModal baseUrl={form.baseUrl.trim()} defaultPath={defaultDiscoveryPath(form.api)} existingIds={existingIds} onDiscover={onDiscover} onClose={() => setShowDiscover(false)} onImport={importDiscovered} />}
@@ -1676,7 +1696,7 @@ function SuccessScreen({ result, onCopy, onReturn, onAdd }) {
   );
 }
 
-function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBack }) {
+function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBack, onDirtyChange }) {
   const saved = useMemo(() => ({
     defaultProvider: state.settings.defaultProvider || state.providers[0]?.id || "",
     defaultModel: state.settings.defaultModel || "",
@@ -1696,6 +1716,13 @@ function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBa
     .filter((key) => !present.has(key));
   const edited = JSON.stringify(saved) !== JSON.stringify(draft);
   const dirty = edited || unwritten.length > 0;
+  // Report only real edits up to the shared leave guard: an unwritten default is
+  // not something navigation can lose (settings.json does not carry it, and will
+  // not afterwards), so it must not arm a discard prompt.
+  useEffect(() => {
+    onDirtyChange?.(edited);
+    return () => onDirtyChange?.(false);
+  }, [edited, onDirtyChange]);
   const installedPi = state.compatibility?.piVersion;
   const validatedPi = state.compatibility?.validatedPiVersion;
   const piVersionDiffers = Boolean(installedPi) && installedPi !== "unknown"
@@ -2053,6 +2080,18 @@ export function App() {
   const [betaFocusRequest, setBetaFocusRequest] = useState({ rowId: "", serial: 0 });
   const [target, setTarget] = useState("pi");
   const [codexForm, setCodexForm] = useState(blankCodexForm);
+  // Baselines: the signature of the last draft loaded from saved data (or a
+  // freshly created blank/duplicate). A draft is dirty when its current
+  // signature differs — i.e. the user has edited it since it was loaded. Every
+  // place that loads a draft updates the matching baseline through loadForm /
+  // loadCodexForm; user edits go through the plain setters and move the draft
+  // away from the baseline.
+  const [piBaseline, setPiBaseline] = useState(() => draftSignature(demoMode ? providerToForm(DEMO_STATE.providers[0], DEMO_STATE) : blankForm()));
+  const [codexBaseline, setCodexBaseline] = useState(() => draftSignature(blankCodexForm()));
+  // A settings or prompts screen reports its own edited state up so the shared
+  // leave guard and beforeunload can see it. Only one such screen is mounted at
+  // a time, so a single flag is enough; each screen clears it on unmount.
+  const [screenDirty, setScreenDirty] = useState(false);
   const [codexStep, setCodexStep] = useState(1);
   const [codexSelectedId, setCodexSelectedId] = useState("");
   const [codexSaveResult, setCodexSaveResult] = useState(null);
@@ -2074,6 +2113,37 @@ export function App() {
     }
   }, [showToast]);
   useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+  // Loading a draft from saved data (or creating a fresh blank/duplicate) sets
+  // both the form and its baseline, so the draft reads as unedited until the
+  // user changes something. User edits use the plain setters.
+  const loadForm = useCallback((next) => { setForm(next); setPiBaseline(draftSignature(next)); }, []);
+  const loadCodexForm = useCallback((next) => { setCodexForm(next); setCodexBaseline(draftSignature(next)); }, []);
+  const piDirty = useMemo(() => draftSignature(form) !== piBaseline, [form, piBaseline]);
+  const codexDirty = useMemo(() => draftSignature(codexForm) !== codexBaseline, [codexForm, codexBaseline]);
+  // The draft the current screen would lose on navigation. Settings and prompts
+  // report their own edited state; the wizard's belongs to the active target.
+  const currentDirty = view === "settings" || view === "prompts"
+    ? screenDirty
+    : view === "wizard"
+      ? (target === "codex" ? codexDirty : piDirty)
+      : false;
+  // The shared leave guard: an unedited draft leaves at once; an edited one asks
+  // first, and only proceeds through the toast's action — the same rule the
+  // prompts screen already applied to its own document switches.
+  const guardLeave = useCallback((proceed) => {
+    if (!currentDirty) { proceed(); return; }
+    showToast("当前草稿有未保存的修改", "error", { label: "放弃修改并离开", onAction: proceed });
+  }, [currentDirty, showToast]);
+  // Any unsaved draft — in either target or in a settings/prompts screen — arms
+  // the browser's native leave confirmation, covering a tab close or a reload
+  // (including the 409 banner's reload) that the in-app guard cannot intercept.
+  useEffect(() => {
+    if (!(piDirty || codexDirty || screenDirty)) return undefined;
+    const handler = (event) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [piDirty, codexDirty, screenDirty]);
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       document.querySelector(".step-scroll, .settings-scroll, .success-page")?.scrollTo({ top: 0, behavior: "instant" });
@@ -2091,7 +2161,7 @@ export function App() {
         if (data.providers.length > 0) {
           const provider = data.providers.find((item) => item.isDefault) || data.providers[0];
           setSelectedId(provider.id);
-          setForm(providerToForm(provider, data));
+          loadForm(providerToForm(provider, data));
           setStep(provider.models.length > 0 ? 3 : 1);
         }
       })
@@ -2118,7 +2188,7 @@ export function App() {
   const startNew = () => {
     const fresh = blankForm();
     fresh.migrateFrom = state.authProviders[0] || "";
-    setForm(fresh);
+    loadForm(fresh);
     setSelectedId("");
     setStep(1);
     setView("wizard");
@@ -2132,7 +2202,7 @@ export function App() {
     if (!state.providers.some((provider) => provider.id === form.providerId.trim())) return;
     const copiedExternalUserAgent = form.userAgentKind === "external" && !form.userAgentEdited;
     const copiedExternalBeta = form.models.some((model) => model.anthropicBetaKind === "external");
-    setForm(duplicatePiForm(form, state.providers.map((provider) => provider.id)));
+    loadForm(duplicatePiForm(form, state.providers.map((provider) => provider.id)));
     setSelectedId("");
     setStep(2);
     setView("wizard");
@@ -2144,7 +2214,7 @@ export function App() {
 
   const duplicateCodexProvider = () => {
     if (!codex.providers.some((provider) => provider.id === codexForm.providerId.trim())) return;
-    setCodexForm(duplicateCodexForm(codexForm, codex.providers.map((provider) => provider.id)));
+    loadCodexForm(duplicateCodexForm(codexForm, codex.providers.map((provider) => provider.id)));
     setCodexSelectedId("");
     setCodexStep(2);
     setView("wizard");
@@ -2153,7 +2223,7 @@ export function App() {
   };
 
   const selectProvider = (provider) => {
-    setForm(providerToForm(provider, state));
+    loadForm(providerToForm(provider, state));
     setSelectedId(provider.id);
     setStep(provider.models.length > 0 ? 3 : 1);
     setView("wizard");
@@ -2176,7 +2246,7 @@ export function App() {
     const sourceForm = providerToForm(provider, state);
     const copiedExternalUserAgent = sourceForm.userAgentKind === "external" && !sourceForm.userAgentEdited;
     const copiedExternalBeta = sourceForm.models.some((model) => model.anthropicBetaKind === "external");
-    setForm(duplicatePiForm(sourceForm, state.providers.map((item) => item.id)));
+    loadForm(duplicatePiForm(sourceForm, state.providers.map((item) => item.id)));
     setSelectedId("");
     setStep(2);
     setView("wizard");
@@ -2190,7 +2260,7 @@ export function App() {
     const provider = codex.providers.find((item) => item.id === providerId);
     if (!provider) return;
     const sourceForm = codexProviderToForm(provider, codex);
-    setCodexForm(duplicateCodexForm(sourceForm, codex.providers.map((item) => item.id)));
+    loadCodexForm(duplicateCodexForm(sourceForm, codex.providers.map((item) => item.id)));
     setCodexSelectedId("");
     setCodexStep(2);
     setView("wizard");
@@ -2375,7 +2445,7 @@ export function App() {
         };
         setState(demoState);
         setSelectedId(payload.providerId);
-        setForm(providerToForm(demoProvider, demoState));
+        loadForm(providerToForm(demoProvider, demoState));
         const result = {
           providerId: payload.providerId,
           modelCount: payload.models.length,
@@ -2393,7 +2463,7 @@ export function App() {
       const data = await readApiResponse(response, "保存失败");
       setState(data.state);
       const saved = data.state.providers.find((provider) => provider.id === payload.providerId);
-      if (saved) { setSelectedId(saved.id); setForm(providerToForm(saved, data.state)); }
+      if (saved) { setSelectedId(saved.id); loadForm(providerToForm(saved, data.state)); }
       setSaveResult({
         providerId: payload.providerId,
         modelCount: payload.models.length,
@@ -2483,13 +2553,13 @@ export function App() {
         || nextState.providers[0];
       if (nextProvider) {
         setSelectedId(nextProvider.id);
-        setForm(providerToForm(nextProvider, nextState));
+        loadForm(providerToForm(nextProvider, nextState));
         setStep(nextProvider.models.length > 0 ? 3 : 1);
       } else {
         const fresh = blankForm();
         fresh.migrateFrom = nextState.authProviders[0] || "";
         setSelectedId("");
-        setForm(fresh);
+        loadForm(fresh);
         setStep(1);
       }
       showToast(
@@ -2561,13 +2631,13 @@ export function App() {
         || nextState.providers[0];
       if (nextProvider) {
         setSelectedId(nextProvider.id);
-        setForm(providerToForm(nextProvider, nextState));
+        loadForm(providerToForm(nextProvider, nextState));
         setStep(nextProvider.models.length > 0 ? 3 : 1);
       } else {
         const fresh = blankForm();
         fresh.migrateFrom = nextState.authProviders[0] || "";
         setSelectedId("");
-        setForm(fresh);
+        loadForm(fresh);
         setStep(1);
       }
       showToast(<>已删除 {removedCount} 个供应商{payload.keepCredentials ? "；凭据已保留" : ""}</>);
@@ -2590,23 +2660,29 @@ export function App() {
     setSaveResult(null);
     setCodexSaveResult(null);
     if (next === "codex") {
-      const provider = codexProvider(codexSelectedId)
-        || codex.providers.find((item) => item.isActive)
-        || codex.providers[0];
-      if (provider) {
-        setCodexSelectedId(provider.id);
-        setCodexForm(codexProviderToForm(provider, codex));
-        setCodexStep(3);
-      } else {
-        setCodexSelectedId("");
-        setCodexForm(blankCodexForm());
-        setCodexStep(1);
+      // Switching targets never discards a draft: an edited Codex draft is left
+      // exactly as it is so it survives a round trip to Pi and back. Only when
+      // the Codex draft is clean is it refreshed from the currently
+      // selected/active provider, so it reflects the latest saved state.
+      if (!codexDirty) {
+        const provider = codexProvider(codexSelectedId)
+          || codex.providers.find((item) => item.isActive)
+          || codex.providers[0];
+        if (provider) {
+          setCodexSelectedId(provider.id);
+          loadCodexForm(codexProviderToForm(provider, codex));
+          setCodexStep(3);
+        } else {
+          setCodexSelectedId("");
+          loadCodexForm(blankCodexForm());
+          setCodexStep(1);
+        }
       }
     }
   };
 
   const startNewCodex = () => {
-    setCodexForm(blankCodexForm());
+    loadCodexForm(blankCodexForm());
     setCodexSelectedId("");
     setCodexStep(1);
     setView("wizard");
@@ -2614,7 +2690,7 @@ export function App() {
   };
 
   const selectCodexProvider = (provider) => {
-    setCodexForm(codexProviderToForm(provider, codex));
+    loadCodexForm(codexProviderToForm(provider, codex));
     setCodexSelectedId(provider.id);
     setCodexStep(provider.models.length > 0 ? 3 : 1);
     setView("wizard");
@@ -2702,7 +2778,7 @@ export function App() {
         const demoState = { ...state, codex: demoCodex };
         setState(demoState);
         setCodexSelectedId(saved.id);
-        setCodexForm(codexProviderToForm(saved, demoCodex));
+        loadCodexForm(codexProviderToForm(saved, demoCodex));
         setCodexSaveResult({
           providerId: saved.id,
           name: saved.name,
@@ -2747,7 +2823,7 @@ export function App() {
       setState(data.state);
       const saved = (data.state.codex?.providers || []).find((provider) => provider.id === codexForm.providerId.trim());
       setCodexSelectedId(codexForm.providerId.trim());
-      if (saved) setCodexForm(codexProviderToForm(saved, data.state.codex));
+      if (saved) loadCodexForm(codexProviderToForm(saved, data.state.codex));
       setCodexSaveResult({
         providerId: codexForm.providerId.trim(),
         name: codexForm.name.trim(),
@@ -2894,11 +2970,11 @@ export function App() {
         || (data.state.codex?.providers || [])[0];
       if (next) {
         setCodexSelectedId(next.id);
-        setCodexForm(codexProviderToForm(next, data.state.codex));
+        loadCodexForm(codexProviderToForm(next, data.state.codex));
         setCodexStep(3);
       } else {
         setCodexSelectedId("");
-        setCodexForm(blankCodexForm());
+        loadCodexForm(blankCodexForm());
         setCodexStep(1);
       }
       showToast(<>已删除 Codex 供应商 <code>{payload.providerId}</code></>);
@@ -2956,11 +3032,11 @@ export function App() {
         || (data.state.codex?.providers || [])[0];
       if (next) {
         setCodexSelectedId(next.id);
-        setCodexForm(codexProviderToForm(next, data.state.codex));
+        loadCodexForm(codexProviderToForm(next, data.state.codex));
         setCodexStep(3);
       } else {
         setCodexSelectedId("");
-        setCodexForm(blankCodexForm());
+        loadCodexForm(blankCodexForm());
         setCodexStep(1);
       }
       showToast(<>已删除 {removedCount} 个 Codex 供应商</>);
@@ -3027,17 +3103,17 @@ export function App() {
         target={target}
         loading={loading}
         loadFailed={Boolean(loadError)}
-        onReload={() => window.location.reload()}
-        onTarget={switchTarget}
+        onReload={() => guardLeave(() => window.location.reload())}
+        onTarget={(next) => guardLeave(() => switchTarget(next))}
         selectedId={target === "codex" ? codexSelectedId : selectedId}
-        onSelect={target === "codex" ? selectCodexProvider : selectProvider}
-        onAdd={target === "codex" ? startNewCodex : startNew}
-        onSettings={() => { setView("settings"); setError(""); }}
-        onPrompts={() => { setView("prompts"); setError(""); }}
+        onSelect={(provider) => guardLeave(() => (target === "codex" ? selectCodexProvider : selectProvider)(provider))}
+        onAdd={() => guardLeave(target === "codex" ? startNewCodex : startNew)}
+        onSettings={() => guardLeave(() => { setView("settings"); setError(""); })}
+        onPrompts={() => guardLeave(() => { setView("prompts"); setError(""); })}
         activeView={view}
         theme={theme}
         onTheme={setTheme}
-        onDuplicate={target === "codex" ? duplicateCodexProviderById : duplicateProviderById}
+        onDuplicate={(id) => guardLeave(() => (target === "codex" ? duplicateCodexProviderById : duplicateProviderById)(id))}
         onDelete={target === "codex" ? (id) => { setDeleteProviderError(""); setCodexDeleteTargetId(id); } : openDeleteProvider}
         canBulkDelete
         selectMode={selectMode}
@@ -3075,7 +3151,8 @@ export function App() {
             onActivate={activatePrompt}
             onDelete={deletePrompt}
             onNotify={showToast}
-            onBack={() => { setView("wizard"); setError(""); }}
+            onBack={() => guardLeave(() => { setView("wizard"); setError(""); })}
+            onDirtyChange={setScreenDirty}
           />
         ) : target === "codex" ? (
           codex.available === false ? (
@@ -3084,7 +3161,7 @@ export function App() {
               读取 Codex 配置失败：{codex.error || "未知错误"}（{codex.dir}）
             </div>
           ) : view === "settings" ? (
-            <CodexSettingsScreen state={state} saving={saving} error={error} conflict={conflict} onSave={saveCodexSettings} onBack={() => setView("wizard")} />
+            <CodexSettingsScreen state={state} saving={saving} error={error} conflict={conflict} onSave={saveCodexSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} />
           ) : view === "success" && codexSaveResult ? (
             <CodexSuccessScreen result={codexSaveResult} onCopy={copyCommand} onReturn={returnToSavedCodexProvider} onAdd={startNewCodex} />
           ) : (
@@ -3113,7 +3190,7 @@ export function App() {
               />
             </>
           )
-        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} overwrites={selectedId !== form.providerId.trim() && state.providers.some((provider) => provider.id === form.providerId.trim())} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} onDiscover={discoverModels} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} userAgentFocusRequest={userAgentFocusRequest} betaFocusRequest={betaFocusRequest} />}</>}
+        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} overwrites={selectedId !== form.providerId.trim() && state.providers.some((provider) => provider.id === form.providerId.trim())} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} onDiscover={discoverModels} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} hasProviders={state.providers.length > 0} dirty={piDirty} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} userAgentFocusRequest={userAgentFocusRequest} betaFocusRequest={betaFocusRequest} />}</>}
       </section>
       {codexDeleteTargetId && codexProvider(codexDeleteTargetId) && (
         <CodexDeleteDialog

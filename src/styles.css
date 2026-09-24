@@ -538,6 +538,7 @@ code { color: var(--ink); background: transparent; }
 /* ---------- buttons ---------- */
 .wizard-footer { flex: none; z-index: 4; margin-top: var(--space-4); padding: var(--space-4) 4px 4px; border-top: 1px solid var(--line); background: transparent; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .footer-actions { display: flex; gap: 10px; }
+.footer-end { display: flex; align-items: center; gap: 14px; }
 .primary-button, .secondary-button, .outline-button, .danger-button { white-space: nowrap; min-height: 44px; border-radius: var(--radius-md); display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 22px; font-weight: 700; transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease); }
 .primary-button { background: var(--orange-strong); color: var(--on-primary); border: 1px solid var(--orange-strong); box-shadow: 0 4px 12px rgba(0, 0, 0, .10); }
 .primary-button:hover:not(:disabled) { background: var(--orange-strong-hover); border-color: var(--orange-strong-hover); box-shadow: 0 6px 16px rgba(0, 0, 0, .14); }
