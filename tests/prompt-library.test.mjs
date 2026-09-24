@@ -115,6 +115,21 @@ test("adopts a file that predates the manager instead of presenting it as absent
   });
 });
 
+test("an empty pre-existing file is not adopted as 现有内容", () => {
+  withLibrary((prompts, dir) => {
+    // A 0-byte file with nothing in the store: an empty file has no
+    // author-written content to take over, so it must not surface a misleading
+    // empty「已接管/生效中」entry — the user should land on a clean 新建 flow.
+    fs.writeFileSync(path.join(dir, "AGENTS.md"), "");
+    const slot = slotOf(prompts.publicState(), "agents");
+    assert.equal(slot.present, true, "an empty file is present, not missing");
+    assert.equal(slot.adoptedId, "", "an empty file must not be adopted");
+    assert.equal(slot.activeId, "", "nothing is in effect for an empty file");
+    assert.equal(slot.documents.length, 0, "no phantom 现有内容 entry");
+    assert.equal(fs.existsSync(prompts.storePath), false, "reading state must not write");
+  });
+});
+
 test("saving alongside an adopted file keeps the adopted one", () => {
   withLibrary((prompts, dir) => {
     fs.writeFileSync(path.join(dir, "AGENTS.md"), "手写的规则。\n");
