@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **A shared leave guard protects every unsaved draft (P0).** Switching providers, adding or duplicating one, switching Pi/Codex, or leaving for Settings/Prompts no longer discards an edited draft silently. A `draftSignature` fingerprint tells an edited draft from a freshly loaded one; a change asks first through a toast action, and any unsaved draft arms the browser's native leave prompt. Switching targets preserves an edited Codex draft across a round trip.
+
+- **A new Pi provider can be saved without becoming the default (P0).** Added alongside existing providers, a new draft offers 只保存 as well as 保存并设为默认, so a spare gateway no longer silently steals the global default; the very first provider still only saves as default, and an existing default provider's button reads 保存更改. The wizard footer shows a dirty note and disables save when an existing provider is unchanged.
+
+- **The Codex success screen leads with the bridge control for bridged providers (P0).** A bridged provider's success screen now gets the local bridge running first, because the `codex` command it advertises cannot reach the upstream until the bridge is up. Demo mode fakes bridge start/stop so its happy path matches a real one.
+
+- **Editing a saved provider is no longer bound to the linear wizard (P1).** The stepper allows jumping to any step (a jump to the models step still validates credentials and stops on failure), and the gateway summary's protocol badge and API address are buttons that return to the owning step. A failed credential check focuses the offending field and marks it invalid; the error banner scrolls into view; moving between steps and views sends focus to the new heading.
+
+- **Long model catalogues get a display-only filter, and protocol overrides are added on demand (P1).** Past eight models the models step gains an ID filter that never changes the default or what a save posts; the protocol-override group lists only models that carry an override plus a picker to add one.
+
+- **Toasts stack so an undo survives the next notice (P1).** A toast carrying an action is never evicted by a following plain one; each runs its own timer, pauses while hovered or focused, and error-tone toasts announce assertively.
+
+- **The Codex delete dialog matches Pi's blocked-but-focusable pattern (P1).** A blocked delete stays focusable and explains itself on activation instead of going grey, unified to a danger-button with a trash-icon heading.
+
+- **Both settings screens share a ManagerCard (P1).** The manager version/Node/port, the update check/apply, and the local-service restart move into one card rendered by the Pi and Codex settings, so a Codex-only user has the same update and restart entry points.
+
+- **Polish (P2):** the sidebar row menu is keyboard-operable (arrow keys, Home/End, Tab-to-close); CJK text no longer renders below 12px; the Codex context-window field is bounded and blocks save on an out-of-range value; API key inputs gain a show/hide toggle that can only reveal a just-typed value.
+
 ## 0.4.5 - 2026-09-23
 
 - **Validated against Pi `0.87.1`; baseline moved from `0.87.0`.** A patch release with no observed change to config layout, provider/credential schema, API identifiers, thinking levels, or model capability fields. Validated against a temp-installed real Pi `0.87.1` (leaving the machine's global install untouched): `test:pi-real` 2/2 (a model's `anthropic-beta` override still reaches the wire alone while its sibling keeps Pi's derived list, replace-not-append), `test:server` including unknown-field preservation, `test:sites`, the build, and the two-theme browser UI suite 15/15 with the WCAG-AA sweep. `piValidatedVersion` is advanced to `0.87.1`.
