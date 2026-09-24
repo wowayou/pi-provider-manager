@@ -2103,7 +2103,6 @@ export function App() {
   // toast that also offers it has expired.
   const [conflict, setConflict] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState(null);
   const [saveResult, setSaveResult] = useState(null);
   const [deleteTargetId, setDeleteTargetId] = useState("");
   const [deletingProvider, setDeletingProvider] = useState(false);
@@ -2135,12 +2134,57 @@ export function App() {
   const [codexSelectedId, setCodexSelectedId] = useState("");
   const [codexSaveResult, setCodexSaveResult] = useState(null);
   const [codexDeleteTargetId, setCodexDeleteTargetId] = useState("");
-  const toastTimer = useRef(null);
-  const showToast = useCallback((message, tone = "success", action = null) => {
-    setToast({ message, tone, action });
-    clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), action ? 7000 : 3200);
+  // A small toast stack: up to two at once, each on its own timer. A toast that
+  // carries an action (an undo, a 重新读取) is never evicted by a plain one, so a
+  // burst of arm/notice toasts cannot bury the undo the user still needs.
+  const [toasts, setToasts] = useState([]);
+  const toastIdRef = useRef(0);
+  const toastTimers = useRef(new Map());
+  const dismissToast = useCallback((id) => {
+    const entry = toastTimers.current.get(id);
+    if (entry) { clearTimeout(entry.timeout); toastTimers.current.delete(id); }
+    setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
+  const armToastTimer = useCallback((id, duration) => {
+    const timeout = setTimeout(() => dismissToast(id), duration);
+    toastTimers.current.set(id, { timeout, startedAt: Date.now(), duration });
+  }, [dismissToast]);
+  // Pause on hover or focus, resume on leave: a countdown a reader cannot pause
+  // fails WCAG 2.2.1, and an undo that vanishes mid-reach is the exact failure.
+  const pauseToast = useCallback((id) => {
+    const entry = toastTimers.current.get(id);
+    if (!entry) return;
+    clearTimeout(entry.timeout);
+    entry.remaining = Math.max(0, entry.duration - (Date.now() - entry.startedAt));
+  }, []);
+  const resumeToast = useCallback((id) => {
+    const entry = toastTimers.current.get(id);
+    if (!entry) return;
+    armToastTimer(id, entry.remaining ?? entry.duration);
+  }, [armToastTimer]);
+  const showToast = useCallback((message, tone = "success", action = null) => {
+    const id = ++toastIdRef.current;
+    setToasts((current) => {
+      // A plain toast replaces other plain toasts, but toasts carrying an action
+      // (an undo, a 重新读取) are preserved so a following notice cannot bury the
+      // undo the user still needs. At most two show at once.
+      const preserved = current.filter((toast) => toast.action);
+      for (const toast of current) {
+        if (!toast.action) {
+          const entry = toastTimers.current.get(toast.id);
+          if (entry) { clearTimeout(entry.timeout); toastTimers.current.delete(toast.id); }
+        }
+      }
+      const next = [...preserved, { id, message, tone, action }];
+      while (next.length > 2) {
+        const [removed] = next.splice(0, 1);
+        const entry = toastTimers.current.get(removed.id);
+        if (entry) { clearTimeout(entry.timeout); toastTimers.current.delete(removed.id); }
+      }
+      return next;
+    });
+    armToastTimer(id, action ? 7000 : 3200);
+  }, [armToastTimer]);
   const reportRequestError = useCallback((requestError, setMessage) => {
     setConflict(requestError.status === 409);
     setMessage(requestError.message);
@@ -2151,7 +2195,7 @@ export function App() {
       });
     }
   }, [showToast]);
-  useEffect(() => () => clearTimeout(toastTimer.current), []);
+  useEffect(() => () => { for (const entry of toastTimers.current.values()) clearTimeout(entry.timeout); }, []);
 
   // Loading a draft from saved data (or creating a fresh blank/duplicate) sets
   // both the form and its baseline, so the draft reads as unedited until the
@@ -3356,23 +3400,32 @@ export function App() {
           onConfirm={deleteCodexProvidersBulk}
         />
       )}
-      <div className="toast-region" role="status" aria-live="polite">
-        {toast && (
-          <div className={`toast is-${toast.tone}`}>
+      <div className="toast-region">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`toast is-${toast.tone}`}
+            role={toast.tone === "error" ? "alert" : "status"}
+            aria-live={toast.tone === "error" ? "assertive" : "polite"}
+            onMouseEnter={() => pauseToast(toast.id)}
+            onMouseLeave={() => resumeToast(toast.id)}
+            onFocusCapture={() => pauseToast(toast.id)}
+            onBlurCapture={() => resumeToast(toast.id)}
+          >
             {toast.tone === "error" ? <WarningCircle size={21} weight="fill" /> : <CheckCircle size={21} weight="fill" />}
             <span>{toast.message}</span>
             {toast.action && (
               <button
                 type="button"
                 className="toast-action"
-                onClick={() => { toast.action.onAction(); clearTimeout(toastTimer.current); setToast(null); }}
+                onClick={() => { toast.action.onAction(); dismissToast(toast.id); }}
               >
                 {toast.action.label}
               </button>
             )}
-            <button type="button" className="toast-close" onClick={() => { clearTimeout(toastTimer.current); setToast(null); }} aria-label="关闭提示"><X size={16} weight="bold" /></button>
+            <button type="button" className="toast-close" onClick={() => dismissToast(toast.id)} aria-label="关闭提示"><X size={16} weight="bold" /></button>
           </div>
-        )}
+        ))}
       </div>
     </main>
   );

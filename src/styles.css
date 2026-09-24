@@ -783,7 +783,7 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .skeleton-block { width: 100%; height: 220px; margin-top: 10px; }
 
 /* ---------- toast ---------- */
-.toast-region { position: fixed; right: 28px; bottom: 88px; z-index: 60; max-width: min(620px, calc(100vw - 56px)); pointer-events: none; }
+.toast-region { position: fixed; right: 28px; bottom: 88px; z-index: 60; max-width: min(620px, calc(100vw - 56px)); pointer-events: none; display: flex; flex-direction: column; gap: 8px; }
 .toast { display: flex; align-items: center; gap: 10px; background: var(--toast-bg); color: var(--toast-fg); border-radius: var(--radius-md); padding: 12px 12px 12px 17px; line-height: 1.45; box-shadow: var(--shadow-toast); pointer-events: auto; animation: toast-in var(--base) var(--ease); }
 .toast > svg { color: var(--toast-ok); flex: none; }
 .toast.is-error > svg { color: var(--toast-err); }

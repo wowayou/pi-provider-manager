@@ -2845,7 +2845,10 @@ test("production UI edits Anthropic Beta and preserves unrelated draft edits", {
     // switched to an OpenAI protocol by the per-model override, given a beta.
     // Pi sends model.headers on every protocol, so the field stays editable and
     // the save goes through; the note only says most such gateways ignore it.
-    await cdp.evaluate("(() => { const select = document.querySelectorAll('.protocol-group select')[1]; const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set; setter.call(select, 'openai-completions'); select.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    // Add an override for the second model through the picker, then set it.
+    await cdp.evaluate("(() => { const add = document.querySelector('.protocol-add-field select'); const option = [...add.options].find((o) => o.textContent === 'openai/gpt-router'); const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set; setter.call(add, option.value); add.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    await cdp.waitFor("[...document.querySelectorAll('.protocol-group label')].some((label) => label.querySelector('.mono')?.textContent === 'openai/gpt-router')");
+    await cdp.evaluate("(() => { const label = [...document.querySelectorAll('.protocol-group label')].find((l) => l.querySelector('.mono')?.textContent === 'openai/gpt-router'); const select = label.querySelector('select'); const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set; setter.call(select, 'openai-completions'); select.dispatchEvent(new Event('change', { bubbles: true })); })()");
     await cdp.evaluate("(() => { const select = document.querySelector('.beta-model-field select'); const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set; setter.call(select, select.options[1].value); select.dispatchEvent(new Event('change', { bubbles: true })); })()");
     await cdp.waitFor("document.querySelector('.beta-group .compat-note')");
     assert.match(await cdp.evaluate("document.querySelector('.beta-group .compat-note').textContent"), /仍会把这个请求头原样发出/);
@@ -2870,7 +2873,7 @@ test("production UI edits Anthropic Beta and preserves unrelated draft edits", {
     await setValue(".model-row input:not([readonly])", "211K");
     await cdp.evaluate("document.querySelector('.model-row input:not([readonly])').blur()");
     await new Promise((resolve) => setTimeout(resolve, 100));
-    await clickText(".toast-action", "撤销");
+    await cdp.evaluate("[...document.querySelectorAll('.toast-action')].at(-1).click()");
     assert.equal(await cdp.evaluate("document.querySelector('.beta-value-field input').value"), "context-1m-2025-08-07");
     assert.equal(await cdp.evaluate("document.querySelector('.model-row input:not([readonly])').value"), "211K");
     await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
@@ -3479,6 +3482,66 @@ test("a long model catalogue filters for display only and adds protocol override
     // Add an override for the first inheriting model.
     await cdp.evaluate("(() => { const select = document.querySelector('.protocol-add-field select'); const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set; setter.call(select, select.options[1].value); select.dispatchEvent(new Event('change', { bubbles: true })); })()");
     await cdp.waitFor("document.querySelectorAll('.protocol-group select').length === 2");
+
+    assert.deepEqual(cdp.errors, []);
+  } finally {
+    if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }
+    await stopProcess(chrome, true); await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("the toast stack keeps an undo alive and pauses on hover", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-toast-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-toast-"));
+  writeFixture(agentDir);
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server; let chrome; let cdp; let serverOutput = "";
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
+    chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl("http://127.0.0.1:" + debugPort + "/json/version", 30_000);
+    const target = await fetch("http://127.0.0.1:" + debugPort + "/json/new?" + encodeURIComponent("http://127.0.0.1:" + appPort), { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl); await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.send("Page.navigate", { url: "http://127.0.0.1:" + appPort });
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
+
+    // Delete the second (non-default) model: arm, then confirm, which raises an
+    // undo toast.
+    await cdp.evaluate("document.querySelectorAll('.model-row')[1].querySelector('.icon-button').click()");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await cdp.evaluate("document.querySelectorAll('.model-row')[1].querySelector('.icon-button').click()");
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 2 && document.querySelector('.toast-action')");
+
+    // Immediately arm another delete: its plain toast must not evict the undo.
+    await cdp.evaluate("document.querySelectorAll('.model-row')[0].querySelector('.icon-button').click()");
+    await cdp.waitFor("document.querySelectorAll('.toast').length === 2");
+    // The undo toast (with 撤销) is still present and clickable.
+    const undoStillThere = await cdp.evaluate("[...document.querySelectorAll('.toast-action')].some((node) => node.textContent.includes('撤销'))");
+    assert.equal(undoStillThere, true);
+    // The arm toast is an error tone and announces assertively.
+    const armToast = await cdp.evaluate("(() => { const t = [...document.querySelectorAll('.toast.is-error')][0]; return { role: t.getAttribute('role'), live: t.getAttribute('aria-live') }; })()");
+    assert.deepEqual(armToast, { role: "alert", live: "assertive" });
+    // Clicking the undo restores the deleted model.
+    await cdp.evaluate("[...document.querySelectorAll('.toast-action')].find((node) => node.textContent.includes('撤销')).click()");
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
+
+    // Pause on hover: a plain arm toast (3.2s) survives past its lifetime while
+    // hovered, then closes once the pointer leaves.
+    await cdp.evaluate("document.querySelectorAll('.model-row')[0].querySelector('.icon-button').click()");
+    await cdp.waitFor("document.querySelector('.toast')");
+    const toastBox = await cdp.evaluate("(() => { const r = document.querySelector('.toast').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()");
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: toastBox.x, y: toastBox.y });
+    await new Promise((resolve) => setTimeout(resolve, 3600));
+    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.toast'))"), true, "a hovered toast must not expire");
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 5, y: 5 });
+    await cdp.waitFor("!document.querySelector('.toast')", 6000);
 
     assert.deepEqual(cdp.errors, []);
   } finally {
