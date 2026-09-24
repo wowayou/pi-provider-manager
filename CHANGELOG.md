@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.4.6 - 2026-09-24
+
+- **Validated against Pi `0.87.1` (unchanged baseline).** A UX-hardening round with no change to config layout, provider/credential schema, API identifiers, thinking levels, or model capability fields. `npm test` ran with 0 skips — `test:ui` 25/25, `test:server` 77/77 (including the new `draftSignature` unit tests and unknown-field preservation), `test:codex` 71/71, `test:codex-real` 5/5, `test:pi-real` 2/2, `test:prompts` 11/11, `test:sites` 4/4, `test:pi-update` 8/8, `test:launcher` 8/8, `test:release` 1/1 — plus the two-theme WCAG-AA sweep and a new both-theme CJK-size sweep. `piValidatedVersion` stays `0.87.1`.
+
 - **A shared leave guard protects every unsaved draft (P0).** Switching providers, adding or duplicating one, switching Pi/Codex, or leaving for Settings/Prompts no longer discards an edited draft silently. A `draftSignature` fingerprint tells an edited draft from a freshly loaded one; a change asks first through a toast action, and any unsaved draft arms the browser's native leave prompt. Switching targets preserves an edited Codex draft across a round trip.
 
 - **A new Pi provider can be saved without becoming the default (P0).** Added alongside existing providers, a new draft offers 只保存 as well as 保存并设为默认, so a spare gateway no longer silently steals the global default; the very first provider still only saves as default, and an existing default provider's button reads 保存更改. The wizard footer shows a dirty note and disables save when an existing provider is unchanged.
