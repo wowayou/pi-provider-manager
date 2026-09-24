@@ -15,7 +15,6 @@ import {
   CheckCircle,
   Copy,
   Info,
-  Key,
   ListPlus,
   Plus,
   Plugs,
@@ -31,7 +30,8 @@ import {
 import { CODEX_REASONING_EFFORTS, CODEX_VERBOSITIES, adoptableEffort, codexConfigJsonToForm, codexFormToConfigJson, effortOptions, idSlug } from "../lib/codex-shared.mjs";
 import { TomlDocument } from "../lib/toml-document.mjs";
 import { isLoopbackHostname } from "../lib/validation.mjs";
-import { BulkModal, ConfigEditor, ErrorBanner, Spinner, createRadioKeyHandler, formatJson, titleFromId, useDialog, validateJson } from "./ui-kit.jsx";
+import { ManagerCard } from "./manager-card.jsx";
+import { BulkModal, ConfigEditor, ErrorBanner, PasswordInput, Spinner, createRadioKeyHandler, formatJson, isValidTokens, parseTokens, titleFromId, useDialog, validateJson } from "./ui-kit.jsx";
 
 
 const UPSTREAM_OPTIONS = [
@@ -143,7 +143,7 @@ export function parseCodexSnippet(text) {
   };
 }
 
-export function CodexStepper({ step, onStep }) {
+export function CodexStepper({ step, onStep, allowJump }) {
   const items = [
     [1, "接入方式", "上游是否支持 Responses"],
     [2, "填写凭据", "填写地址与访问凭据"],
@@ -151,22 +151,25 @@ export function CodexStepper({ step, onStep }) {
   ];
   return (
     <nav className="stepper" aria-label="配置步骤">
-      {items.map(([number, title, subtitle], index) => (
+      {items.map(([number, title, subtitle], index) => {
+        const clickable = allowJump || number < step;
+        return (
         <div className="step-wrap" key={number}>
           <button
             type="button"
             className={`step ${number === step ? "is-active" : ""} ${number < step ? "is-complete" : ""}`}
-            onClick={() => number < step && onStep(number)}
-            disabled={number > step}
+            onClick={() => clickable && onStep(number)}
+            disabled={!clickable}
             aria-current={number === step ? "step" : undefined}
-            title={number < step ? "回到这一步" : number > step ? "完成当前步骤后可用" : undefined}
+            title={allowJump ? "跳到这一步" : number < step ? "回到这一步" : number > step ? "完成当前步骤后可用" : undefined}
           >
             <span className="step-number">{number < step ? <CheckCircle size={24} weight="fill" /> : number}</span>
             <span><strong>{title}</strong><small>{subtitle}</small></span>
           </button>
           {index < items.length - 1 && <span className={`step-line ${number < step ? "is-complete" : ""}`} />}
         </div>
-      ))}
+        );
+      })}
     </nav>
   );
 }
@@ -424,17 +427,11 @@ function CodexCredentialsStep({ form, setForm, codex, selectedId, error, conflic
             <>
               <label className="key-field">
                 <span>上游 API Key</span>
-                <div>
-                  <Key size={20} />
-                  <input
-                    className="mono"
-                    type="password"
-                    autoComplete="new-password"
-                    value={form.bridgeApiKey}
-                    onChange={(event) => setForm((current) => ({ ...current, bridgeApiKey: event.target.value }))}
-                    placeholder={existing?.bridge?.credentialConfigured ? "留空表示沿用已保存的 key" : "输入后不会回显"}
-                  />
-                </div>
+                <PasswordInput
+                  value={form.bridgeApiKey}
+                  onChange={(event) => setForm((current) => ({ ...current, bridgeApiKey: event.target.value }))}
+                  placeholder={existing?.bridge?.credentialConfigured ? "留空表示沿用已保存的 key" : "输入后不会回显"}
+                />
               </label>
               {existing?.bridge && !existing.bridge.credentialConfigured && (
                 <div className="credential-status">
@@ -476,7 +473,7 @@ function CodexCredentialsStep({ form, setForm, codex, selectedId, error, conflic
                 {sources.length > 0 && <button type="button" className={form.credentialMode === "migrate" ? "is-active" : ""} onClick={() => setForm((current) => ({ ...current, credentialMode: "migrate", migrateFrom: current.migrateFrom || sources[0].id }))}>从已有凭据复制</button>}
               </div>
               {form.credentialMode === "keep" && <div className="credential-status"><ShieldCheck size={24} weight="duotone" /><div><strong>凭据已安全保存</strong><span>浏览器无法读取已保存的 key。</span></div></div>}
-              {form.credentialMode === "new" && <label className="key-field"><span>API Key</span><div><Key size={20} /><input className="mono" type="password" autoComplete="new-password" value={form.apiKey} onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))} placeholder="输入后不会回显" /></div></label>}
+              {form.credentialMode === "new" && <label className="key-field"><span>API Key</span><PasswordInput value={form.apiKey} onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))} placeholder="输入后不会回显" /></label>}
               {form.credentialMode === "migrate" && <div className="migrate-fields"><label><span>选择已有供应商</span><select value={form.migrateFrom} onChange={(event) => setForm((current) => ({ ...current, migrateFrom: event.target.value }))}>{sources.map((item) => <option key={item.id} value={item.id}>{item.name}（{item.id}）</option>)}</select></label><small>Codex 的凭据由本管理器保管，复制不会删除来源供应商的 key。</small></div>}
             </>
           )}
@@ -814,15 +811,27 @@ export function CodexWizard(props) {
 export function CodexDeleteDialog({ provider, codex, deleting, requestError, conflict, onClose, onConfirm }) {
   const alternatives = codex.providers.filter((item) => item.id !== provider.id);
   const [replacementProviderId, setReplacementProviderId] = useState(alternatives[0]?.id || "");
+  const [localError, setLocalError] = useState("");
   const cancelRef = useRef(null);
   const dialogRef = useRef(null);
   const isActive = provider.isActive;
   const blocked = isActive && alternatives.length === 0;
   useDialog({ ref: dialogRef, initialFocusRef: cancelRef, onClose, locked: deleting });
+  const confirm = () => {
+    if (blocked) {
+      // Stays focusable and states the invariant with the shortest way past it,
+      // rather than communicating the block through a disabled control.
+      setLocalError("这是当前生效的供应商，而且没有别的供应商可以接替。先取消并添加一个再回来删除。");
+      return;
+    }
+    setLocalError("");
+    onConfirm({ providerId: provider.id, replacementProviderId: isActive ? replacementProviderId : undefined });
+  };
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !deleting) onClose(); }}>
-      <section ref={dialogRef} className="bulk-modal" role="dialog" aria-modal="true" aria-labelledby="codex-delete-title" aria-describedby="codex-delete-description">
-        <div className="modal-heading">
+      <section ref={dialogRef} className="provider-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="codex-delete-title" aria-describedby="codex-delete-description">
+        <div className="delete-dialog-heading">
+          <span className="delete-dialog-icon"><Trash size={24} weight="duotone" /></span>
           <div>
             <h2 id="codex-delete-title">删除 Codex 供应商 <code>{provider.id}</code>？</h2>
             <p id="codex-delete-description">会移除它的地址、模型列表和保存的 key。Codex 的 config.toml 只保留当前生效的那一个供应商表。</p>
@@ -830,30 +839,30 @@ export function CodexDeleteDialog({ provider, codex, deleting, requestError, con
         </div>
         {isActive && (
           blocked ? (
-            <div className="error-banner" role="alert">
-              <WarningCircle size={20} weight="fill" />
-              这是当前生效的供应商，而且没有别的供应商可以接替。请先添加一个再回来删除。
+            <div className="replacement-panel">
+              <div className="replacement-warning"><WarningCircle size={20} weight="fill" /><span><strong>这是当前生效的供应商</strong>没有别的供应商可以接替。请先添加一个再回来删除。</span></div>
             </div>
           ) : (
-            <label>
+            <label className="replacement-single">
               <span>接替它成为当前生效的供应商</span>
-              <select value={replacementProviderId} onChange={(event) => setReplacementProviderId(event.target.value)}>
+              <select value={replacementProviderId} onChange={(event) => { setReplacementProviderId(event.target.value); setLocalError(""); }}>
                 {alternatives.map((item) => <option key={item.id} value={item.id}>{item.name}（{item.id}）</option>)}
               </select>
               <small>删除后会立即把这个供应商写入 config.toml 并换上它的 key。</small>
             </label>
           )
         )}
-        <ErrorBanner message={requestError} conflict={conflict} />
+        <ErrorBanner message={localError || requestError} conflict={conflict && !localError} />
         <div className="modal-actions">
           <button type="button" ref={cancelRef} className="secondary-button" disabled={deleting} onClick={onClose}>取消</button>
           <button
             type="button"
-            className="primary-button is-destructive"
-            disabled={deleting || blocked}
-            onClick={() => onConfirm({ providerId: provider.id, replacementProviderId: isActive ? replacementProviderId : undefined })}
+            className="danger-button"
+            disabled={deleting}
+            aria-disabled={blocked || deleting}
+            onClick={confirm}
           >
-            {deleting ? <><Spinner />正在删除…</> : "删除供应商"}
+            {deleting ? <><Spinner />正在删除…</> : <><Trash size={18} />删除供应商</>}
           </button>
         </div>
       </section>
@@ -928,7 +937,7 @@ export function CodexProviderBulkDeleteDialog({ providerIds, codex, deleting, re
   );
 }
 
-export function CodexSuccessScreen({ result, onCopy, onReturn, onAdd }) {
+export function CodexSuccessScreen({ result, codex, onCopy, onReturn, onAdd, onStartBridge, onStopBridge, onNotify }) {
   const [copied, setCopied] = useState(false);
   const commandRef = useRef(null);
   const copy = async () => {
@@ -968,6 +977,15 @@ export function CodexSuccessScreen({ result, onCopy, onReturn, onAdd }) {
             <p>配置只在 Codex 启动时读取。<strong>正在运行的会话不受影响</strong>，需要新开一个终端才会生效。</p>
           </div>
         </div>
+        {result.bridged && (
+          // A bridged provider reaches its upstream only through the local
+          // bridge, so the advertised codex command fails until it is running.
+          // Get it up first, reusing the same control the credentials step uses.
+          <div className="bridge-first-step">
+            <p className="bridge-first-note"><strong>先启动本地桥</strong>：这个供应商通过本地 LiteLLM 桥转发请求，桥没跑起来之前下面的命令会失败。</p>
+            <BridgeControl codex={codex || {}} providerId={result.providerId} onStart={onStartBridge} onStop={onStopBridge} onNotify={onNotify} />
+          </div>
+        )}
         <div className="command-row">
           <code ref={commandRef}>{result.command}</code>
           <button type="button" className={`copy-button ${copied ? "is-copied" : ""}`} onClick={copy}>
@@ -1000,7 +1018,7 @@ export function CodexSuccessScreen({ result, onCopy, onReturn, onAdd }) {
   );
 }
 
-export function CodexSettingsScreen({ state, saving, error, conflict, onSave, onBack }) {
+export function CodexSettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBack, onDirtyChange }) {
   const codex = state.codex || {};
   const providers = codex.providers || [];
   const saved = useMemo(() => ({
@@ -1013,11 +1031,25 @@ export function CodexSettingsScreen({ state, saving, error, conflict, onSave, on
     disableResponseStorage: Boolean(codex.settings?.disableResponseStorage),
   }), [codex, providers]);
   const [draft, setDraft] = useState(saved);
-  useEffect(() => { setDraft(saved); }, [saved]);
+  // The context window carries a raw text draft so an out-of-range or unit-typo
+  // value can be marked invalid while typing rather than silently coerced.
+  const [contextText, setContextText] = useState(saved.contextWindow ? String(saved.contextWindow) : "");
+  useEffect(() => { setDraft(saved); setContextText(saved.contextWindow ? String(saved.contextWindow) : ""); }, [saved]);
+  const contextInvalid = contextText.trim() !== "" && !isValidTokens(contextText);
+  const changeContextWindow = (raw) => {
+    const cleaned = raw.replace(/[^0-9.kKmM]/g, "");
+    setContextText(cleaned);
+    if (cleaned.trim() === "") setDraft((current) => ({ ...current, contextWindow: 0 }));
+    else if (isValidTokens(cleaned)) setDraft((current) => ({ ...current, contextWindow: parseTokens(cleaned) }));
+  };
 
   const present = new Set(Array.isArray(codex.settingsPresent) ? codex.settingsPresent : []);
   const unwritten = ["model", "model_provider", "model_reasoning_effort"].filter((key) => !present.has(key));
   const edited = JSON.stringify(saved) !== JSON.stringify(draft);
+  useEffect(() => {
+    onDirtyChange?.(edited);
+    return () => onDirtyChange?.(false);
+  }, [edited, onDirtyChange]);
   const installed = state.compatibility?.codexVersion;
   const validated = state.compatibility?.validatedCodexVersion;
   const versionDiffers = Boolean(installed) && installed !== "unknown"
@@ -1095,6 +1127,7 @@ export function CodexSettingsScreen({ state, saving, error, conflict, onSave, on
             )}
             <p className="compat-note"><ShieldCheck size={20} weight="duotone" />config.toml 里本管理器不认识的键、注释和你手写的其它 <code className="mono">[model_providers.*]</code> 表都会原样保留。</p>
           </section>
+          <ManagerCard state={state} demoMode={demoMode} edited={edited} />
         </div>
         <details className="advanced-panel">
           <summary><span><SlidersHorizontal size={21} />高级设置 <small>通常无需修改</small></span><CaretDown size={19} /></summary>
@@ -1106,7 +1139,8 @@ export function CodexSettingsScreen({ state, saving, error, conflict, onSave, on
             </label>
             <label>
               <span>上下文容量 <code className="mono">model_context_window</code></span>
-              <input className="mono" inputMode="numeric" value={draft.contextWindow || ""} onChange={(event) => setDraft((current) => ({ ...current, contextWindow: Number(event.target.value.replace(/[^0-9]/g, "")) || 0 }))} placeholder="留空表示不写入" />
+              <input className="mono" inputMode="numeric" value={contextText} onChange={(event) => changeContextWindow(event.target.value)} placeholder="留空表示不写入" aria-invalid={contextInvalid || undefined} title={contextInvalid ? "只接受 1 到 100m 之间的整数，或带 k / m 单位的数字" : undefined} />
+              {contextInvalid && <span className="field-warning"><WarningCircle size={15} weight="fill" />只接受 1 到 100m 之间的整数，或带 k / m 单位的数字。</span>}
             </label>
             <label className="setting-toggle">
               <input type="checkbox" checked={draft.disableResponseStorage} onChange={(event) => setDraft((current) => ({ ...current, disableResponseStorage: event.target.checked }))} />
@@ -1124,7 +1158,7 @@ export function CodexSettingsScreen({ state, saving, error, conflict, onSave, on
               ? `有 ${unwritten.length} 项还没写入 config.toml`
               : "所有修改已写入 config.toml"}
         </span>
-        <button type="button" className="primary-button" disabled={saving || (!edited && unwritten.length === 0)} onClick={() => onSave(draft)}>
+        <button type="button" className="primary-button" disabled={saving || contextInvalid || (!edited && unwritten.length === 0)} onClick={() => onSave(draft)}>
           {saving ? <><Spinner />正在保存…</> : "保存设置"}
         </button>
       </footer>

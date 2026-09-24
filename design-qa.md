@@ -13,6 +13,12 @@
 - Primary viewport: `1487 x 1058 CSS px`, device scale factor `1`
 - State: demo mode with generic paths and fake credentials only
 
+## UX Review Implementation — 2026-09-24
+
+- Scope: the P0/P1/P2 items from the UX review (leave guard, save-only new provider, Codex bridge on the success screen, free step-jump, field-level credential errors and heading focus, model filter and on-demand protocol overrides, toast stack, Codex delete dialog parity, shared ManagerCard, keyboard row menu, 12px CJK floor, bounded Codex context window, key show/hide).
+- Verification: every item has a browser assertion in `tests/model-deletion-ui.test.mjs`, run against `server.mjs` with `PI_PROVIDER_MANAGER_SERVE_UI=1` on isolated `PI_CODING_AGENT_DIR` / `isolatedCodexDir` (not `?demo=1`). Full local run with 0 skips: `test:ui` 25/25, `test:server` 77/77 (incl. `draftSignature` unit tests), `test:codex` 71/71, `test:codex-real` 5/5, `test:pi-real` 2/2, `test:prompts` 11/11, `test:sites` 4/4, `test:pi-update` 8/8, `test:launcher` 8/8, `test:release` 1/1, plus `build`. The two-theme WCAG-AA sweep and a new both-theme CJK-size sweep pass.
+- Not re-measured here: static screenshots in `qa/` were not regenerated this round.
+
 ## Design Acceptance — V1.1
 
 **Findings**

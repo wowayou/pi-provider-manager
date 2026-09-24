@@ -24,7 +24,7 @@ function byteLength(text) {
   return new TextEncoder().encode(text).length;
 }
 
-export function PromptsScreen({ target, state, saving, error, conflict, onSave, onActivate, onDelete, onNotify, onBack }) {
+export function PromptsScreen({ target, state, saving, error, conflict, onSave, onActivate, onDelete, onNotify, onBack, onDirtyChange }) {
   const library = state.prompts?.[target] || { slots: [], limits: {} };
   const slots = library.slots || [];
   const [slotId, setSlotId] = useState(slots[0]?.id || "");
@@ -49,6 +49,19 @@ export function PromptsScreen({ target, state, saving, error, conflict, onSave, 
     setDraft(live ? { name: live.name, text: live.text } : { name: "", text: "" });
     setArmedDelete("");
   }, [slot?.id, slot?.activeId, documents.length]);
+
+  // Report the current document's edited state up to the shared leave guard, so
+  // leaving through the sidebar, 返回, or a target switch warns before dropping
+  // the edit. Computed before the no-slot early return so the hook order is
+  // stable; with no slot there is nothing to edit.
+  const draftSelected = documents.find((entry) => entry.id === selectedId) || null;
+  const promptEdited = selectedId === NEW_DOCUMENT
+    ? draft.name.trim() !== "" || draft.text !== ""
+    : Boolean(draftSelected) && (draft.name !== draftSelected.name || draft.text !== draftSelected.text);
+  useEffect(() => {
+    onDirtyChange?.(promptEdited);
+    return () => onDirtyChange?.(false);
+  }, [promptEdited, onDirtyChange]);
 
   if (!slot) {
     return (

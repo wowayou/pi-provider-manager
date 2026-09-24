@@ -19,7 +19,6 @@ import {
   GoogleLogo,
   Heart,
   Info,
-  Key,
   ListPlus,
   LockSimple,
   MagnifyingGlass,
@@ -40,12 +39,13 @@ import {
 } from "@phosphor-icons/react";
 import { PROVIDER_ID_PATTERN, normalizeUrl } from "../lib/validation.mjs";
 import { validateUserAgent } from "../lib/pi-user-agent.mjs";
-import { changedPersistedModel, duplicateCodexForm, duplicatePiForm, selectedNamedModel, userAgentSaveIntent, anthropicBetaSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "./model-draft.mjs";
+import { changedPersistedModel, draftSignature, duplicateCodexForm, duplicatePiForm, selectedNamedModel, userAgentSaveIntent, anthropicBetaSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "./model-draft.mjs";
 import { normalizeAnthropicBeta } from "../lib/pi-anthropic-beta.mjs";
 import { defaultDiscoveryPath } from "../lib/model-discovery.mjs";
 import { USER_AGENT_PRESETS } from "./user-agent-presets.mjs";
 import { PromptsScreen } from "./prompts-view.jsx";
-import { BulkModal, ConfigEditor, ErrorBanner, Spinner, createRadioKeyHandler, readApiResponse, titleFromId, useDialog, useScrollEdges, validateJson, formatJson } from "./ui-kit.jsx";
+import { ManagerCard } from "./manager-card.jsx";
+import { BulkModal, ConfigEditor, ErrorBanner, PasswordInput, Spinner, createRadioKeyHandler, readApiResponse, titleFromId, useDialog, useScrollEdges, validateJson, formatJson, formatTokens, parseTokens, isValidTokens } from "./ui-kit.jsx";
 import {
   CodexDeleteDialog,
   CodexProviderBulkDeleteDialog,
@@ -356,7 +356,7 @@ function ProviderIcon({ api, size = 24 }) {
   return <Icon size={size} weight="duotone" aria-hidden="true" />;
 }
 
-function Stepper({ step, onStep }) {
+function Stepper({ step, onStep, allowJump }) {
   const items = [
     [1, "选择协议", "选择网关默认接口"],
     [2, "填写凭据", "填写地址与访问凭据"],
@@ -364,15 +364,17 @@ function Stepper({ step, onStep }) {
   ];
   return (
     <nav className="stepper" aria-label="配置步骤">
-      {items.map(([number, title, subtitle], index) => (
+      {items.map(([number, title, subtitle], index) => {
+        const clickable = allowJump || number < step;
+        return (
         <div className="step-wrap" key={number}>
           <button
             type="button"
             className={`step ${number === step ? "is-active" : ""} ${number < step ? "is-complete" : ""}`}
-            onClick={() => number < step && onStep(number)}
-            disabled={number > step}
+            onClick={() => clickable && onStep(number)}
+            disabled={!clickable}
             aria-current={number === step ? "step" : undefined}
-            title={number < step ? "回到这一步" : number > step ? "完成当前步骤后可用" : undefined}
+            title={allowJump ? "跳到这一步" : number < step ? "回到这一步" : number > step ? "完成当前步骤后可用" : undefined}
           >
             <span className="step-number">{number < step ? <CheckCircle size={24} weight="fill" /> : number}</span>
             <span>
@@ -382,7 +384,8 @@ function Stepper({ step, onStep }) {
           </button>
           {index < items.length - 1 && <span className={`step-line ${number < step ? "is-complete" : ""}`} />}
         </div>
-      ))}
+        );
+      })}
     </nav>
   );
 }
@@ -476,11 +479,24 @@ function ProviderRowMenu({ provider, onDuplicate, onDelete }) {
   const menuRef = useRef(null);
   useEffect(() => {
     if (!open) return undefined;
+    // Opening a menu moves focus into it, so keyboard users land on the first
+    // item rather than being left on the trigger with no visible cursor.
+    requestAnimationFrame(() => menuRef.current?.querySelector('[role="menuitem"]')?.focus());
     const onDocClick = (event) => {
       if (!menuRef.current?.contains(event.target) && !triggerRef.current?.contains(event.target)) setOpen(false);
     };
     const onKey = (event) => {
-      if (event.key === "Escape") { setOpen(false); triggerRef.current?.focus(); }
+      if (event.key === "Escape") { setOpen(false); triggerRef.current?.focus(); return; }
+      // Tab leaves the menu the way a menu should: it closes rather than moving
+      // focus onto whatever happens to follow the popup in the DOM.
+      if (event.key === "Tab") { setOpen(false); return; }
+      const items = [...(menuRef.current?.querySelectorAll('[role="menuitem"]') || [])];
+      if (items.length === 0) return;
+      const index = items.indexOf(document.activeElement);
+      if (event.key === "ArrowDown") { event.preventDefault(); items[(Math.max(0, index) + 1) % items.length].focus(); }
+      else if (event.key === "ArrowUp") { event.preventDefault(); items[(index <= 0 ? items.length - 1 : index - 1)].focus(); }
+      else if (event.key === "Home") { event.preventDefault(); items[0].focus(); }
+      else if (event.key === "End") { event.preventDefault(); items[items.length - 1].focus(); }
     };
     document.addEventListener("mousedown", onDocClick);
     document.addEventListener("keydown", onKey);
@@ -771,8 +787,25 @@ function ProtocolStep({ form, setForm, onNext }) {
   );
 }
 
-function CredentialsStep({ form, setForm, state, error, overwrites, onBack, onNext }) {
+function CredentialsStep({ form, setForm, state, error, overwrites, apiFocusRequest, credentialFocus, onBack, onNext }) {
   const sources = state.authProviders.filter((id) => id !== form.providerId);
+  const providerIdRef = useRef(null);
+  const baseUrlRef = useRef(null);
+  const apiKeyRef = useRef(null);
+  const migrateRef = useRef(null);
+  // A jump from the gateway summary lands the caret on the API address.
+  useEffect(() => {
+    if (!apiFocusRequest) return;
+    requestAnimationFrame(() => baseUrlRef.current?.focus());
+  }, [apiFocusRequest]);
+  // A failed credential check focuses the offending field so the fix starts
+  // where the problem is, not on the footer button that raised it.
+  const erroredField = credentialFocus?.field || "";
+  useEffect(() => {
+    if (!credentialFocus?.serial) return;
+    const target = { providerId: providerIdRef, baseUrl: baseUrlRef, apiKey: apiKeyRef, migrateFrom: migrateRef }[credentialFocus.field];
+    requestAnimationFrame(() => target?.current?.focus());
+  }, [credentialFocus?.serial]);
   const providerIdInvalid = form.providerId !== "" && !PROVIDER_ID_PATTERN.test(form.providerId);
   return (
     <section className="step-content form-step">
@@ -785,8 +818,8 @@ function CredentialsStep({ form, setForm, state, error, overwrites, onBack, onNe
             // "keep" only means something while the id still names a stored credential.
             const keepStillValid = state.authProviders.includes(providerId);
             return { ...current, providerId, credentialMode: current.credentialMode === "keep" && !keepStillValid ? "new" : current.credentialMode };
-          })} placeholder="any-router" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" aria-invalid={providerIdInvalid || undefined} />{providerIdInvalid && <span className="field-warning"><WarningCircle size={15} weight="fill" />只能使用小写字母、数字、点、下划线和连字符，且以字母或数字开头。</span>}{overwrites && !providerIdInvalid && <span className="field-warning"><WarningCircle size={15} weight="fill" />已有同名供应商，保存会替换它的地址与模型列表。</span>}</label>
-          <label><span>API 地址</span><small>填写接口根地址，不要包含具体模型路径</small><input className="mono" type="url" inputMode="url" value={form.baseUrl} onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))} placeholder="https://api.example.com/v1" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" /></label>
+          })} placeholder="any-router" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" ref={providerIdRef} aria-invalid={providerIdInvalid || erroredField === "providerId" || undefined} aria-describedby={erroredField === "providerId" ? "credential-error-banner" : undefined} />{providerIdInvalid && <span className="field-warning"><WarningCircle size={15} weight="fill" />只能使用小写字母、数字、点、下划线和连字符，且以字母或数字开头。</span>}{overwrites && !providerIdInvalid && <span className="field-warning"><WarningCircle size={15} weight="fill" />已有同名供应商，保存会替换它的地址与模型列表。</span>}</label>
+          <label><span>API 地址</span><small>填写接口根地址，不要包含具体模型路径</small><input ref={baseUrlRef} className="mono" type="url" inputMode="url" value={form.baseUrl} onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))} placeholder="https://api.example.com/v1" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" aria-invalid={erroredField === "baseUrl" || undefined} aria-describedby={erroredField === "baseUrl" ? "credential-error-banner" : undefined} /></label>
         </div>
         <fieldset className="credential-box">
           <legend>访问凭据</legend>
@@ -796,42 +829,15 @@ function CredentialsStep({ form, setForm, state, error, overwrites, onBack, onNe
             {sources.length > 0 && <button type="button" className={form.credentialMode === "migrate" ? "is-active" : ""} onClick={() => setForm((current) => ({ ...current, credentialMode: "migrate", migrateFrom: current.migrateFrom || sources[0] }))}>从已有凭据迁移</button>}
           </div>
           {form.credentialMode === "keep" && <div className="credential-status"><ShieldCheck size={24} weight="duotone" /><div><strong>凭据已安全保存</strong><span>浏览器无法读取已保存的 key。</span></div></div>}
-          {form.credentialMode === "new" && <label className="key-field"><span>API Key</span><div><Key size={20} /><input className="mono" type="password" autoComplete="new-password" value={form.apiKey} onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))} placeholder="输入后不会回显" /></div></label>}
-          {form.credentialMode === "migrate" && <div className="migrate-fields"><label><span>选择已有供应商</span><select value={form.migrateFrom} onChange={(event) => setForm((current) => ({ ...current, migrateFrom: event.target.value }))}>{sources.map((id) => <option key={id} value={id}>{titleFromId(id)} ({id})</option>)}</select></label><label className="checkbox-row"><input type="checkbox" checked={form.moveCredential} onChange={(event) => setForm((current) => ({ ...current, moveCredential: event.target.checked }))} />迁移成功后删除旧条目</label></div>}
+          {form.credentialMode === "new" && <label className="key-field"><span>API Key</span><PasswordInput inputRef={apiKeyRef} value={form.apiKey} onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))} placeholder="输入后不会回显" ariaInvalid={erroredField === "apiKey" || undefined} ariaDescribedby={erroredField === "apiKey" ? "credential-error-banner" : undefined} /></label>}
+          {form.credentialMode === "migrate" && <div className="migrate-fields"><label><span>选择已有供应商</span><select ref={migrateRef} value={form.migrateFrom} onChange={(event) => setForm((current) => ({ ...current, migrateFrom: event.target.value }))} aria-invalid={erroredField === "migrateFrom" || undefined}>{sources.map((id) => <option key={id} value={id}>{titleFromId(id)} ({id})</option>)}</select></label><label className="checkbox-row"><input type="checkbox" checked={form.moveCredential} onChange={(event) => setForm((current) => ({ ...current, moveCredential: event.target.checked }))} />迁移成功后删除旧条目</label></div>}
         </fieldset>
         </div>
-        <ErrorBanner message={error} />
+        <ErrorBanner message={error} id="credential-error-banner" />
       </div>
       <footer className="wizard-footer"><button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={19} />上一步</button><button type="button" className="primary-button" onClick={onNext}>下一步<ArrowRight size={19} /></button></footer>
     </section>
   );
-}
-
-function formatTokens(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return "";
-  if (number >= 1_000_000 && number % 1_000_000 === 0) return `${number / 1_000_000}M`;
-  if (number >= 1_000 && number % 1_000 === 0) return `${number / 1_000}K`;
-  if (number >= 1_024 && number < 100_000 && number % 1_024 === 0) return `${number / 1_024}K`;
-  return String(number);
-}
-
-// A bare decimal is always a mistake here: "128.5" means 128.5k to a human and
-// 129 tokens to the parser, so only accept decimals that carry a unit.
-function parseTokens(text) {
-  const raw = String(text).trim();
-  const scaled = raw.match(/^(\d+(?:\.\d+)?)\s*([kKmM])$/);
-  if (scaled) return Math.round(Number(scaled[1]) * (scaled[2].toLowerCase() === "m" ? 1_000_000 : 1_000));
-  return /^\d+$/.test(raw) ? Number(raw) : NaN;
-}
-
-// Generous ceiling: the largest published context windows are still an order of
-// magnitude below this, so anything above it is a typo, not a model.
-const MAX_TOKENS = 100_000_000;
-
-function isValidTokens(text) {
-  const parsed = parseTokens(text);
-  return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= MAX_TOKENS;
 }
 
 function TokenField({ value, onChange, label }) {
@@ -955,7 +961,7 @@ function userAgentValidationError(value) {
   }
 }
 
-function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, onDiscover, canDeleteProvider, isExistingProvider, isCurrentDefault, liveDefaultModelId, userAgentFocusRequest, betaFocusRequest }) {
+function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, onDiscover, onEditProtocol, onEditGateway, canDeleteProvider, isExistingProvider, isCurrentDefault, hasProviders, dirty, liveDefaultModelId, userAgentFocusRequest, betaFocusRequest }) {
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [showDiscover, setShowDiscover] = useState(false);
@@ -1111,6 +1117,20 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
   const thinkingAliasModels = form.models.filter((model) => /-(max|xhigh)$/i.test(model.id));
   const currentApi = apiMeta(form.api);
   const namedModels = form.models.filter((model) => model.id.trim()).length;
+  // A long catalogue gets a display-only filter (never touches the default radio
+  // or what a save posts) once it passes eight rows, mirroring the sidebar's own
+  // filter threshold.
+  const [modelFilter, setModelFilter] = useState("");
+  const showModelFilter = form.models.length > 8;
+  const modelFilterText = modelFilter.trim().toLowerCase();
+  const visibleModels = showModelFilter && modelFilterText
+    ? form.models.filter((model) => model.id.toLowerCase().includes(modelFilterText))
+    : form.models;
+  // Protocol overrides: list only the models that actually carry one, plus a
+  // picker to add an override to a model that inherits — instead of a select for
+  // every row in a long catalogue.
+  const overriddenModels = form.models.filter((model) => model.api && model.api !== "inherit");
+  const inheritingModels = form.models.filter((model) => (!model.api || model.api === "inherit") && model.id.trim());
   const userAgentError = userAgentValidationError(form.userAgent);
   const externalUserAgent = form.userAgentKind === "external" && !form.userAgentEdited;
   const userAgentSummary = externalUserAgent
@@ -1187,7 +1207,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
         </div>
         <div className="gateway-summary">
           <span className="summary-icon"><ProviderIcon api={form.api} size={34} /></span>
-          <div><strong>{titleFromId(form.providerId || "new-provider")}</strong><span className="protocol-badge">{currentApi.title}</span><p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p></div>
+          <div><strong>{titleFromId(form.providerId || "new-provider")}</strong>{isExistingProvider ? <button type="button" className="protocol-badge protocol-badge-button" onClick={onEditProtocol} title="回到第一步改协议">{currentApi.title}</button> : <span className="protocol-badge">{currentApi.title}</span>}{isExistingProvider ? <p>API 地址　<button type="button" className="gateway-address-button mono" onClick={onEditGateway} title={form.baseUrl || undefined}>{form.baseUrl || "尚未填写"}</button></p> : <p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p>}</div>
           <div className="gateway-side">
             <div className="saved-credential"><ShieldCheck size={29} weight="duotone" /><span><strong>{form.credentialMode === "keep" ? "凭据已安全保存" : "凭据将在保存时写入"}</strong><small>{form.credentialMode === "keep" ? "浏览器无法读取旧 key" : "当前草稿尚未写入 Pi 配置"}</small></span></div>
             {isExistingProvider && (
@@ -1203,7 +1223,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
           </div>
         </div>
         <div className="models-header">
-          <div><h2>模型列表<span className="count-pill">{namedModels}</span></h2><p>Pi 以 provider/model 选择模型，thinking level 是独立设置。</p></div>
+          <div><h2>模型列表<span className="count-pill">{showModelFilter && modelFilterText ? `匹配 ${visibleModels.length} / 共 ${form.models.length}` : namedModels}</span></h2><p>Pi 以 provider/model 选择模型，thinking level 是独立设置。</p>{showModelFilter && <input className="model-filter mono" type="search" value={modelFilter} onChange={(event) => setModelFilter(event.target.value)} placeholder="筛选模型 ID" aria-label="筛选模型 ID" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />}</div>
           <div className="models-actions">
             <button type="button" className="secondary-button compact-button" onClick={applySafeToAll} title="把所有模型的上下文容量与最大输出改为安全值，可撤销" aria-label="全部用安全值"><ShieldCheck size={18} /><span className="button-label">全部用安全值</span></button>
             <button type="button" className="secondary-button compact-button" onClick={() => setShowDiscover(true)} title="向网关请求模型清单，勾选后加入列表" aria-label="获取模型"><CloudArrowDown size={18} /><span className="button-label">获取模型</span></button>
@@ -1214,7 +1234,8 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
         {thinkingAliasModels.length > 0 && <div className="model-warning"><WarningCircle size={20} weight="fill" /><span><strong>发现疑似思考档位后缀：</strong>{thinkingAliasModels.map((model) => model.id).join("、")}。只有网关真的把它们作为模型 ID 时才应保留；否则用右侧“推理能力”和 Pi 的 Shift+Tab 切换。</span></div>}
         <div className={`models-table ${scrolled ? "is-scrolled" : ""}`} onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 2)}>
           <div className="model-table-head"><span>模型 ID</span><span>上下文容量</span><span>最大输出</span><span>图像能力</span><span>推理能力</span><span>默认模型</span><span className="model-action-cell" /></div>
-          {form.models.map((model) => <ModelRow key={model.rowId} model={model} isDefault={form.defaultRowId === model.rowId && Boolean(model.id.trim())} isLiveDefault={Boolean(liveDefaultModelId) && model.id.trim() === liveDefaultModelId} onChange={(value) => updateModel(model.rowId, value)} onSafeDefaults={() => updateModel(model.rowId, { ...model, ...safeDefaults(model.id) })} onDefault={() => setForm((current) => ({ ...current, defaultRowId: model.rowId }))} onArmRemove={() => armRemoveModel(model)} onRemove={() => removeModel(model.rowId)} onBlockedRemove={blockLastModelRemoval} canRemove={form.models.length > 1} />)}
+          {visibleModels.map((model) => <ModelRow key={model.rowId} model={model} isDefault={form.defaultRowId === model.rowId && Boolean(model.id.trim())} isLiveDefault={Boolean(liveDefaultModelId) && model.id.trim() === liveDefaultModelId} onChange={(value) => updateModel(model.rowId, value)} onSafeDefaults={() => updateModel(model.rowId, { ...model, ...safeDefaults(model.id) })} onDefault={() => setForm((current) => ({ ...current, defaultRowId: model.rowId }))} onArmRemove={() => armRemoveModel(model)} onRemove={() => removeModel(model.rowId)} onBlockedRemove={blockLastModelRemoval} canRemove={form.models.length > 1} />)}
+          {showModelFilter && modelFilterText && visibleModels.length === 0 && <p className="list-empty">没有匹配 <code className="mono">{modelFilter.trim()}</code> 的模型。</p>}
         </div>
         <p className="scroll-hint">表格可左右滑动，查看上下文容量、图像与推理能力等字段。</p>
         <div className="models-note"><ShieldCheck size={21} weight="duotone" />未指定的能力项将使用保守默认值，不影响正常使用。</div>
@@ -1260,8 +1281,12 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
               <p className="user-agent-disclaimer">留空表示没有模型级覆盖；Pi 默认值或其他配置仍可能提供 Beta 请求头。</p>
             </div>
             <div className="advanced-group protocol-group">
-              <div className="advanced-group-heading"><h3>模型协议覆盖</h3><p>只有网关针对某个模型使用不同接口时才需要设置。</p></div>
-              {form.models.map((model) => <label key={model.rowId}><span className="mono">{model.id || "未命名模型"}</span><select value={model.api} onChange={(event) => updateModel(model.rowId, { ...model, api: event.target.value })}><option value="inherit">继承网关默认协议</option>{API_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label>)}
+              <div className="advanced-group-heading"><h3>模型协议覆盖</h3><p>只有网关针对某个模型使用不同接口时才需要设置。默认全部继承网关协议。</p></div>
+              {overriddenModels.length === 0 && <p className="user-agent-disclaimer">当前没有模型设置协议覆盖。</p>}
+              {overriddenModels.map((model) => <label key={model.rowId}><span className="mono">{model.id || "未命名模型"}</span><select value={model.api} onChange={(event) => updateModel(model.rowId, { ...model, api: event.target.value })}><option value="inherit">继承网关默认协议（移除覆盖）</option>{API_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label>)}
+              {inheritingModels.length > 0 && (
+                <label className="protocol-add-field"><span>为模型添加覆盖</span><select value="" onChange={(event) => { const rowId = event.target.value; if (!rowId) return; const model = form.models.find((item) => item.rowId === rowId); if (model) updateModel(rowId, { ...model, api: API_OPTIONS[0].id }); }}><option value="">选择一个模型…</option>{inheritingModels.map((model) => <option key={model.rowId} value={model.rowId}>{model.id}</option>)}</select></label>
+              )}
             </div>
             <div className="advanced-group json-group">
               <div className="advanced-group-heading"><h3>配置 JSON（进阶）</h3><p>直接编辑该供应商的地址、协议与模型列表（不包含凭据）。应用后仍需点保存，服务端会做完整校验。</p></div>
@@ -1292,14 +1317,34 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
       </div>
       <footer className="wizard-footer">
         <button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={19} />上一步</button>
-        {isExistingProvider && !isCurrentDefault ? (
-          <div className="footer-actions">
-            <button type="button" className="outline-button" disabled={saving} onClick={() => onSave(true)}>保存并设为默认</button>
-            <button type="button" className="primary-button" disabled={saving} onClick={() => onSave(false)}>{saving ? <><Spinner />正在保存…</> : "保存更改"}</button>
-          </div>
-        ) : (
-          <button type="button" className="primary-button" disabled={saving} onClick={() => onSave(true)}>{saving ? <><Spinner />正在保存…</> : "保存并设为默认"}</button>
-        )}
+        <div className="footer-end">
+          {isExistingProvider && (
+            <span className="dirty-note" aria-live="polite">{dirty ? "有未保存的修改" : "没有改动"}</span>
+          )}
+          {isExistingProvider ? (
+            isCurrentDefault ? (
+              // Already Pi's default: one button, still setDefault:true so the
+              // default model follows the selected radio, worded as a plain save.
+              <button type="button" className="primary-button" disabled={saving || !dirty} onClick={() => onSave(true)}>{saving ? <><Spinner />正在保存…</> : "保存更改"}</button>
+            ) : (
+              <div className="footer-actions">
+                <button type="button" className="outline-button" disabled={saving || !dirty} onClick={() => onSave(true)}>保存并设为默认</button>
+                <button type="button" className="primary-button" disabled={saving || !dirty} onClick={() => onSave(false)}>{saving ? <><Spinner />正在保存…</> : "保存更改"}</button>
+              </div>
+            )
+          ) : hasProviders ? (
+            // A new provider added alongside existing ones must not silently
+            // steal the global default: offer 只保存 as well as 保存并设为默认.
+            <div className="footer-actions">
+              <button type="button" className="outline-button" disabled={saving} onClick={() => onSave(false)}>只保存</button>
+              <button type="button" className="primary-button" disabled={saving} onClick={() => onSave(true)}>{saving ? <><Spinner />正在保存…</> : "保存并设为默认"}</button>
+            </div>
+          ) : (
+            // The very first provider has nothing to displace, so setting it as
+            // the default is the only sensible action.
+            <button type="button" className="primary-button" disabled={saving} onClick={() => onSave(true)}>{saving ? <><Spinner />正在保存…</> : "保存并设为默认"}</button>
+          )}
+        </div>
       </footer>
       {showBulk && <BulkModal text={bulkText} ids={bulkIds} newIds={newBulkIds} onText={setBulkText} onClose={() => setShowBulk(false)} onImport={importModels} />}
       {showDiscover && <DiscoverModal baseUrl={form.baseUrl.trim()} defaultPath={defaultDiscoveryPath(form.api)} existingIds={existingIds} onDiscover={onDiscover} onClose={() => setShowDiscover(false)} onImport={importDiscovered} />}
@@ -1676,7 +1721,7 @@ function SuccessScreen({ result, onCopy, onReturn, onAdd }) {
   );
 }
 
-function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBack }) {
+function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBack, onDirtyChange }) {
   const saved = useMemo(() => ({
     defaultProvider: state.settings.defaultProvider || state.providers[0]?.id || "",
     defaultModel: state.settings.defaultModel || "",
@@ -1696,150 +1741,17 @@ function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBa
     .filter((key) => !present.has(key));
   const edited = JSON.stringify(saved) !== JSON.stringify(draft);
   const dirty = edited || unwritten.length > 0;
+  // Report only real edits up to the shared leave guard: an unwritten default is
+  // not something navigation can lose (settings.json does not carry it, and will
+  // not afterwards), so it must not arm a discard prompt.
+  useEffect(() => {
+    onDirtyChange?.(edited);
+    return () => onDirtyChange?.(false);
+  }, [edited, onDirtyChange]);
   const installedPi = state.compatibility?.piVersion;
   const validatedPi = state.compatibility?.validatedPiVersion;
   const piVersionDiffers = Boolean(installedPi) && installedPi !== "unknown"
     && Boolean(validatedPi) && validatedPi !== "unknown" && installedPi !== validatedPi;
-  // Held locally rather than read from `state`: the page's copy of the server state
-  // was fetched at mount, and a check made now is newer than that. The apply job
-  // reports through /api/state, so the same field is refreshed while it runs.
-  const [updateInfo, setUpdateInfo] = useState(state.update || {});
-  const [updateBusy, setUpdateBusy] = useState("");
-  const [updateError, setUpdateError] = useState("");
-  // A successful pull moves the version on disk, which this page learned before
-  // `state` could. Without this the restart button below would still offer a plain
-  // restart with an upgrade sitting there waiting.
-  const [pendingOverride, setPendingOverride] = useState("");
-  // null means "nothing newer than `state` to say". A pull that has not been built
-  // yet appears between mount and the end of an upgrade, so the answer has to be
-  // allowed to change without a page load.
-  const [bundleOverride, setBundleOverride] = useState(null);
-  // The versions on the card describe the running process, not the checkout on
-  // disk. Without this, an upgrade that was installed but not restarted reads as an
-  // upgrade that failed — every number there is simply the old one.
-  const pendingApp = pendingOverride || state.compatibility?.pendingAppVersion || "";
-  // A source tree newer than the bundle it is served from. Restarting there swaps
-  // the server and leaves the page, which is the one outcome of a half-finished
-  // upgrade that looks like it worked.
-  const bundleProblem = bundleOverride === null ? (state.compatibility?.bundleProblem || "") : bundleOverride;
-  const checkUpdate = async () => {
-    setUpdateBusy("checking");
-    setUpdateError("");
-    try {
-      const data = await readApiResponse(
-        await fetch("/api/update/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }),
-        "检查更新失败。",
-      );
-      setUpdateInfo(data.update || {});
-    } catch (problem) {
-      setUpdateError(problem.message);
-    } finally {
-      setUpdateBusy("");
-    }
-  };
-  const applyUpdate = async () => {
-    setUpdateBusy("applying");
-    setUpdateError("");
-    try {
-      await readApiResponse(
-        await fetch("/api/update/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }),
-        "无法开始更新。",
-      );
-      // Polled rather than awaited: `npm ci` and a build take minutes, and the
-      // steps have to appear as they finish rather than all at the end.
-      const deadline = Date.now() + 15 * 60_000;
-      while (Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 1_000));
-        const next = await fetch("/api/state", { cache: "no-store" }).then((reply) => reply.json());
-        if (next.update) setUpdateInfo(next.update);
-        setPendingOverride(next.compatibility?.pendingAppVersion || "");
-        setBundleOverride(next.compatibility?.bundleProblem || "");
-        if (next.update && !next.update.running) {
-          if (next.update.error) setUpdateError(next.update.error);
-          return;
-        }
-      }
-      setUpdateError("更新过了 15 分钟还没结束，请查看日志。");
-    } catch (problem) {
-      setUpdateError(problem.message);
-    } finally {
-      setUpdateBusy("");
-    }
-  };
-  // idle | confirm | working | done | failed. "confirm" exists only because a
-  // restart discards an unsaved draft on this very screen; with nothing to lose,
-  // asking would be a step for its own sake. "done" holds a short beat after the
-  // handover so the reload reads as completion rather than a random jump.
-  const [restartPhase, setRestartPhase] = useState("idle");
-  const [restartMessage, setRestartMessage] = useState("");
-  // Which half of the handover the working phase is in, and how long the wait has
-  // run. A restart usually takes a second or two, but the loop below waits up to
-  // 40; without a rising count a slow handoff reads as a frozen button.
-  const [restartStage, setRestartStage] = useState("");
-  const [restartElapsed, setRestartElapsed] = useState(0);
-  // Applying an upgrade replaces the process serving this page, so the page cannot
-  // trust anything it reads until a different one answers. The server reports the
-  // pid it is replacing for exactly that reason.
-  const restartService = async () => {
-    setRestartPhase("working");
-    setRestartMessage("");
-    setRestartStage("requesting");
-    try {
-      const response = await fetch("/api/restart", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      });
-      const accepted = await readApiResponse(response, "无法重启本地服务。");
-      setRestartStage("handoff");
-      const deadline = Date.now() + 40_000;
-      while (Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 400));
-        try {
-          const next = await fetch("/api/state", { cache: "no-store" }).then((reply) => reply.json());
-          if (next.restartError) {
-            setRestartMessage(next.restartError);
-            setRestartPhase("failed");
-            return;
-          }
-          if (next.compatibility?.servicePid && next.compatibility.servicePid !== accepted.pid) {
-            // Reloaded rather than merged into this page: the code that served it
-            // is not the code answering now. Leave a note so the reloaded page
-            // comes back on Settings and confirms the restart, instead of the
-            // hard cut to the provider list a bare reload lands on.
-            setRestartStage("");
-            setRestartPhase("done");
-            try { sessionStorage.setItem("ppm.restarted", "1"); } catch { /* private mode: skip the note, still reload */ }
-            await new Promise((resolve) => setTimeout(resolve, 650));
-            window.location.reload();
-            return;
-          }
-        } catch {
-          // The port belongs to nobody for a moment in the middle of the handover.
-        }
-      }
-      setRestartMessage("等了 40 秒也没有新的进程接管端口，请查看日志。");
-      setRestartPhase("failed");
-    } catch (problem) {
-      setRestartMessage(problem.message);
-      setRestartPhase("failed");
-    }
-  };
-  // Count seconds from the moment the working phase begins. Derived from a start
-  // timestamp each tick rather than accumulated in the updater, so a late or
-  // doubled render cannot drift the number.
-  useEffect(() => {
-    if (restartPhase !== "working") {
-      setRestartElapsed(0);
-      return undefined;
-    }
-    const startedAt = Date.now();
-    setRestartElapsed(0);
-    const timer = setInterval(() => {
-      setRestartElapsed(Math.floor((Date.now() - startedAt) / 1000));
-    }, 500);
-    return () => clearInterval(timer);
-  }, [restartPhase]);
   const selectedProvider = state.providers.find((provider) => provider.id === draft.defaultProvider);
   const availableModels = selectedProvider?.models || [];
   // Keep whatever is currently selected in the list, even with no models, so the
@@ -1868,13 +1780,8 @@ function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBa
             <label className="setting-toggle"><input type="checkbox" checked={draft.hideThinkingBlock} onChange={(event) => setDraft((current) => ({ ...current, hideThinkingBlock: event.target.checked }))} /><span><strong>隐藏 thinking 内容块</strong><small>只隐藏显示，不会关闭模型推理。</small></span></label>
           </section>
           <section className="settings-card compatibility-card">
-            <h2>兼容状态</h2><dl><div><dt>Pi 版本</dt><dd className="mono">{state.compatibility?.piVersion || "unknown"}</dd></div><div><dt>已验证兼容</dt><dd className="mono">Pi {state.compatibility?.validatedPiVersion || "unknown"}</dd></div><div><dt>管理器版本</dt><dd className="mono">{state.compatibility?.appVersion || "unknown"}</dd></div><div><dt>配置策略</dt><dd>保留未知字段</dd></div><div><dt>配置目录</dt><dd className="mono" title={state.agentDir}>{state.agentDir}</dd></div><div><dt>路径来源</dt><dd>{state.compatibility?.configDirSource === "PI_CODING_AGENT_DIR" ? "PI_CODING_AGENT_DIR" : "自动识别 · 用户主目录"}</dd></div><div><dt>Node</dt><dd className="mono">{state.compatibility?.nodeVersion || "unknown"}</dd></div><div><dt>本地服务</dt><dd className="mono">{state.compatibility?.serviceHost || "127.0.0.1"}:{state.compatibility?.servicePort || 43127}</dd></div></dl>
-            {pendingApp && (
-              <p className="compat-note is-warning">
-                <WarningCircle size={20} weight="fill" />
-                磁盘上的管理器已是 {pendingApp}，当前运行的仍是 {state.compatibility?.appVersion || "unknown"}。上面这些数值来自正在运行的进程，重启本地服务后才会更新。
-              </p>
-            )}
+            <h2>兼容状态</h2>
+            <dl><div><dt>Pi 版本</dt><dd className="mono">{state.compatibility?.piVersion || "unknown"}</dd></div><div><dt>已验证兼容</dt><dd className="mono">Pi {state.compatibility?.validatedPiVersion || "unknown"}</dd></div><div><dt>配置策略</dt><dd>保留未知字段</dd></div><div><dt>配置目录</dt><dd className="mono" title={state.agentDir}>{state.agentDir}</dd></div><div><dt>路径来源</dt><dd>{state.compatibility?.configDirSource === "PI_CODING_AGENT_DIR" ? "PI_CODING_AGENT_DIR" : "自动识别 · 用户主目录"}</dd></div></dl>
             {piVersionDiffers && (
               <p className="compat-note is-warning">
                 <WarningCircle size={20} weight="fill" />
@@ -1882,126 +1789,8 @@ function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBa
               </p>
             )}
             <p className="compat-note"><ShieldCheck size={20} weight="duotone" />Pi 更新后若出现新字段，本程序会保留未识别字段；涉及字段改名或 API 类型变化时仍需发布兼容更新。</p>
-            <div className="compat-update">
-              <div className="compat-update-row">
-                <button type="button" className="secondary-button" disabled={Boolean(updateBusy) || demoMode} onClick={checkUpdate}>
-                  {updateBusy === "checking" ? <><Spinner />正在检查…</> : <><CloudArrowDown size={18} />检查更新</>}
-                </button>
-                <span className="compat-restart-hint">
-                  {demoMode
-                    ? "演示模式不联网。"
-                    : updateInfo.checkedAt
-                      ? updateInfo.newer
-                        ? <>有新版本 <strong>{updateInfo.latestVersion}</strong>，当前运行 {state.compatibility?.appVersion || "unknown"}。{updateInfo.releaseUrl && <> <a href={updateInfo.releaseUrl} target="_blank" rel="noreferrer">发布说明</a></>}</>
-                        : <>已是最新：{updateInfo.latestVersion}。</>
-                      : "只有按下这个按钮才会联网：向 api.github.com 查询最新发布，其他任何时候本程序都不外联。"}
-                </span>
-              </div>
-              {updateInfo.newer && updateInfo.install?.kind === "checkout" && (
-                updateInfo.install.canApply ? (
-                  <div className="compat-update-row">
-                    <button type="button" className="primary-button" disabled={Boolean(updateBusy)} onClick={applyUpdate}>
-                      {updateBusy === "applying" ? <><Spinner />正在更新…</> : <>拉取并构建 {updateInfo.latestVersion}</>}
-                    </button>
-                    <span className="compat-restart-hint">
-                      在 {updateInfo.install.branch} 上快进到 {updateInfo.install.upstream}，只有依赖清单变了才重装依赖，最后重新构建界面。这一步只改磁盘，不动正在运行的进程。
-                    </span>
-                  </div>
-                ) : (
-                  <p className="compat-note is-warning">
-                    <WarningCircle size={20} weight="fill" />
-                    {updateInfo.install.reason}
-                    {Array.isArray(updateInfo.install.dirtyFiles) && updateInfo.install.dirtyFiles.length > 0
-                      && <> <span className="mono">{updateInfo.install.dirtyFiles.join("、")}</span></>}
-                  </p>
-                )
-              )}
-              {updateInfo.newer && updateInfo.install?.kind === "archive" && (
-                <div className="compat-update-row">
-                  <button type="button" className="primary-button" disabled={Boolean(updateBusy)} onClick={applyUpdate}>
-                    {updateBusy === "applying" ? <><Spinner />正在下载…</> : <>下载 {updateInfo.latestVersion} 到相邻目录</>}
-                  </button>
-                  <span className="compat-restart-hint">
-                    这是归档安装，不能原地升级。新版本会解包到当前目录的相邻位置，当前安装一个字节都不动；解包完成后运行新目录里的启动器即可。
-                  </span>
-                </div>
-              )}
-              {updateInfo.steps?.length > 0 && (
-                <ol className="update-steps">
-                  {updateInfo.steps.map((step) => (
-                    <li key={step.name} className={`is-${step.state || (step.ok ? "done" : "failed")}`}>
-                      <span>{step.state === "running" ? <Spinner size={14} /> : step.ok ? <Check size={14} weight="bold" /> : <X size={14} weight="bold" />}{step.name}</span>
-                      {step.output && <pre>{step.output}</pre>}
-                    </li>
-                  ))}
-                </ol>
-              )}
-              {updateInfo.applied && !updateError && (
-                <p className="compat-note">
-                  <CheckCircle size={20} weight="duotone" />
-                  {updateInfo.applied === "unchanged"
-                    ? "磁盘上已经是这个版本了，没有需要拉取的提交。"
-                    : <>{updateInfo.applied} 已经在磁盘上，用下面的按钮重启即生效。</>}
-                </p>
-              )}
-              {updateInfo.downloaded && !updateError && (
-                <p className="compat-note">
-                  <CheckCircle size={20} weight="duotone" />
-                  已解包到 <span className="mono">{updateInfo.downloaded.directory}</span>。运行 <span className="mono">{updateInfo.downloaded.launcher}</span> 启动新版本，确认没问题后再删掉旧目录。
-                </p>
-              )}
-              {updateError && (
-                <p className="compat-note is-warning" role="alert"><WarningCircle size={20} weight="fill" />{updateError}</p>
-              )}
-            </div>
-            <div className="compat-restart">
-              {restartPhase === "confirm" ? (
-                <>
-                  <span className="compat-restart-hint is-warning">这个页面有未保存的修改，重启会丢弃它们。</span>
-                  <button type="button" className="secondary-button" onClick={() => setRestartPhase("idle")}>取消</button>
-                  <button type="button" className="primary-button" onClick={restartService}>确认重启</button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className={`restart-button ${pendingApp ? "primary-button" : "secondary-button"}`}
-                    // The demo has no local service behind it, so the control is
-                    // shown and refused rather than hidden: a reader comparing the
-                    // demo with their own install should see the same card.
-                    disabled={restartPhase === "working" || restartPhase === "done" || demoMode || Boolean(bundleProblem)}
-                    // `edited`, not `dirty`: an unwritten default is not something a
-                    // restart can lose — it is a key settings.json does not carry,
-                    // and will still not carry afterwards. Confirming over that
-                    // would ask most users to approve losing nothing.
-                    onClick={() => (edited ? setRestartPhase("confirm") : restartService())}
-                  >
-                    {restartPhase === "working"
-                      ? <><Spinner />正在重启…</>
-                      : restartPhase === "done"
-                        ? <><Check size={18} weight="bold" />已重启，正在刷新…</>
-                        : <><ArrowsClockwise size={18} />{pendingApp ? `重启以应用 ${pendingApp}` : "重启本地服务"}</>}
-                  </button>
-                  <span className={`compat-restart-hint${bundleProblem ? " is-warning" : ""}`}>
-                    {bundleProblem
-                      ? `${bundleProblem}现在重启只会让新的服务端配上旧界面。`
-                      : demoMode
-                        ? "演示模式没有本地服务可以重启。"
-                        : restartPhase === "done"
-                          ? "新进程已接管端口，正在刷新本页…"
-                          : restartPhase === "working"
-                          ? (restartStage === "requesting"
-                              ? "正在请求重启本地服务…"
-                              : `新进程正在从磁盘上的文件接管端口。中途会短暂连不上，这是正常的，接管后本页会自动刷新。已等待 ${restartElapsed} 秒，最多 40 秒。`)
-                          : "只替换本管理器进程：已经在跑的 LiteLLM 桥和 Pi / Codex 会话不受影响，新进程起不来时会保留当前这个。"}
-                  </span>
-                </>
-              )}
-            </div>
-            {restartPhase === "failed" && (
-              <p className="compat-note is-warning" role="alert"><WarningCircle size={20} weight="fill" />{restartMessage}</p>
-            )}
           </section>
+          <ManagerCard state={state} demoMode={demoMode} edited={edited} />
         </div>
         <ErrorBanner message={error} conflict={conflict} />
       </div>
@@ -2037,7 +1826,6 @@ export function App() {
   // toast that also offers it has expired.
   const [conflict, setConflict] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState(null);
   const [saveResult, setSaveResult] = useState(null);
   const [deleteTargetId, setDeleteTargetId] = useState("");
   const [deletingProvider, setDeletingProvider] = useState(false);
@@ -2053,16 +1841,73 @@ export function App() {
   const [betaFocusRequest, setBetaFocusRequest] = useState({ rowId: "", serial: 0 });
   const [target, setTarget] = useState("pi");
   const [codexForm, setCodexForm] = useState(blankCodexForm);
+  // Baselines: the signature of the last draft loaded from saved data (or a
+  // freshly created blank/duplicate). A draft is dirty when its current
+  // signature differs — i.e. the user has edited it since it was loaded. Every
+  // place that loads a draft updates the matching baseline through loadForm /
+  // loadCodexForm; user edits go through the plain setters and move the draft
+  // away from the baseline.
+  const [piBaseline, setPiBaseline] = useState(() => draftSignature(demoMode ? providerToForm(DEMO_STATE.providers[0], DEMO_STATE) : blankForm()));
+  const [codexBaseline, setCodexBaseline] = useState(() => draftSignature(blankCodexForm()));
+  // A settings or prompts screen reports its own edited state up so the shared
+  // leave guard and beforeunload can see it. Only one such screen is mounted at
+  // a time, so a single flag is enough; each screen clears it on unmount.
+  const [screenDirty, setScreenDirty] = useState(false);
   const [codexStep, setCodexStep] = useState(1);
   const [codexSelectedId, setCodexSelectedId] = useState("");
   const [codexSaveResult, setCodexSaveResult] = useState(null);
   const [codexDeleteTargetId, setCodexDeleteTargetId] = useState("");
-  const toastTimer = useRef(null);
-  const showToast = useCallback((message, tone = "success", action = null) => {
-    setToast({ message, tone, action });
-    clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), action ? 7000 : 3200);
+  // A small toast stack: up to two at once, each on its own timer. A toast that
+  // carries an action (an undo, a 重新读取) is never evicted by a plain one, so a
+  // burst of arm/notice toasts cannot bury the undo the user still needs.
+  const [toasts, setToasts] = useState([]);
+  const toastIdRef = useRef(0);
+  const toastTimers = useRef(new Map());
+  const dismissToast = useCallback((id) => {
+    const entry = toastTimers.current.get(id);
+    if (entry) { clearTimeout(entry.timeout); toastTimers.current.delete(id); }
+    setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
+  const armToastTimer = useCallback((id, duration) => {
+    const timeout = setTimeout(() => dismissToast(id), duration);
+    toastTimers.current.set(id, { timeout, startedAt: Date.now(), duration });
+  }, [dismissToast]);
+  // Pause on hover or focus, resume on leave: a countdown a reader cannot pause
+  // fails WCAG 2.2.1, and an undo that vanishes mid-reach is the exact failure.
+  const pauseToast = useCallback((id) => {
+    const entry = toastTimers.current.get(id);
+    if (!entry) return;
+    clearTimeout(entry.timeout);
+    entry.remaining = Math.max(0, entry.duration - (Date.now() - entry.startedAt));
+  }, []);
+  const resumeToast = useCallback((id) => {
+    const entry = toastTimers.current.get(id);
+    if (!entry) return;
+    armToastTimer(id, entry.remaining ?? entry.duration);
+  }, [armToastTimer]);
+  const showToast = useCallback((message, tone = "success", action = null) => {
+    const id = ++toastIdRef.current;
+    setToasts((current) => {
+      // A plain toast replaces other plain toasts, but toasts carrying an action
+      // (an undo, a 重新读取) are preserved so a following notice cannot bury the
+      // undo the user still needs. At most two show at once.
+      const preserved = current.filter((toast) => toast.action);
+      for (const toast of current) {
+        if (!toast.action) {
+          const entry = toastTimers.current.get(toast.id);
+          if (entry) { clearTimeout(entry.timeout); toastTimers.current.delete(toast.id); }
+        }
+      }
+      const next = [...preserved, { id, message, tone, action }];
+      while (next.length > 2) {
+        const [removed] = next.splice(0, 1);
+        const entry = toastTimers.current.get(removed.id);
+        if (entry) { clearTimeout(entry.timeout); toastTimers.current.delete(removed.id); }
+      }
+      return next;
+    });
+    armToastTimer(id, action ? 7000 : 3200);
+  }, [armToastTimer]);
   const reportRequestError = useCallback((requestError, setMessage) => {
     setConflict(requestError.status === 409);
     setMessage(requestError.message);
@@ -2073,13 +1918,56 @@ export function App() {
       });
     }
   }, [showToast]);
-  useEffect(() => () => clearTimeout(toastTimer.current), []);
+  useEffect(() => () => { for (const entry of toastTimers.current.values()) clearTimeout(entry.timeout); }, []);
+
+  // Loading a draft from saved data (or creating a fresh blank/duplicate) sets
+  // both the form and its baseline, so the draft reads as unedited until the
+  // user changes something. User edits use the plain setters.
+  const loadForm = useCallback((next) => { setForm(next); setPiBaseline(draftSignature(next)); }, []);
+  const loadCodexForm = useCallback((next) => { setCodexForm(next); setCodexBaseline(draftSignature(next)); }, []);
+  const piDirty = useMemo(() => draftSignature(form) !== piBaseline, [form, piBaseline]);
+  const codexDirty = useMemo(() => draftSignature(codexForm) !== codexBaseline, [codexForm, codexBaseline]);
+  // The draft the current screen would lose on navigation. Settings and prompts
+  // report their own edited state; the wizard's belongs to the active target.
+  const currentDirty = view === "settings" || view === "prompts"
+    ? screenDirty
+    : view === "wizard"
+      ? (target === "codex" ? codexDirty : piDirty)
+      : false;
+  // The shared leave guard: an unedited draft leaves at once; an edited one asks
+  // first, and only proceeds through the toast's action — the same rule the
+  // prompts screen already applied to its own document switches.
+  const guardLeave = useCallback((proceed) => {
+    if (!currentDirty) { proceed(); return; }
+    showToast("当前草稿有未保存的修改", "error", { label: "放弃修改并离开", onAction: proceed });
+  }, [currentDirty, showToast]);
+  // Any unsaved draft — in either target or in a settings/prompts screen — arms
+  // the browser's native leave confirmation, covering a tab close or a reload
+  // (including the 409 banner's reload) that the in-app guard cannot intercept.
+  useEffect(() => {
+    if (!(piDirty || codexDirty || screenDirty)) return undefined;
+    const handler = (event) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [piDirty, codexDirty, screenDirty]);
+  const firstViewRender = useRef(true);
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       document.querySelector(".step-scroll, .settings-scroll, .success-page")?.scrollTo({ top: 0, behavior: "instant" });
+      // Moving between steps and views unmounts the control that was focused, so
+      // focus falls back to <body> and a screen reader announces nothing. Send
+      // it to the new heading instead — unless a field-focus intent (a jump from
+      // the gateway summary, an invalid-field save) has already placed focus on
+      // a control inside the workspace, in which case that intent wins.
+      if (firstViewRender.current) { firstViewRender.current = false; return; }
+      const active = document.activeElement;
+      const alreadyPlaced = active && active !== document.body && active.closest(".workspace");
+      if (alreadyPlaced) return;
+      const heading = document.querySelector(".workspace h1");
+      if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [view, step]);
+  }, [view, step, target, codexStep]);
 
   useEffect(() => {
     if (demoMode) return;
@@ -2091,7 +1979,7 @@ export function App() {
         if (data.providers.length > 0) {
           const provider = data.providers.find((item) => item.isDefault) || data.providers[0];
           setSelectedId(provider.id);
-          setForm(providerToForm(provider, data));
+          loadForm(providerToForm(provider, data));
           setStep(provider.models.length > 0 ? 3 : 1);
         }
       })
@@ -2118,7 +2006,7 @@ export function App() {
   const startNew = () => {
     const fresh = blankForm();
     fresh.migrateFrom = state.authProviders[0] || "";
-    setForm(fresh);
+    loadForm(fresh);
     setSelectedId("");
     setStep(1);
     setView("wizard");
@@ -2132,7 +2020,7 @@ export function App() {
     if (!state.providers.some((provider) => provider.id === form.providerId.trim())) return;
     const copiedExternalUserAgent = form.userAgentKind === "external" && !form.userAgentEdited;
     const copiedExternalBeta = form.models.some((model) => model.anthropicBetaKind === "external");
-    setForm(duplicatePiForm(form, state.providers.map((provider) => provider.id)));
+    loadForm(duplicatePiForm(form, state.providers.map((provider) => provider.id)));
     setSelectedId("");
     setStep(2);
     setView("wizard");
@@ -2144,7 +2032,7 @@ export function App() {
 
   const duplicateCodexProvider = () => {
     if (!codex.providers.some((provider) => provider.id === codexForm.providerId.trim())) return;
-    setCodexForm(duplicateCodexForm(codexForm, codex.providers.map((provider) => provider.id)));
+    loadCodexForm(duplicateCodexForm(codexForm, codex.providers.map((provider) => provider.id)));
     setCodexSelectedId("");
     setCodexStep(2);
     setView("wizard");
@@ -2153,7 +2041,7 @@ export function App() {
   };
 
   const selectProvider = (provider) => {
-    setForm(providerToForm(provider, state));
+    loadForm(providerToForm(provider, state));
     setSelectedId(provider.id);
     setStep(provider.models.length > 0 ? 3 : 1);
     setView("wizard");
@@ -2176,7 +2064,7 @@ export function App() {
     const sourceForm = providerToForm(provider, state);
     const copiedExternalUserAgent = sourceForm.userAgentKind === "external" && !sourceForm.userAgentEdited;
     const copiedExternalBeta = sourceForm.models.some((model) => model.anthropicBetaKind === "external");
-    setForm(duplicatePiForm(sourceForm, state.providers.map((item) => item.id)));
+    loadForm(duplicatePiForm(sourceForm, state.providers.map((item) => item.id)));
     setSelectedId("");
     setStep(2);
     setView("wizard");
@@ -2190,7 +2078,7 @@ export function App() {
     const provider = codex.providers.find((item) => item.id === providerId);
     if (!provider) return;
     const sourceForm = codexProviderToForm(provider, codex);
-    setCodexForm(duplicateCodexForm(sourceForm, codex.providers.map((item) => item.id)));
+    loadCodexForm(duplicateCodexForm(sourceForm, codex.providers.map((item) => item.id)));
     setCodexSelectedId("");
     setCodexStep(2);
     setView("wizard");
@@ -2204,32 +2092,60 @@ export function App() {
   }, []);
 
   // The same rules `saveProvider` applies, asked here so the answer arrives
-  // on the step that owns the field rather than after a round trip.
+  // on the step that owns the field rather than after a round trip. Returns
+  // `{ field, message }` so the caller can mark and focus the offending field,
+  // or null when the credentials are valid.
   const validateCredentials = () => {
     const providerId = form.providerId.trim();
-    if (!providerId) return "请输入供应商 ID。";
-    if (!PROVIDER_ID_PATTERN.test(providerId)) return "供应商 ID 只能使用小写字母、数字、点、下划线和连字符，且以字母或数字开头。";
-    if (!form.baseUrl.trim()) return "请输入 API 地址。";
-    try { normalizeUrl(form.baseUrl); } catch (problem) { return problem.message; }
-    if (form.credentialMode === "new" && !form.apiKey.trim()) return "请输入 API Key。";
-    if (form.credentialMode === "migrate" && !form.migrateFrom) return "请选择要迁移的已有凭据。";
-    return "";
+    if (!providerId) return { field: "providerId", message: "请输入供应商 ID。" };
+    if (!PROVIDER_ID_PATTERN.test(providerId)) return { field: "providerId", message: "供应商 ID 只能使用小写字母、数字、点、下划线和连字符，且以字母或数字开头。" };
+    if (!form.baseUrl.trim()) return { field: "baseUrl", message: "请输入 API 地址。" };
+    try { normalizeUrl(form.baseUrl); } catch (problem) { return { field: "baseUrl", message: problem.message }; }
+    if (form.credentialMode === "new" && !form.apiKey.trim()) return { field: "apiKey", message: "请输入 API Key。" };
+    if (form.credentialMode === "migrate" && !form.migrateFrom) return { field: "migrateFrom", message: "请选择要迁移的已有凭据。" };
+    return null;
+  };
+  // Field-level focus for a failed credential check: the wizard jumps to step
+  // two, states the reason, and lands the caret on the field, which carries
+  // aria-invalid while the error stands.
+  const [credentialFocus, setCredentialFocus] = useState({ field: "", serial: 0 });
+  const failCredentials = (result) => {
+    setError(result.message);
+    setStep(2);
+    setCredentialFocus((current) => ({ field: result.field, serial: current.serial + 1 }));
   };
 
   const goToModels = () => {
-    const message = validateCredentials();
-    if (message) { setError(message); return; }
+    const result = validateCredentials();
+    if (result) { failCredentials(result); return; }
     setError("");
     setStep(3);
   };
+
+  // Free step-jump for a saved provider: moving to the models step still runs
+  // the credential check that step two would, so a jump cannot skip past an
+  // invalid gateway; a failure stops on step two with the reason. Backward and
+  // step-two jumps are unconditional.
+  const goToStep = (targetStep) => {
+    if (targetStep === step) return;
+    if (targetStep >= 3) {
+      const result = validateCredentials();
+      if (result) { failCredentials(result); return; }
+    }
+    setError("");
+    setStep(targetStep);
+  };
+  // A jump from the gateway summary that should land focus on a specific field.
+  const [apiFocusRequest, setApiFocusRequest] = useState(0);
+  const editGatewayAddress = () => { goToStep(2); setApiFocusRequest((current) => current + 1); };
 
   // What the discovery dialog runs. The credential is described the way a save
   // describes it, so the server resolves the same key a save would write with
   // and never hands it back; a draft the save endpoint would refuse is refused
   // here first, with the same words.
   const discoverModels = useCallback(async (path = "") => {
-    const message = validateCredentials();
-    if (message) throw new Error(`${message} 请先回到第二步补全。`);
+    const result = validateCredentials();
+    if (result) throw new Error(`${result.message} 请先回到第二步补全。`);
     if (demoMode) {
       await new Promise((resolve) => setTimeout(resolve, 600));
       return {
@@ -2264,8 +2180,8 @@ export function App() {
 
   const save = async (setDefault) => {
     setConflict(false);
-    const message = validateCredentials();
-    if (message) { setError(message); setStep(2); return; }
+    const result = validateCredentials();
+    if (result) { failCredentials(result); return; }
     if (!form.models.some((model) => model.id.trim())) { setError("至少填写一个模型 ID。"); return; }
     const userAgentError = userAgentValidationError(form.userAgent);
     if (userAgentError) {
@@ -2375,7 +2291,7 @@ export function App() {
         };
         setState(demoState);
         setSelectedId(payload.providerId);
-        setForm(providerToForm(demoProvider, demoState));
+        loadForm(providerToForm(demoProvider, demoState));
         const result = {
           providerId: payload.providerId,
           modelCount: payload.models.length,
@@ -2393,7 +2309,7 @@ export function App() {
       const data = await readApiResponse(response, "保存失败");
       setState(data.state);
       const saved = data.state.providers.find((provider) => provider.id === payload.providerId);
-      if (saved) { setSelectedId(saved.id); setForm(providerToForm(saved, data.state)); }
+      if (saved) { setSelectedId(saved.id); loadForm(providerToForm(saved, data.state)); }
       setSaveResult({
         providerId: payload.providerId,
         modelCount: payload.models.length,
@@ -2483,13 +2399,13 @@ export function App() {
         || nextState.providers[0];
       if (nextProvider) {
         setSelectedId(nextProvider.id);
-        setForm(providerToForm(nextProvider, nextState));
+        loadForm(providerToForm(nextProvider, nextState));
         setStep(nextProvider.models.length > 0 ? 3 : 1);
       } else {
         const fresh = blankForm();
         fresh.migrateFrom = nextState.authProviders[0] || "";
         setSelectedId("");
-        setForm(fresh);
+        loadForm(fresh);
         setStep(1);
       }
       showToast(
@@ -2561,13 +2477,13 @@ export function App() {
         || nextState.providers[0];
       if (nextProvider) {
         setSelectedId(nextProvider.id);
-        setForm(providerToForm(nextProvider, nextState));
+        loadForm(providerToForm(nextProvider, nextState));
         setStep(nextProvider.models.length > 0 ? 3 : 1);
       } else {
         const fresh = blankForm();
         fresh.migrateFrom = nextState.authProviders[0] || "";
         setSelectedId("");
-        setForm(fresh);
+        loadForm(fresh);
         setStep(1);
       }
       showToast(<>已删除 {removedCount} 个供应商{payload.keepCredentials ? "；凭据已保留" : ""}</>);
@@ -2590,23 +2506,29 @@ export function App() {
     setSaveResult(null);
     setCodexSaveResult(null);
     if (next === "codex") {
-      const provider = codexProvider(codexSelectedId)
-        || codex.providers.find((item) => item.isActive)
-        || codex.providers[0];
-      if (provider) {
-        setCodexSelectedId(provider.id);
-        setCodexForm(codexProviderToForm(provider, codex));
-        setCodexStep(3);
-      } else {
-        setCodexSelectedId("");
-        setCodexForm(blankCodexForm());
-        setCodexStep(1);
+      // Switching targets never discards a draft: an edited Codex draft is left
+      // exactly as it is so it survives a round trip to Pi and back. Only when
+      // the Codex draft is clean is it refreshed from the currently
+      // selected/active provider, so it reflects the latest saved state.
+      if (!codexDirty) {
+        const provider = codexProvider(codexSelectedId)
+          || codex.providers.find((item) => item.isActive)
+          || codex.providers[0];
+        if (provider) {
+          setCodexSelectedId(provider.id);
+          loadCodexForm(codexProviderToForm(provider, codex));
+          setCodexStep(3);
+        } else {
+          setCodexSelectedId("");
+          loadCodexForm(blankCodexForm());
+          setCodexStep(1);
+        }
       }
     }
   };
 
   const startNewCodex = () => {
-    setCodexForm(blankCodexForm());
+    loadCodexForm(blankCodexForm());
     setCodexSelectedId("");
     setCodexStep(1);
     setView("wizard");
@@ -2614,7 +2536,7 @@ export function App() {
   };
 
   const selectCodexProvider = (provider) => {
-    setCodexForm(codexProviderToForm(provider, codex));
+    loadCodexForm(codexProviderToForm(provider, codex));
     setCodexSelectedId(provider.id);
     setCodexStep(provider.models.length > 0 ? 3 : 1);
     setView("wizard");
@@ -2645,7 +2567,43 @@ export function App() {
     setCodexStep(3);
   };
 
+  // Free step-jump for a saved Codex provider, mirroring the Pi side: a jump to
+  // the models step still validates the credentials step and stops there on
+  // failure.
+  const goToCodexStep = (targetStep) => {
+    if (targetStep === codexStep) return;
+    if (targetStep >= 3) {
+      const message = validateCodexCredentials();
+      if (message) { setError(message); setCodexStep(2); return; }
+    }
+    setError("");
+    setCodexStep(targetStep);
+  };
+
   const bridgeAction = async (action) => {
+    if (demoMode) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const providerId = codexForm.providerId.trim();
+      setState((current) => ({
+        ...current,
+        codex: {
+          ...current.codex,
+          bridge: {
+            providerId,
+            supervisable: true,
+            running: action === "start",
+            port: 4000,
+            binary: "litellm",
+            binarySource: "discovered",
+            version: "1.97.0",
+          },
+        },
+      }));
+      showToast(action === "start"
+        ? "已启动本地桥；几秒后再看状态，首次启动 LiteLLM 会慢一些"
+        : "已停止本地桥");
+      return;
+    }
     const response = await fetch(`/api/codex/bridge/${action}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2702,7 +2660,7 @@ export function App() {
         const demoState = { ...state, codex: demoCodex };
         setState(demoState);
         setCodexSelectedId(saved.id);
-        setCodexForm(codexProviderToForm(saved, demoCodex));
+        loadCodexForm(codexProviderToForm(saved, demoCodex));
         setCodexSaveResult({
           providerId: saved.id,
           name: saved.name,
@@ -2710,6 +2668,7 @@ export function App() {
           defaultModelId: selected.id.trim(),
           activated: saved.isActive,
           requiresAuth,
+          bridged: codexForm.upstream === "bridge",
           command: "codex",
           otherModels: named.map((model) => model.id.trim()).filter((id) => id !== selected.id.trim()),
         });
@@ -2747,7 +2706,7 @@ export function App() {
       setState(data.state);
       const saved = (data.state.codex?.providers || []).find((provider) => provider.id === codexForm.providerId.trim());
       setCodexSelectedId(codexForm.providerId.trim());
-      if (saved) setCodexForm(codexProviderToForm(saved, data.state.codex));
+      if (saved) loadCodexForm(codexProviderToForm(saved, data.state.codex));
       setCodexSaveResult({
         providerId: codexForm.providerId.trim(),
         name: codexForm.name.trim(),
@@ -2755,6 +2714,10 @@ export function App() {
         defaultModelId: selected.id.trim(),
         activated: Boolean(saved?.isActive),
         requiresAuth: saved?.requiresAuth !== false,
+        // Whether the saved provider is bridged decides whether the success
+        // screen must first get the local bridge running: the command it
+        // advertises fails until the bridge is up.
+        bridged: Boolean(saved?.bridge) || codexForm.upstream === "bridge",
         command: "codex",
         // The provider's other models, for the `codex -m` hint. Codex sends
         // whatever string it is given, so these need no slugging.
@@ -2894,11 +2857,11 @@ export function App() {
         || (data.state.codex?.providers || [])[0];
       if (next) {
         setCodexSelectedId(next.id);
-        setCodexForm(codexProviderToForm(next, data.state.codex));
+        loadCodexForm(codexProviderToForm(next, data.state.codex));
         setCodexStep(3);
       } else {
         setCodexSelectedId("");
-        setCodexForm(blankCodexForm());
+        loadCodexForm(blankCodexForm());
         setCodexStep(1);
       }
       showToast(<>已删除 Codex 供应商 <code>{payload.providerId}</code></>);
@@ -2956,11 +2919,11 @@ export function App() {
         || (data.state.codex?.providers || [])[0];
       if (next) {
         setCodexSelectedId(next.id);
-        setCodexForm(codexProviderToForm(next, data.state.codex));
+        loadCodexForm(codexProviderToForm(next, data.state.codex));
         setCodexStep(3);
       } else {
         setCodexSelectedId("");
-        setCodexForm(blankCodexForm());
+        loadCodexForm(blankCodexForm());
         setCodexStep(1);
       }
       showToast(<>已删除 {removedCount} 个 Codex 供应商</>);
@@ -3027,17 +2990,17 @@ export function App() {
         target={target}
         loading={loading}
         loadFailed={Boolean(loadError)}
-        onReload={() => window.location.reload()}
-        onTarget={switchTarget}
+        onReload={() => guardLeave(() => window.location.reload())}
+        onTarget={(next) => guardLeave(() => switchTarget(next))}
         selectedId={target === "codex" ? codexSelectedId : selectedId}
-        onSelect={target === "codex" ? selectCodexProvider : selectProvider}
-        onAdd={target === "codex" ? startNewCodex : startNew}
-        onSettings={() => { setView("settings"); setError(""); }}
-        onPrompts={() => { setView("prompts"); setError(""); }}
+        onSelect={(provider) => guardLeave(() => (target === "codex" ? selectCodexProvider : selectProvider)(provider))}
+        onAdd={() => guardLeave(target === "codex" ? startNewCodex : startNew)}
+        onSettings={() => guardLeave(() => { setView("settings"); setError(""); })}
+        onPrompts={() => guardLeave(() => { setView("prompts"); setError(""); })}
         activeView={view}
         theme={theme}
         onTheme={setTheme}
-        onDuplicate={target === "codex" ? duplicateCodexProviderById : duplicateProviderById}
+        onDuplicate={(id) => guardLeave(() => (target === "codex" ? duplicateCodexProviderById : duplicateProviderById)(id))}
         onDelete={target === "codex" ? (id) => { setDeleteProviderError(""); setCodexDeleteTargetId(id); } : openDeleteProvider}
         canBulkDelete
         selectMode={selectMode}
@@ -3075,7 +3038,8 @@ export function App() {
             onActivate={activatePrompt}
             onDelete={deletePrompt}
             onNotify={showToast}
-            onBack={() => { setView("wizard"); setError(""); }}
+            onBack={() => guardLeave(() => { setView("wizard"); setError(""); })}
+            onDirtyChange={setScreenDirty}
           />
         ) : target === "codex" ? (
           codex.available === false ? (
@@ -3084,12 +3048,12 @@ export function App() {
               读取 Codex 配置失败：{codex.error || "未知错误"}（{codex.dir}）
             </div>
           ) : view === "settings" ? (
-            <CodexSettingsScreen state={state} saving={saving} error={error} conflict={conflict} onSave={saveCodexSettings} onBack={() => setView("wizard")} />
+            <CodexSettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveCodexSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} />
           ) : view === "success" && codexSaveResult ? (
-            <CodexSuccessScreen result={codexSaveResult} onCopy={copyCommand} onReturn={returnToSavedCodexProvider} onAdd={startNewCodex} />
+            <CodexSuccessScreen result={codexSaveResult} codex={codex} onCopy={copyCommand} onReturn={returnToSavedCodexProvider} onAdd={startNewCodex} onStartBridge={() => bridgeAction("start")} onStopBridge={() => bridgeAction("stop")} onNotify={showToast} />
           ) : (
             <>
-              <CodexStepper step={codexStep} onStep={setCodexStep} />
+              <CodexStepper step={codexStep} onStep={goToCodexStep} allowJump={Boolean(codexProvider(codexForm.providerId.trim()))} />
               <CodexWizard
                 step={codexStep}
                 form={codexForm}
@@ -3113,7 +3077,7 @@ export function App() {
               />
             </>
           )
-        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => setView("wizard")} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={setStep} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} overwrites={selectedId !== form.providerId.trim() && state.providers.some((provider) => provider.id === form.providerId.trim())} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} onDiscover={discoverModels} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} userAgentFocusRequest={userAgentFocusRequest} betaFocusRequest={betaFocusRequest} />}</>}
+        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={goToStep} allowJump={state.providers.some((provider) => provider.id === form.providerId.trim())} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} overwrites={selectedId !== form.providerId.trim() && state.providers.some((provider) => provider.id === form.providerId.trim())} apiFocusRequest={apiFocusRequest} credentialFocus={credentialFocus} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} onDiscover={discoverModels} onEditProtocol={() => goToStep(1)} onEditGateway={editGatewayAddress} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} hasProviders={state.providers.length > 0} dirty={piDirty} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} userAgentFocusRequest={userAgentFocusRequest} betaFocusRequest={betaFocusRequest} />}</>}
       </section>
       {codexDeleteTargetId && codexProvider(codexDeleteTargetId) && (
         <CodexDeleteDialog
@@ -3159,23 +3123,32 @@ export function App() {
           onConfirm={deleteCodexProvidersBulk}
         />
       )}
-      <div className="toast-region" role="status" aria-live="polite">
-        {toast && (
-          <div className={`toast is-${toast.tone}`}>
+      <div className="toast-region">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`toast is-${toast.tone}`}
+            role={toast.tone === "error" ? "alert" : "status"}
+            aria-live={toast.tone === "error" ? "assertive" : "polite"}
+            onMouseEnter={() => pauseToast(toast.id)}
+            onMouseLeave={() => resumeToast(toast.id)}
+            onFocusCapture={() => pauseToast(toast.id)}
+            onBlurCapture={() => resumeToast(toast.id)}
+          >
             {toast.tone === "error" ? <WarningCircle size={21} weight="fill" /> : <CheckCircle size={21} weight="fill" />}
             <span>{toast.message}</span>
             {toast.action && (
               <button
                 type="button"
                 className="toast-action"
-                onClick={() => { toast.action.onAction(); clearTimeout(toastTimer.current); setToast(null); }}
+                onClick={() => { toast.action.onAction(); dismissToast(toast.id); }}
               >
                 {toast.action.label}
               </button>
             )}
-            <button type="button" className="toast-close" onClick={() => { clearTimeout(toastTimer.current); setToast(null); }} aria-label="关闭提示"><X size={16} weight="bold" /></button>
+            <button type="button" className="toast-close" onClick={() => dismissToast(toast.id)} aria-label="关闭提示"><X size={16} weight="bold" /></button>
           </div>
-        )}
+        ))}
       </div>
     </main>
   );

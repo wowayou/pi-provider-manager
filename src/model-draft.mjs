@@ -1,3 +1,22 @@
+// A stable fingerprint of a draft, so an untouched form can be told from an
+// edited one. `rowId` is ephemeral — every load assigns fresh keys — so it is
+// dropped, and `defaultRowId` is translated to the id of the model it points
+// at. A reload that reassigns row keys but keeps the same values and default
+// therefore fingerprints identically, while changing any real field (a token
+// count, a model id, the default model) changes it. Shared by the Pi and Codex
+// forms: both key their default on a rowId and both carry a `models` array.
+export function draftSignature(form) {
+  if (!form || typeof form !== "object") return "";
+  const models = Array.isArray(form.models) ? form.models : [];
+  const defaultModelId = models.find((model) => model.rowId === form.defaultRowId)?.id ?? "";
+  const { defaultRowId, models: _models, ...rest } = form;
+  return JSON.stringify({
+    ...rest,
+    defaultModelId,
+    models: models.map(({ rowId, ...fields }) => fields),
+  });
+}
+
 export function changedPersistedModel(models) {
   return models.find((model) => {
     const persistedId = typeof model.persistedId === "string" ? model.persistedId : "";
