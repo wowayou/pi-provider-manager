@@ -15,7 +15,6 @@ import {
   CheckCircle,
   Copy,
   Info,
-  Key,
   ListPlus,
   Plus,
   Plugs,
@@ -32,7 +31,7 @@ import { CODEX_REASONING_EFFORTS, CODEX_VERBOSITIES, adoptableEffort, codexConfi
 import { TomlDocument } from "../lib/toml-document.mjs";
 import { isLoopbackHostname } from "../lib/validation.mjs";
 import { ManagerCard } from "./manager-card.jsx";
-import { BulkModal, ConfigEditor, ErrorBanner, Spinner, createRadioKeyHandler, formatJson, titleFromId, useDialog, validateJson } from "./ui-kit.jsx";
+import { BulkModal, ConfigEditor, ErrorBanner, PasswordInput, Spinner, createRadioKeyHandler, formatJson, isValidTokens, parseTokens, titleFromId, useDialog, validateJson } from "./ui-kit.jsx";
 
 
 const UPSTREAM_OPTIONS = [
@@ -428,17 +427,11 @@ function CodexCredentialsStep({ form, setForm, codex, selectedId, error, conflic
             <>
               <label className="key-field">
                 <span>上游 API Key</span>
-                <div>
-                  <Key size={20} />
-                  <input
-                    className="mono"
-                    type="password"
-                    autoComplete="new-password"
-                    value={form.bridgeApiKey}
-                    onChange={(event) => setForm((current) => ({ ...current, bridgeApiKey: event.target.value }))}
-                    placeholder={existing?.bridge?.credentialConfigured ? "留空表示沿用已保存的 key" : "输入后不会回显"}
-                  />
-                </div>
+                <PasswordInput
+                  value={form.bridgeApiKey}
+                  onChange={(event) => setForm((current) => ({ ...current, bridgeApiKey: event.target.value }))}
+                  placeholder={existing?.bridge?.credentialConfigured ? "留空表示沿用已保存的 key" : "输入后不会回显"}
+                />
               </label>
               {existing?.bridge && !existing.bridge.credentialConfigured && (
                 <div className="credential-status">
@@ -480,7 +473,7 @@ function CodexCredentialsStep({ form, setForm, codex, selectedId, error, conflic
                 {sources.length > 0 && <button type="button" className={form.credentialMode === "migrate" ? "is-active" : ""} onClick={() => setForm((current) => ({ ...current, credentialMode: "migrate", migrateFrom: current.migrateFrom || sources[0].id }))}>从已有凭据复制</button>}
               </div>
               {form.credentialMode === "keep" && <div className="credential-status"><ShieldCheck size={24} weight="duotone" /><div><strong>凭据已安全保存</strong><span>浏览器无法读取已保存的 key。</span></div></div>}
-              {form.credentialMode === "new" && <label className="key-field"><span>API Key</span><div><Key size={20} /><input className="mono" type="password" autoComplete="new-password" value={form.apiKey} onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))} placeholder="输入后不会回显" /></div></label>}
+              {form.credentialMode === "new" && <label className="key-field"><span>API Key</span><PasswordInput value={form.apiKey} onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))} placeholder="输入后不会回显" /></label>}
               {form.credentialMode === "migrate" && <div className="migrate-fields"><label><span>选择已有供应商</span><select value={form.migrateFrom} onChange={(event) => setForm((current) => ({ ...current, migrateFrom: event.target.value }))}>{sources.map((item) => <option key={item.id} value={item.id}>{item.name}（{item.id}）</option>)}</select></label><small>Codex 的凭据由本管理器保管，复制不会删除来源供应商的 key。</small></div>}
             </>
           )}
@@ -1038,7 +1031,17 @@ export function CodexSettingsScreen({ state, saving, error, conflict, demoMode, 
     disableResponseStorage: Boolean(codex.settings?.disableResponseStorage),
   }), [codex, providers]);
   const [draft, setDraft] = useState(saved);
-  useEffect(() => { setDraft(saved); }, [saved]);
+  // The context window carries a raw text draft so an out-of-range or unit-typo
+  // value can be marked invalid while typing rather than silently coerced.
+  const [contextText, setContextText] = useState(saved.contextWindow ? String(saved.contextWindow) : "");
+  useEffect(() => { setDraft(saved); setContextText(saved.contextWindow ? String(saved.contextWindow) : ""); }, [saved]);
+  const contextInvalid = contextText.trim() !== "" && !isValidTokens(contextText);
+  const changeContextWindow = (raw) => {
+    const cleaned = raw.replace(/[^0-9.kKmM]/g, "");
+    setContextText(cleaned);
+    if (cleaned.trim() === "") setDraft((current) => ({ ...current, contextWindow: 0 }));
+    else if (isValidTokens(cleaned)) setDraft((current) => ({ ...current, contextWindow: parseTokens(cleaned) }));
+  };
 
   const present = new Set(Array.isArray(codex.settingsPresent) ? codex.settingsPresent : []);
   const unwritten = ["model", "model_provider", "model_reasoning_effort"].filter((key) => !present.has(key));
@@ -1136,7 +1139,8 @@ export function CodexSettingsScreen({ state, saving, error, conflict, demoMode, 
             </label>
             <label>
               <span>上下文容量 <code className="mono">model_context_window</code></span>
-              <input className="mono" inputMode="numeric" value={draft.contextWindow || ""} onChange={(event) => setDraft((current) => ({ ...current, contextWindow: Number(event.target.value.replace(/[^0-9]/g, "")) || 0 }))} placeholder="留空表示不写入" />
+              <input className="mono" inputMode="numeric" value={contextText} onChange={(event) => changeContextWindow(event.target.value)} placeholder="留空表示不写入" aria-invalid={contextInvalid || undefined} title={contextInvalid ? "只接受 1 到 100m 之间的整数，或带 k / m 单位的数字" : undefined} />
+              {contextInvalid && <span className="field-warning"><WarningCircle size={15} weight="fill" />只接受 1 到 100m 之间的整数，或带 k / m 单位的数字。</span>}
             </label>
             <label className="setting-toggle">
               <input type="checkbox" checked={draft.disableResponseStorage} onChange={(event) => setDraft((current) => ({ ...current, disableResponseStorage: event.target.checked }))} />
@@ -1154,7 +1158,7 @@ export function CodexSettingsScreen({ state, saving, error, conflict, demoMode, 
               ? `有 ${unwritten.length} 项还没写入 config.toml`
               : "所有修改已写入 config.toml"}
         </span>
-        <button type="button" className="primary-button" disabled={saving || (!edited && unwritten.length === 0)} onClick={() => onSave(draft)}>
+        <button type="button" className="primary-button" disabled={saving || contextInvalid || (!edited && unwritten.length === 0)} onClick={() => onSave(draft)}>
           {saving ? <><Spinner />正在保存…</> : "保存设置"}
         </button>
       </footer>

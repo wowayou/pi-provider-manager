@@ -634,6 +634,12 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .key-field > div { position: relative; }
 .key-field svg { position: absolute; left: 12px; top: 11px; color: var(--ink-3); pointer-events: none; }
 .key-field input { padding-left: 40px; }
+.key-input { position: relative; }
+.key-input > svg:first-child { position: absolute; left: 12px; top: 11px; color: var(--ink-3); pointer-events: none; }
+.key-input input { padding-left: 40px; padding-right: 44px; width: 100%; }
+.key-reveal { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; display: grid; place-items: center; border: 0; background: transparent; color: var(--ink-3); border-radius: var(--radius-sm); cursor: pointer; }
+.key-reveal:hover { color: var(--ink); background: var(--surface-sunken); }
+.key-reveal svg { position: static; pointer-events: auto; }
 .migrate-fields { display: grid; grid-template-columns: 1fr auto; gap: 18px; align-items: end; margin-top: 18px; }
 .checkbox-row { height: 42px; flex-direction: row; align-items: center; padding: 0 10px; font-weight: 500; cursor: pointer; }
 .checkbox-row input { margin-right: 2px; }

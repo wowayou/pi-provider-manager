@@ -19,7 +19,6 @@ import {
   GoogleLogo,
   Heart,
   Info,
-  Key,
   ListPlus,
   LockSimple,
   MagnifyingGlass,
@@ -46,7 +45,7 @@ import { defaultDiscoveryPath } from "../lib/model-discovery.mjs";
 import { USER_AGENT_PRESETS } from "./user-agent-presets.mjs";
 import { PromptsScreen } from "./prompts-view.jsx";
 import { ManagerCard } from "./manager-card.jsx";
-import { BulkModal, ConfigEditor, ErrorBanner, Spinner, createRadioKeyHandler, readApiResponse, titleFromId, useDialog, useScrollEdges, validateJson, formatJson } from "./ui-kit.jsx";
+import { BulkModal, ConfigEditor, ErrorBanner, PasswordInput, Spinner, createRadioKeyHandler, readApiResponse, titleFromId, useDialog, useScrollEdges, validateJson, formatJson, formatTokens, parseTokens, isValidTokens } from "./ui-kit.jsx";
 import {
   CodexDeleteDialog,
   CodexProviderBulkDeleteDialog,
@@ -830,7 +829,7 @@ function CredentialsStep({ form, setForm, state, error, overwrites, apiFocusRequ
             {sources.length > 0 && <button type="button" className={form.credentialMode === "migrate" ? "is-active" : ""} onClick={() => setForm((current) => ({ ...current, credentialMode: "migrate", migrateFrom: current.migrateFrom || sources[0] }))}>从已有凭据迁移</button>}
           </div>
           {form.credentialMode === "keep" && <div className="credential-status"><ShieldCheck size={24} weight="duotone" /><div><strong>凭据已安全保存</strong><span>浏览器无法读取已保存的 key。</span></div></div>}
-          {form.credentialMode === "new" && <label className="key-field"><span>API Key</span><div><Key size={20} /><input ref={apiKeyRef} className="mono" type="password" autoComplete="new-password" value={form.apiKey} onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))} placeholder="输入后不会回显" aria-invalid={erroredField === "apiKey" || undefined} aria-describedby={erroredField === "apiKey" ? "credential-error-banner" : undefined} /></div></label>}
+          {form.credentialMode === "new" && <label className="key-field"><span>API Key</span><PasswordInput inputRef={apiKeyRef} value={form.apiKey} onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))} placeholder="输入后不会回显" ariaInvalid={erroredField === "apiKey" || undefined} ariaDescribedby={erroredField === "apiKey" ? "credential-error-banner" : undefined} /></label>}
           {form.credentialMode === "migrate" && <div className="migrate-fields"><label><span>选择已有供应商</span><select ref={migrateRef} value={form.migrateFrom} onChange={(event) => setForm((current) => ({ ...current, migrateFrom: event.target.value }))} aria-invalid={erroredField === "migrateFrom" || undefined}>{sources.map((id) => <option key={id} value={id}>{titleFromId(id)} ({id})</option>)}</select></label><label className="checkbox-row"><input type="checkbox" checked={form.moveCredential} onChange={(event) => setForm((current) => ({ ...current, moveCredential: event.target.checked }))} />迁移成功后删除旧条目</label></div>}
         </fieldset>
         </div>
@@ -839,33 +838,6 @@ function CredentialsStep({ form, setForm, state, error, overwrites, apiFocusRequ
       <footer className="wizard-footer"><button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={19} />上一步</button><button type="button" className="primary-button" onClick={onNext}>下一步<ArrowRight size={19} /></button></footer>
     </section>
   );
-}
-
-function formatTokens(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return "";
-  if (number >= 1_000_000 && number % 1_000_000 === 0) return `${number / 1_000_000}M`;
-  if (number >= 1_000 && number % 1_000 === 0) return `${number / 1_000}K`;
-  if (number >= 1_024 && number < 100_000 && number % 1_024 === 0) return `${number / 1_024}K`;
-  return String(number);
-}
-
-// A bare decimal is always a mistake here: "128.5" means 128.5k to a human and
-// 129 tokens to the parser, so only accept decimals that carry a unit.
-function parseTokens(text) {
-  const raw = String(text).trim();
-  const scaled = raw.match(/^(\d+(?:\.\d+)?)\s*([kKmM])$/);
-  if (scaled) return Math.round(Number(scaled[1]) * (scaled[2].toLowerCase() === "m" ? 1_000_000 : 1_000));
-  return /^\d+$/.test(raw) ? Number(raw) : NaN;
-}
-
-// Generous ceiling: the largest published context windows are still an order of
-// magnitude below this, so anything above it is a typo, not a model.
-const MAX_TOKENS = 100_000_000;
-
-function isValidTokens(text) {
-  const parsed = parseTokens(text);
-  return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= MAX_TOKENS;
 }
 
 function TokenField({ value, onChange, label }) {

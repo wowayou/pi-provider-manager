@@ -3,7 +3,7 @@
 // each other.
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowsClockwise, CheckCircle, CircleNotch, WarningCircle, X } from "@phosphor-icons/react";
+import { ArrowsClockwise, CheckCircle, CircleNotch, Eye, EyeSlash, Key, WarningCircle, X } from "@phosphor-icons/react";
 
 // Marks which edges of a scroll container have content beyond them, so the
 // list can fade there. A list that clips mid-row with no cue reads as a
@@ -59,6 +59,72 @@ export function ErrorBanner({ message, conflict, id }) {
           <ArrowsClockwise size={14} />重新读取
         </button>
       )}
+    </div>
+  );
+}
+
+// Token-count parsing shared by the Pi model rows and the Codex context-window
+// field: a bare integer, or a decimal that carries a k / m unit. A bare decimal
+// is always a mistake here ("128.5" means 128.5k to a human and 129 tokens to
+// the parser), so only unit-bearing decimals are accepted.
+export function formatTokens(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "";
+  if (number >= 1_000_000 && number % 1_000_000 === 0) return `${number / 1_000_000}M`;
+  if (number >= 1_000 && number % 1_000 === 0) return `${number / 1_000}K`;
+  if (number >= 1_024 && number < 100_000 && number % 1_024 === 0) return `${number / 1_024}K`;
+  return String(number);
+}
+
+export function parseTokens(text) {
+  const raw = String(text).trim();
+  const scaled = raw.match(/^(\d+(?:\.\d+)?)\s*([kKmM])$/);
+  if (scaled) return Math.round(Number(scaled[1]) * (scaled[2].toLowerCase() === "m" ? 1_000_000 : 1_000));
+  return /^\d+$/.test(raw) ? Number(raw) : NaN;
+}
+
+// Generous ceiling: the largest published context windows are still an order of
+// magnitude below this, so anything above it is a typo, not a model.
+export const MAX_TOKENS = 100_000_000;
+
+export function isValidTokens(text) {
+  const parsed = parseTokens(text);
+  return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= MAX_TOKENS;
+}
+
+// A masked credential field with a show/hide toggle: pasting a key and being
+// unable to see whether it pasted right is the friction this removes. Only the
+// value the user just typed can ever be shown — a stored key never returns to
+// the browser, so there is nothing here to reveal that was not just entered.
+export function PasswordInput({ value, onChange, placeholder, inputRef, ariaInvalid, ariaDescribedby, autoComplete = "new-password" }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="key-input">
+      <Key size={20} />
+      <input
+        ref={inputRef}
+        className="mono"
+        type={shown ? "text" : "password"}
+        autoComplete={autoComplete}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        aria-invalid={ariaInvalid}
+        aria-describedby={ariaDescribedby}
+        spellCheck={false}
+        autoCapitalize="off"
+        autoCorrect="off"
+      />
+      <button
+        type="button"
+        className="key-reveal"
+        aria-pressed={shown}
+        aria-label={shown ? "隐藏 key" : "显示 key"}
+        title={shown ? "隐藏 key" : "显示 key"}
+        onClick={() => setShown((current) => !current)}
+      >
+        {shown ? <EyeSlash size={18} /> : <Eye size={18} />}
+      </button>
     </div>
   );
 }

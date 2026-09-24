@@ -3691,3 +3691,70 @@ test("CJK text renders at 12px or larger in both themes", { timeout: 90_000 }, a
     fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
+
+test("the Codex context-window field is bounded and the API key can be revealed", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-bounds-pi-"));
+  const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-bounds-codex-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-bounds-"));
+  writeFixture(agentDir);
+  fs.writeFileSync(path.join(codexDir, "config.toml"), 'model_provider = "custom"\nmodel = "gpt-5.6-sol"\n\n[model_providers.custom]\nname = "现成的供应商"\nbase_url = "https://existing.example/v1"\nwire_api = "responses"\nrequires_openai_auth = true\n');
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server; let chrome; let cdp; let serverOutput = "";
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: codexDir, PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
+    chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl("http://127.0.0.1:" + debugPort + "/json/version", 30_000);
+    const target = await fetch("http://127.0.0.1:" + debugPort + "/json/new?" + encodeURIComponent("http://127.0.0.1:" + appPort), { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl); await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.send("Page.navigate", { url: "http://127.0.0.1:" + appPort });
+    const clickText = (selector, text) => cdp.evaluate("[...document.querySelectorAll(" + JSON.stringify(selector) + ")].find((node) => node.textContent.includes(" + JSON.stringify(text) + ")).click()");
+    const setValue = (selector, value) => cdp.evaluate("(() => { const input = document.querySelector(" + JSON.stringify(selector) + "); const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(input, " + JSON.stringify(value) + "); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+
+    // #15 — the Pi new-key field can be revealed and re-masked.
+    await cdp.waitFor("document.querySelector('.add-provider')");
+    await cdp.evaluate("document.querySelector('.add-provider').click()");
+    await cdp.waitFor("document.querySelector('.protocol-grid')");
+    await clickText(".wizard-footer .primary-button", "下一步");
+    await cdp.waitFor("document.querySelector('.key-input input')");
+    await setValue(".key-input input", "sk-visible-check");
+    assert.equal(await cdp.evaluate("document.querySelector('.key-input input').type"), "password");
+    assert.equal(await cdp.evaluate("document.querySelector('.key-reveal').getAttribute('aria-pressed')"), "false");
+    await cdp.evaluate("document.querySelector('.key-reveal').click()");
+    assert.equal(await cdp.evaluate("document.querySelector('.key-input input').type"), "text");
+    assert.equal(await cdp.evaluate("document.querySelector('.key-reveal').getAttribute('aria-pressed')"), "true");
+    assert.equal(await cdp.evaluate("document.querySelector('.key-input input').value"), "sk-visible-check");
+    await cdp.evaluate("document.querySelector('.key-reveal').click()");
+    assert.equal(await cdp.evaluate("document.querySelector('.key-input input').type"), "password");
+
+    // #14 — the Codex context-window field rejects out-of-range values.
+    await clickText(".target-switch button", "Codex");
+    // The half-typed Pi draft is dirty, so the leave guard asks; discard it.
+    await cdp.waitFor("document.querySelector('.toast-action')");
+    await cdp.evaluate("document.querySelector('.toast-action').click()");
+    await cdp.waitFor("document.querySelector('.model-row.is-codex')");
+    await cdp.evaluate("document.querySelector('.nav-settings').click()");
+    await cdp.waitFor("document.querySelector('.manager-card')");
+    await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
+    await cdp.waitFor("document.querySelector('.advanced-panel[open]')");
+    const contextSelector = "[...document.querySelectorAll('.advanced-panel input')].find((node) => node.placeholder && node.placeholder.includes('留空'))";
+    await cdp.evaluate("(() => { const input = " + contextSelector + "; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(input, '900m'); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+    await cdp.waitFor("(" + contextSelector + ").getAttribute('aria-invalid') === 'true'");
+    assert.equal(await cdp.evaluate("document.querySelector('.settings-footer .primary-button').disabled"), true, "an out-of-range context window must block save");
+    // A valid value clears the invalid state.
+    await cdp.evaluate("(() => { const input = " + contextSelector + "; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(input, '200000'); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+    await cdp.waitFor("(" + contextSelector + ").getAttribute('aria-invalid') === null");
+    assert.equal(await cdp.evaluate("document.querySelector('.settings-footer .primary-button').disabled"), false);
+    assert.deepEqual(cdp.errors, []);
+  } finally {
+    if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }
+    await stopProcess(chrome, true); await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(codexDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
