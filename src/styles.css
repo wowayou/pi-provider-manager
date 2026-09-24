@@ -849,6 +849,9 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .replacement-warning span { display: flex; flex-direction: column; gap: 3px; line-height: 1.45; }
 .replacement-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
 .replacement-fields option { font-family: var(--mono); }
+.replacement-single { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; font-size: 13px; }
+.replacement-single select { font-family: var(--mono); }
+.replacement-single small { color: var(--muted); }
 .no-replacement { margin: 13px 0 0 29px; color: var(--warn-text); font-size: 12px; line-height: 1.5; }
 .keep-credential-option { margin-top: 20px; border: 1px solid var(--line); border-radius: var(--radius-md); padding: 13px 14px; flex-direction: row; align-items: flex-start; gap: 10px; cursor: pointer; }
 .keep-credential-option input { margin-top: 2px; }

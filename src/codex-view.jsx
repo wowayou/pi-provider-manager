@@ -817,15 +817,27 @@ export function CodexWizard(props) {
 export function CodexDeleteDialog({ provider, codex, deleting, requestError, conflict, onClose, onConfirm }) {
   const alternatives = codex.providers.filter((item) => item.id !== provider.id);
   const [replacementProviderId, setReplacementProviderId] = useState(alternatives[0]?.id || "");
+  const [localError, setLocalError] = useState("");
   const cancelRef = useRef(null);
   const dialogRef = useRef(null);
   const isActive = provider.isActive;
   const blocked = isActive && alternatives.length === 0;
   useDialog({ ref: dialogRef, initialFocusRef: cancelRef, onClose, locked: deleting });
+  const confirm = () => {
+    if (blocked) {
+      // Stays focusable and states the invariant with the shortest way past it,
+      // rather than communicating the block through a disabled control.
+      setLocalError("这是当前生效的供应商，而且没有别的供应商可以接替。先取消并添加一个再回来删除。");
+      return;
+    }
+    setLocalError("");
+    onConfirm({ providerId: provider.id, replacementProviderId: isActive ? replacementProviderId : undefined });
+  };
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !deleting) onClose(); }}>
-      <section ref={dialogRef} className="bulk-modal" role="dialog" aria-modal="true" aria-labelledby="codex-delete-title" aria-describedby="codex-delete-description">
-        <div className="modal-heading">
+      <section ref={dialogRef} className="provider-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="codex-delete-title" aria-describedby="codex-delete-description">
+        <div className="delete-dialog-heading">
+          <span className="delete-dialog-icon"><Trash size={24} weight="duotone" /></span>
           <div>
             <h2 id="codex-delete-title">删除 Codex 供应商 <code>{provider.id}</code>？</h2>
             <p id="codex-delete-description">会移除它的地址、模型列表和保存的 key。Codex 的 config.toml 只保留当前生效的那一个供应商表。</p>
@@ -833,30 +845,30 @@ export function CodexDeleteDialog({ provider, codex, deleting, requestError, con
         </div>
         {isActive && (
           blocked ? (
-            <div className="error-banner" role="alert">
-              <WarningCircle size={20} weight="fill" />
-              这是当前生效的供应商，而且没有别的供应商可以接替。请先添加一个再回来删除。
+            <div className="replacement-panel">
+              <div className="replacement-warning"><WarningCircle size={20} weight="fill" /><span><strong>这是当前生效的供应商</strong>没有别的供应商可以接替。请先添加一个再回来删除。</span></div>
             </div>
           ) : (
-            <label>
+            <label className="replacement-single">
               <span>接替它成为当前生效的供应商</span>
-              <select value={replacementProviderId} onChange={(event) => setReplacementProviderId(event.target.value)}>
+              <select value={replacementProviderId} onChange={(event) => { setReplacementProviderId(event.target.value); setLocalError(""); }}>
                 {alternatives.map((item) => <option key={item.id} value={item.id}>{item.name}（{item.id}）</option>)}
               </select>
               <small>删除后会立即把这个供应商写入 config.toml 并换上它的 key。</small>
             </label>
           )
         )}
-        <ErrorBanner message={requestError} conflict={conflict} />
+        <ErrorBanner message={localError || requestError} conflict={conflict && !localError} />
         <div className="modal-actions">
           <button type="button" ref={cancelRef} className="secondary-button" disabled={deleting} onClick={onClose}>取消</button>
           <button
             type="button"
-            className="primary-button is-destructive"
-            disabled={deleting || blocked}
-            onClick={() => onConfirm({ providerId: provider.id, replacementProviderId: isActive ? replacementProviderId : undefined })}
+            className="danger-button"
+            disabled={deleting}
+            aria-disabled={blocked || deleting}
+            onClick={confirm}
           >
-            {deleting ? <><Spinner />正在删除…</> : "删除供应商"}
+            {deleting ? <><Spinner />正在删除…</> : <><Trash size={18} />删除供应商</>}
           </button>
         </div>
       </section>

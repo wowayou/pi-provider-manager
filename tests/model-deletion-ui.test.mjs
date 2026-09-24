@@ -3551,3 +3551,52 @@ test("the toast stack keeps an undo alive and pauses on hover", { timeout: 90_00
     fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
+
+test("the Codex delete dialog keeps a blocked delete focusable and explains it", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-cdel-pi-"));
+  const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-cdel-codex-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-cdel-"));
+  writeFixture(agentDir);
+  const configPath = path.join(codexDir, "config.toml");
+  const soleProvider = 'model_provider = "custom"\nmodel = "gpt-5.6-sol"\n\n[model_providers.custom]\nname = "现成的供应商"\nbase_url = "https://existing.example/v1"\nwire_api = "responses"\nrequires_openai_auth = true\n';
+  fs.writeFileSync(configPath, soleProvider);
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server; let chrome; let cdp; let serverOutput = "";
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: codexDir, PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
+    chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl("http://127.0.0.1:" + debugPort + "/json/version", 30_000);
+    const target = await fetch("http://127.0.0.1:" + debugPort + "/json/new?" + encodeURIComponent("http://127.0.0.1:" + appPort), { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl); await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.send("Page.navigate", { url: "http://127.0.0.1:" + appPort });
+    const clickText = (selector, text) => cdp.evaluate("[...document.querySelectorAll(" + JSON.stringify(selector) + ")].find((node) => node.textContent.includes(" + JSON.stringify(text) + ")).click()");
+    await cdp.waitFor("document.querySelector('.target-switch')");
+    await clickText(".target-switch button", "Codex");
+    await cdp.waitFor("document.querySelector('.model-row.is-codex') && document.querySelector('.delete-provider-button')");
+    await cdp.evaluate("document.querySelector('.delete-provider-button').click()");
+    await cdp.waitFor("document.querySelector('.provider-delete-dialog')");
+    // The delete dialog matches Pi: a trash-icon heading and a danger-button.
+    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.provider-delete-dialog .delete-dialog-icon'))"), true);
+    const button = await cdp.evaluate("(() => { const b = document.querySelector('.provider-delete-dialog .danger-button'); return { disabled: b.disabled, ariaDisabled: b.getAttribute('aria-disabled') }; })()");
+    // Blocked, but focusable: not the disabled attribute, aria-disabled instead.
+    assert.deepEqual(button, { disabled: false, ariaDisabled: "true" });
+    // Activating it explains the block; it sends no request and leaves config.toml alone.
+    await cdp.evaluate("document.querySelector('.provider-delete-dialog .danger-button').click()");
+    await cdp.waitFor("document.querySelector('.provider-delete-dialog .error-banner')");
+    assert.match(await cdp.evaluate("document.querySelector('.provider-delete-dialog .error-banner').textContent"), /没有别的供应商可以接替|先取消并添加/);
+    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.provider-delete-dialog'))"), true);
+    assert.equal(fs.readFileSync(configPath, "utf8"), soleProvider);
+    assert.deepEqual(cdp.errors, []);
+  } finally {
+    if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }
+    await stopProcess(chrome, true); await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(codexDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
