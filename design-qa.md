@@ -18,7 +18,7 @@
 - Cause: the sidebar rendered before the first `/api/state` response. Clicking Codex in that interval selected a blank draft that the eventual response did not refresh; clicking Add could let the response replace the new Pi draft. Holding the response reproduced the Codex failure even with a 30-second DOM wait.
 - Fix: configuration-dependent navigation waits for a successful initial read, including the target switch's arrow-key handler. A failed read keeps navigation locked and the reload action usable. Browser cases wait for usable controls rather than the sidebar's presence; the shared 10-second DOM wait is unchanged and now reports the page state on failure.
 - Regression: a browser request is paused through the Chrome DevTools Protocol, then released after attempting navigation. The same case exercises a failed read and the real reload/retry path. It failed against the original product before the fix and passes after it, without sleep-based timing or product test hooks.
-- Verification: production build served by `server.mjs` with `PI_PROVIDER_MANAGER_SERVE_UI=1`, isolated Pi and Codex directories, `build` passed and the full browser suite passed 26/26 with 0 skips on Node `24.18.0`. No config format or runtime compatibility baseline changed.
+- Verification: production build served by `server.mjs` with `PI_PROVIDER_MANAGER_SERVE_UI=1`, isolated Pi and Codex directories, `build` passed and the full browser suite passed 26/26 with 0 skips on Node `24.18.0`. The `0.4.7` release candidate, including the empty-prompt and heading-focus fixes, also passed full `npm test`: 214/214, 0 skips, including real Codex 5/5 and real Pi `0.87.1` 2/2. No config format or runtime compatibility baseline changed.
 
 ## UX Review Implementation — 2026-09-24
 
