@@ -675,6 +675,9 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .models-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 32px 0 12px; }
 .models-header h2 { margin: 0; font-size: 18px; display: flex; align-items: center; }
 .models-header p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+.model-filter { margin-top: 10px; width: min(320px, 100%); padding: 7px 11px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); color: var(--ink); font-size: 13px; }
+.model-filter:focus-visible { outline: none; border-color: var(--orange); box-shadow: var(--ring); }
+.protocol-add-field select { max-width: 100%; }
 .models-actions { display: flex; flex-wrap: wrap; gap: 9px; }
 .compact-button { min-height: 44px; padding-inline: 15px; }
 

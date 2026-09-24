@@ -1131,6 +1131,20 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
   const thinkingAliasModels = form.models.filter((model) => /-(max|xhigh)$/i.test(model.id));
   const currentApi = apiMeta(form.api);
   const namedModels = form.models.filter((model) => model.id.trim()).length;
+  // A long catalogue gets a display-only filter (never touches the default radio
+  // or what a save posts) once it passes eight rows, mirroring the sidebar's own
+  // filter threshold.
+  const [modelFilter, setModelFilter] = useState("");
+  const showModelFilter = form.models.length > 8;
+  const modelFilterText = modelFilter.trim().toLowerCase();
+  const visibleModels = showModelFilter && modelFilterText
+    ? form.models.filter((model) => model.id.toLowerCase().includes(modelFilterText))
+    : form.models;
+  // Protocol overrides: list only the models that actually carry one, plus a
+  // picker to add an override to a model that inherits — instead of a select for
+  // every row in a long catalogue.
+  const overriddenModels = form.models.filter((model) => model.api && model.api !== "inherit");
+  const inheritingModels = form.models.filter((model) => (!model.api || model.api === "inherit") && model.id.trim());
   const userAgentError = userAgentValidationError(form.userAgent);
   const externalUserAgent = form.userAgentKind === "external" && !form.userAgentEdited;
   const userAgentSummary = externalUserAgent
@@ -1223,7 +1237,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
           </div>
         </div>
         <div className="models-header">
-          <div><h2>模型列表<span className="count-pill">{namedModels}</span></h2><p>Pi 以 provider/model 选择模型，thinking level 是独立设置。</p></div>
+          <div><h2>模型列表<span className="count-pill">{showModelFilter && modelFilterText ? `匹配 ${visibleModels.length} / 共 ${form.models.length}` : namedModels}</span></h2><p>Pi 以 provider/model 选择模型，thinking level 是独立设置。</p>{showModelFilter && <input className="model-filter mono" type="search" value={modelFilter} onChange={(event) => setModelFilter(event.target.value)} placeholder="筛选模型 ID" aria-label="筛选模型 ID" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />}</div>
           <div className="models-actions">
             <button type="button" className="secondary-button compact-button" onClick={applySafeToAll} title="把所有模型的上下文容量与最大输出改为安全值，可撤销" aria-label="全部用安全值"><ShieldCheck size={18} /><span className="button-label">全部用安全值</span></button>
             <button type="button" className="secondary-button compact-button" onClick={() => setShowDiscover(true)} title="向网关请求模型清单，勾选后加入列表" aria-label="获取模型"><CloudArrowDown size={18} /><span className="button-label">获取模型</span></button>
@@ -1234,7 +1248,8 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
         {thinkingAliasModels.length > 0 && <div className="model-warning"><WarningCircle size={20} weight="fill" /><span><strong>发现疑似思考档位后缀：</strong>{thinkingAliasModels.map((model) => model.id).join("、")}。只有网关真的把它们作为模型 ID 时才应保留；否则用右侧“推理能力”和 Pi 的 Shift+Tab 切换。</span></div>}
         <div className={`models-table ${scrolled ? "is-scrolled" : ""}`} onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 2)}>
           <div className="model-table-head"><span>模型 ID</span><span>上下文容量</span><span>最大输出</span><span>图像能力</span><span>推理能力</span><span>默认模型</span><span className="model-action-cell" /></div>
-          {form.models.map((model) => <ModelRow key={model.rowId} model={model} isDefault={form.defaultRowId === model.rowId && Boolean(model.id.trim())} isLiveDefault={Boolean(liveDefaultModelId) && model.id.trim() === liveDefaultModelId} onChange={(value) => updateModel(model.rowId, value)} onSafeDefaults={() => updateModel(model.rowId, { ...model, ...safeDefaults(model.id) })} onDefault={() => setForm((current) => ({ ...current, defaultRowId: model.rowId }))} onArmRemove={() => armRemoveModel(model)} onRemove={() => removeModel(model.rowId)} onBlockedRemove={blockLastModelRemoval} canRemove={form.models.length > 1} />)}
+          {visibleModels.map((model) => <ModelRow key={model.rowId} model={model} isDefault={form.defaultRowId === model.rowId && Boolean(model.id.trim())} isLiveDefault={Boolean(liveDefaultModelId) && model.id.trim() === liveDefaultModelId} onChange={(value) => updateModel(model.rowId, value)} onSafeDefaults={() => updateModel(model.rowId, { ...model, ...safeDefaults(model.id) })} onDefault={() => setForm((current) => ({ ...current, defaultRowId: model.rowId }))} onArmRemove={() => armRemoveModel(model)} onRemove={() => removeModel(model.rowId)} onBlockedRemove={blockLastModelRemoval} canRemove={form.models.length > 1} />)}
+          {showModelFilter && modelFilterText && visibleModels.length === 0 && <p className="list-empty">没有匹配 <code className="mono">{modelFilter.trim()}</code> 的模型。</p>}
         </div>
         <p className="scroll-hint">表格可左右滑动，查看上下文容量、图像与推理能力等字段。</p>
         <div className="models-note"><ShieldCheck size={21} weight="duotone" />未指定的能力项将使用保守默认值，不影响正常使用。</div>
@@ -1280,8 +1295,12 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
               <p className="user-agent-disclaimer">留空表示没有模型级覆盖；Pi 默认值或其他配置仍可能提供 Beta 请求头。</p>
             </div>
             <div className="advanced-group protocol-group">
-              <div className="advanced-group-heading"><h3>模型协议覆盖</h3><p>只有网关针对某个模型使用不同接口时才需要设置。</p></div>
-              {form.models.map((model) => <label key={model.rowId}><span className="mono">{model.id || "未命名模型"}</span><select value={model.api} onChange={(event) => updateModel(model.rowId, { ...model, api: event.target.value })}><option value="inherit">继承网关默认协议</option>{API_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label>)}
+              <div className="advanced-group-heading"><h3>模型协议覆盖</h3><p>只有网关针对某个模型使用不同接口时才需要设置。默认全部继承网关协议。</p></div>
+              {overriddenModels.length === 0 && <p className="user-agent-disclaimer">当前没有模型设置协议覆盖。</p>}
+              {overriddenModels.map((model) => <label key={model.rowId}><span className="mono">{model.id || "未命名模型"}</span><select value={model.api} onChange={(event) => updateModel(model.rowId, { ...model, api: event.target.value })}><option value="inherit">继承网关默认协议（移除覆盖）</option>{API_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label>)}
+              {inheritingModels.length > 0 && (
+                <label className="protocol-add-field"><span>为模型添加覆盖</span><select value="" onChange={(event) => { const rowId = event.target.value; if (!rowId) return; const model = form.models.find((item) => item.rowId === rowId); if (model) updateModel(rowId, { ...model, api: API_OPTIONS[0].id }); }}><option value="">选择一个模型…</option>{inheritingModels.map((model) => <option key={model.rowId} value={model.rowId}>{model.id}</option>)}</select></label>
+              )}
             </div>
             <div className="advanced-group json-group">
               <div className="advanced-group-heading"><h3>配置 JSON（进阶）</h3><p>直接编辑该供应商的地址、协议与模型列表（不包含凭据）。应用后仍需点保存，服务端会做完整校验。</p></div>
