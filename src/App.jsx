@@ -2722,6 +2722,29 @@ export function App() {
   };
 
   const bridgeAction = async (action) => {
+    if (demoMode) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const providerId = codexForm.providerId.trim();
+      setState((current) => ({
+        ...current,
+        codex: {
+          ...current.codex,
+          bridge: {
+            providerId,
+            supervisable: true,
+            running: action === "start",
+            port: 4000,
+            binary: "litellm",
+            binarySource: "discovered",
+            version: "1.97.0",
+          },
+        },
+      }));
+      showToast(action === "start"
+        ? "已启动本地桥；几秒后再看状态，首次启动 LiteLLM 会慢一些"
+        : "已停止本地桥");
+      return;
+    }
     const response = await fetch(`/api/codex/bridge/${action}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2786,6 +2809,7 @@ export function App() {
           defaultModelId: selected.id.trim(),
           activated: saved.isActive,
           requiresAuth,
+          bridged: codexForm.upstream === "bridge",
           command: "codex",
           otherModels: named.map((model) => model.id.trim()).filter((id) => id !== selected.id.trim()),
         });
@@ -2831,6 +2855,10 @@ export function App() {
         defaultModelId: selected.id.trim(),
         activated: Boolean(saved?.isActive),
         requiresAuth: saved?.requiresAuth !== false,
+        // Whether the saved provider is bridged decides whether the success
+        // screen must first get the local bridge running: the command it
+        // advertises fails until the bridge is up.
+        bridged: Boolean(saved?.bridge) || codexForm.upstream === "bridge",
         command: "codex",
         // The provider's other models, for the `codex -m` hint. Codex sends
         // whatever string it is given, so these need no slugging.
@@ -3163,7 +3191,7 @@ export function App() {
           ) : view === "settings" ? (
             <CodexSettingsScreen state={state} saving={saving} error={error} conflict={conflict} onSave={saveCodexSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} />
           ) : view === "success" && codexSaveResult ? (
-            <CodexSuccessScreen result={codexSaveResult} onCopy={copyCommand} onReturn={returnToSavedCodexProvider} onAdd={startNewCodex} />
+            <CodexSuccessScreen result={codexSaveResult} codex={codex} onCopy={copyCommand} onReturn={returnToSavedCodexProvider} onAdd={startNewCodex} onStartBridge={() => bridgeAction("start")} onStopBridge={() => bridgeAction("stop")} onNotify={showToast} />
           ) : (
             <>
               <CodexStepper step={codexStep} onStep={setCodexStep} />

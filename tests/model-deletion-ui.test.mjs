@@ -3284,3 +3284,62 @@ test("the first Pi provider can only be saved as default", { timeout: 90_000 }, 
     fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
+
+test("a saved bridged Codex provider gets its bridge control on the success screen", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-brg-pi-"));
+  const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-brg-codex-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-brg-"));
+  writeFixture(agentDir);
+  // An empty Codex config: a fresh bridged provider has room to be created.
+  fs.writeFileSync(path.join(codexDir, "config.toml"), "");
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server; let chrome; let cdp; let serverOutput = "";
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: codexDir, PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
+    chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl("http://127.0.0.1:" + debugPort + "/json/version", 30_000);
+    const target = await fetch("http://127.0.0.1:" + debugPort + "/json/new?" + encodeURIComponent("http://127.0.0.1:" + appPort), { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl); await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.send("Page.navigate", { url: "http://127.0.0.1:" + appPort });
+    const clickText = (selector, text) => cdp.evaluate("[...document.querySelectorAll(" + JSON.stringify(selector) + ")].find((node) => node.textContent.includes(" + JSON.stringify(text) + ")).click()");
+    const setNth = (index, value) => cdp.evaluate("(() => { const input = document.querySelectorAll('.form-grid input')[" + index + "]; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(input, " + JSON.stringify(value) + "); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+    await cdp.waitFor("document.querySelector('.target-switch')");
+    await clickText(".target-switch button", "Codex");
+    await cdp.waitFor("document.querySelector('.protocol-grid.is-duo')");
+    // Pick the chat/completions (bridge) path — the second card.
+    await cdp.evaluate("document.querySelectorAll('.protocol-card')[1].click()");
+    await cdp.waitFor("document.querySelector('.protocol-card.is-selected b').textContent.includes('经本地桥')");
+    await clickText(".wizard-footer .primary-button", "下一步");
+    await cdp.waitFor("document.querySelectorAll('.form-grid input').length === 3");
+    await setNth(0, "relay");
+    await setNth(1, "Relay");
+    await setNth(2, "https://relay.example/v1");
+    await cdp.evaluate("(() => { const input = document.querySelector('.key-field input'); const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(input, 'upstream-key-not-real'); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+    await clickText(".wizard-footer .primary-button", "下一步");
+    await cdp.waitFor("document.querySelector('.model-row.is-codex')");
+    await clickText(".wizard-footer .primary-button", "保存并设为当前生效");
+    await cdp.waitFor("document.querySelector('.success-page')", 20_000);
+    // The success screen leads with the bridge control, because the codex
+    // command it advertises fails until the bridge is running.
+    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.bridge-first-step .bridge-control'))"), true);
+    assert.equal(await cdp.evaluate("document.querySelector('.command-row code').textContent"), "codex");
+    // Either the manager can supervise (a 启动桥 button) or it hands over a
+    // manual command; both are the bridge control, never a bare codex prompt.
+    const bridgeUi = await cdp.evaluate("(() => { const step = document.querySelector('.bridge-first-step'); return { startButton: [...step.querySelectorAll('button')].some((b) => b.textContent.includes('启动桥')), manual: Boolean(step.querySelector('.bridge-command')) }; })()");
+    assert.equal(bridgeUi.startButton || bridgeUi.manual, true, JSON.stringify(bridgeUi));
+    // The bridge key never comes back to the browser.
+    assert.equal(await cdp.evaluate("(async () => (await (await fetch('/api/state', { cache: 'no-store' })).text()).includes('upstream-key-not-real'))()"), false);
+    assert.deepEqual(cdp.errors, []);
+  } finally {
+    if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }
+    await stopProcess(chrome, true); await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(codexDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});

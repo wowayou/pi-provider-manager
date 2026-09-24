@@ -928,7 +928,7 @@ export function CodexProviderBulkDeleteDialog({ providerIds, codex, deleting, re
   );
 }
 
-export function CodexSuccessScreen({ result, onCopy, onReturn, onAdd }) {
+export function CodexSuccessScreen({ result, codex, onCopy, onReturn, onAdd, onStartBridge, onStopBridge, onNotify }) {
   const [copied, setCopied] = useState(false);
   const commandRef = useRef(null);
   const copy = async () => {
@@ -968,6 +968,15 @@ export function CodexSuccessScreen({ result, onCopy, onReturn, onAdd }) {
             <p>配置只在 Codex 启动时读取。<strong>正在运行的会话不受影响</strong>，需要新开一个终端才会生效。</p>
           </div>
         </div>
+        {result.bridged && (
+          // A bridged provider reaches its upstream only through the local
+          // bridge, so the advertised codex command fails until it is running.
+          // Get it up first, reusing the same control the credentials step uses.
+          <div className="bridge-first-step">
+            <p className="bridge-first-note"><strong>先启动本地桥</strong>：这个供应商通过本地 LiteLLM 桥转发请求，桥没跑起来之前下面的命令会失败。</p>
+            <BridgeControl codex={codex || {}} providerId={result.providerId} onStart={onStartBridge} onStop={onStopBridge} onNotify={onNotify} />
+          </div>
+        )}
         <div className="command-row">
           <code ref={commandRef}>{result.command}</code>
           <button type="button" className={`copy-button ${copied ? "is-copied" : ""}`} onClick={copy}>
