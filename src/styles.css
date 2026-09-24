@@ -347,6 +347,15 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 }
 .protocol-card:focus-visible, .provider-item:focus-visible, .provider-select:focus-visible, .add-provider:focus-visible { outline-offset: 3px; }
 
+/* The step/view heading is focused programmatically after a navigation only so
+   a screen reader announces the new screen; it is never in the tab order
+   (tabindex=-1 is set at focus time). It is not an interactive control, so the
+   app focus ring must not box it. Without this, reloading with the keyboard
+   (F5/Ctrl+R) leaves the browser's last-interaction-was-keyboard heuristic on,
+   so the async first load's jump to the models step draws the ring around the
+   heading — the "random control gets outlined on refresh" report. */
+.workspace h1:focus, .workspace h1:focus-visible { outline: none; }
+
 code, .mono, input.mono, .command-row code, kbd {
   font-family: var(--mono);
   font-size: .94em;

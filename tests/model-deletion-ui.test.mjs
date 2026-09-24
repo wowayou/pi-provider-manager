@@ -3372,6 +3372,23 @@ test("editing a saved provider jumps steps, focuses invalid fields, and moves th
     // Entering Settings via the sidebar sends focus to the settings heading.
     await cdp.evaluate("document.querySelector('.nav-settings').click()");
     await cdp.waitFor("document.querySelector('.settings-page') && document.activeElement === document.querySelector('.workspace h1')");
+    // That heading is focused only to announce the screen (tabindex=-1, never in
+    // the tab order). Forcing :focus-visible — which a keyboard reload leaves on,
+    // and what boxed the models-step heading on first open — must not draw the
+    // app focus ring around a non-interactive heading.
+    await cdp.send("DOM.enable");
+    await cdp.send("CSS.enable");
+    const doc = await cdp.send("DOM.getDocument", { depth: 1 });
+    const headingNode = await cdp.send("DOM.querySelector", { nodeId: doc.root.nodeId, selector: ".workspace h1" });
+    await cdp.send("CSS.forcePseudoState", { nodeId: headingNode.nodeId, forcedPseudoClasses: ["focus", "focus-visible"] });
+    // outline-style none means nothing is painted, whatever the computed width
+    // (the `outline: none` shorthand leaves width at its `medium` initial).
+    assert.equal(
+      await cdp.evaluate("getComputedStyle(document.querySelector('.workspace h1')).outlineStyle"),
+      "none",
+      "the announcement heading must not show the app focus ring",
+    );
+    await cdp.send("CSS.forcePseudoState", { nodeId: headingNode.nodeId, forcedPseudoClasses: [] });
     await cdp.evaluate("document.querySelector('.settings-title .secondary-button').click()");
     await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
 
