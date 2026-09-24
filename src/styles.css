@@ -481,8 +481,8 @@ code { color: var(--ink); background: transparent; }
 /* A utility row balanced at the two ends: the support link left, the appearance
    toggle right. Divider above separates it from the nav items. */
 .footer-utility { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--divider); }
-.sidebar-support { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: var(--radius-md); font-size: 12.5px; color: var(--ink-3); text-decoration: none; transition: color var(--fast) var(--ease), background var(--fast) var(--ease); }
-.sidebar-support svg { color: var(--red); }
+.sidebar-support { display: inline-flex; align-items: center; height: 36px; gap: 11px; padding: 0 13px; line-height: 20px; border-radius: var(--radius-md); font-size: 12.5px; color: var(--ink-3); text-decoration: none; transition: color var(--fast) var(--ease), background var(--fast) var(--ease); }
+.sidebar-support svg { flex: none; width: 18px; height: 18px; color: var(--red); }
 .sidebar-support:hover { color: var(--orange-dark); background: var(--surface-hover); }
 .theme-cycle-icon { flex: none; width: 36px; height: 36px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--ink-3); display: grid; place-items: center; cursor: pointer; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
 .theme-cycle-icon:hover { background: var(--surface-hover); color: var(--orange-dark); }

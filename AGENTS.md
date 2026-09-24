@@ -34,6 +34,8 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 
 ## Interaction and UI Conventions
 
+- **Owner feedback, 2026-09-24:** the broad charcoal/blue palette, system-font and compact-layout candidate was judged worse than the original. It is rejected, not an accepted design reference. Keep the original v0.4.7 visual language as the baseline and make subsequent visual experiments small enough to compare one change at a time.
+
 - Typeset every machine literal in the monospace `--mono` face: provider IDs, base URLs, model IDs, token counts, thinking levels, config paths, versions, the `pi --model` command. Prose stays in Inter; do not mix the two roles.
 - One focus treatment app-wide: a 2px `--orange` `:focus-visible` outline with 2px offset, and the `--ring` box-shadow on text fields. Never remove focus styling from an interactive element.
 - All motion uses the `--fast` / `--base` / `--ease` tokens and degrades under `prefers-reduced-motion`; only progress indicators keep animating there.

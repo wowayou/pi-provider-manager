@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Sidebar utility alignment.** The support link now shares the appearance control's 36px height and 18px icon size, with its icon centre and text aligned to the navigation above.
+
 ## 0.4.7 - 2026-09-24
 
 - **Validated against Pi `0.87.1` (unchanged baseline).** A patch release for prompt-file adoption, keyboard-reload focus, and initial configuration loading. Full `npm test` on the release candidate passed 214/214 with 0 skips, including 26 production-browser cases, 5 real-Codex cases, and 2 real-Pi cases. No configuration format or compatibility baseline changes.

@@ -13,6 +13,11 @@
 - Primary viewport: `1487 x 1058 CSS px`, device scale factor `1`
 - State: demo mode with generic paths and fake credentials only
 
+## Sidebar Utility Alignment — 2026-09-24
+
+- The support link uses a 36px target matching the theme toggle, an 18px icon, and padding/gap that align its icon centre and text with the navigation above. Original colours, font settings, filled heart, theme toggle and page layout are retained.
+- Verification: production build passed. An isolated production-browser check exercised light/dark at 1440×900 and 390×844 (4/4): utility heights and icon sizes match, centres/text align within 1px, and sidebar font/colours plus workspace height match the original measurements.
+
 ## Initial Configuration Navigation Race — 2026-09-24
 
 - Cause: the sidebar rendered before the first `/api/state` response. Clicking Codex in that interval selected a blank draft that the eventual response did not refresh; clicking Add could let the response replace the new Pi draft. Holding the response reproduced the Codex failure even with a 30-second DOM wait.
