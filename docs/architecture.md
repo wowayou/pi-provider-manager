@@ -6,20 +6,20 @@ Pi Provider Manager is a local editor for the native provider, model, credential
 
 The project does not:
 
-- proxy model traffic or sit between Pi and a provider
+- proxy model traffic or sit between either agent and its inference endpoint
 - replace Pi's model selector, session state, or runtime
 - copy Pi source code or depend on a Pi package at runtime
-- discover remote model catalogs without an explicit future feature and user consent
+- fetch remote model catalogs automatically; Pi discovery runs only on an explicit user request, and Codex discovery is out of scope
 - expose the local management API beyond loopback
 
 ## Vocabulary
 
-- **Provider / API gateway**: one entry under `models.json.providers`. It owns one Base URL, one credential, and one default wire protocol, and it may expose models from several upstream model families. In this project, "provider" does not necessarily mean one model vendor.
+- **Provider / API gateway**: a gateway entry — under `models.json.providers` for Pi, or in the manager-owned provider table/store for Codex. It owns one Base URL and credential (held by the bridge for bridged Codex providers), plus a default wire protocol for Pi, and it may expose models from several upstream model families. In this project, "provider" does not necessarily mean one model vendor.
 - **Model**: a provider-scoped model ID. Pi selects it at runtime as `provider/model`; thinking level remains a separate setting or command suffix.
 - **API / wire protocol**: one of Pi's supported protocol identifiers, currently `openai-responses`, `openai-completions`, `anthropic-messages`, or `google-generative-ai`. A provider sets the default and a model may override it.
-- **Provider request headers**: optional headers on the Pi provider, including a literal `User-Agent` compatibility override. The manager distinguishes absent, literal, and external/dynamic values; it only edits the literal value explicitly requested by the user, and model or extension headers remain outside the browser response.
+- **Provider request headers**: optional headers on the Pi provider, including a literal `User-Agent` compatibility override. The manager distinguishes absent, literal, and external/dynamic values; it only edits the literal value explicitly requested by the user, and model-level User-Agent or extension header values remain outside the browser response. The editable model-level `anthropic-beta` literal is a separate explicit exception; external/dynamic values are not returned.
 - **Target**: which agent a screen is editing, `pi` or `codex`. The two share the shell — sidebar, three-step wizard, settings screen — and nothing else; they have separate files, separate revisions, and separate vocabulary. Each marks its live selection on the provider row in that shared sidebar: Codex its active provider (生效中), Pi `settings.json`'s `defaultProvider` (默认).
-- **Owned provider table**: the single `[model_providers.<id>]` in Codex's `config.toml` that this manager writes, `custom` by default. Codex's other provider tables belong to the user and are never read, written, or deleted.
+- **Owned provider table**: the single `[model_providers.<id>]` in Codex's `config.toml` that this manager writes, `custom` by default. Codex's other provider tables belong to the user and are preserved byte for byte. The manager may inspect them to report a missing required `name`, but never writes or deletes them.
 - **Provider store**: `pi-provider-manager-store.json`, this manager's own file inside the Codex directory. It holds every Codex provider's definition and key. See "The Codex exception" below for why it exists.
 - **Bridge**: a LiteLLM proxy that translates Codex's Responses requests into an upstream that exposes only `/v1/chat/completions`. The manager writes its config, points the Codex provider at it, and starts and stops the process; the user installs LiteLLM. The manager never carries model traffic itself.
 - **Validated Pi version**: the release in `package.json.piValidatedVersion` that completed the compatibility checklist. It is not the same as the Pi version detected on a user's machine.
@@ -38,7 +38,9 @@ flowchart LR
   Server -->|read/write| CodexStore[provider store]
   Server -.->|read-only version command| Pi[Installed Pi CLI]
   Server -.->|read-only version command| Codex[Installed Codex CLI]
-  Server -.->|reachability only, loopback only| Bridge[User-run Responses-to-Chat bridge]
+  Server -->|config, start/stop, loopback probe| Bridge[Local LiteLLM bridge]
+  Server -.->|user-requested catalog metadata| Gateway[Pi API gateway]
+  Server -.->|user-requested check and upgrade| ManagerReleases[Manager release or git upstream]
   Sites[Static Sites artifact] -->|preview assets only| Preview[Browser preview]
 
   Monitor[Scheduled maintenance workflow] -.->|release metadata only| Releases[Pi GitHub Releases]
@@ -48,31 +50,31 @@ flowchart LR
 There are three deliberately separate execution paths:
 
 1. The shipped local product runs `server.mjs` with `PI_PROVIDER_MANAGER_SERVE_UI=1`, serving the built UI and API from one `127.0.0.1` process.
-2. Vite development runs the same writable `server.mjs` API beside the Vite UI, with a local proxy between them. Use a temporary `PI_CODING_AGENT_DIR`; this path is useful for development but is not sufficient evidence for production headers or static serving.
+2. Vite development runs the same writable `server.mjs` API beside the Vite UI, with a local proxy between them. Use separate temporary `PI_CODING_AGENT_DIR` and `PI_PROVIDER_MANAGER_CODEX_DIR` directories; this path is useful for development but is not sufficient evidence for production headers or static serving.
 3. The Sites artifact is a static preview/handoff package. Its Worker only serves assets and an HTML fallback; it has no access to local Pi files and is not a hosted replacement for the local product.
 
-Only `server.mjs` writes Pi or Codex configuration, in the first two paths. The dotted edges are read-only: version commands and a bridge reachability probe. No model traffic passes through this process for either agent. Demo mode and the Sites artifact never write it. The Pi update monitor is repository maintenance automation, not a fourth product runtime.
+Only `server.mjs` writes Pi or Codex configuration, in the first two paths. The manager also fetches catalog metadata, checks or downloads its own updates on request, and supervises a local LiteLLM process where process ownership can be proven. No inference traffic passes through the manager for either agent. Demo mode and the Sites artifact never write local agent configuration. The Pi update monitor is repository maintenance automation, not a fourth product runtime.
 
 ## Component map
 
 | Path | Responsibility | Explicitly does not own |
 | --- | --- | --- |
 | `src/` | React workflow, validation feedback, demo fixture, theme, and save handoff | filesystem access, stored credentials, provider traffic |
-| `lib/` | dependency-free server modules shipped as source: atomic writes, the shared managed-file guard, TOML document model, Codex config, LiteLLM bridge, prompt library, Pi and Codex version detection, this project's own update lookup and upgrade | HTTP, routing, UI state |
-| `server.mjs` | loopback API, config validation, revision checks, atomic writes, rollback, static production serving, replacing itself on restart | remote provider requests, model execution, update monitoring |
+| `lib/` | dependency-free server modules shipped as source: atomic writes, the shared managed-file guard, TOML document model, Codex config, LiteLLM bridge, prompt library, Pi and Codex version detection, model discovery, this project's own update lookup and upgrade | local HTTP routing, UI state |
+| `server.mjs` | loopback API, config validation, revision checks, atomic writes, rollback, static production serving, user-requested catalog discovery, replacing itself on restart | inference requests, model execution, scheduled update monitoring |
 | `bin/pi-provider-manager-ui` | WSL/local process discovery, port selection, detached launch, browser opening | configuration schema or UI state |
 | `scripts/dev.mjs` | paired Vite and API development processes | production verification |
 | `worker/index.js` | static asset and app-route fallback for Sites packaging | `/api` implementation or Pi config access |
 | `scripts/check-pi-update.mjs` | compare the declared compatibility baseline with the latest stable Pi release and maintain one reminder issue | application startup, builds, Pi installation, automatic baseline changes |
-| `tests/` | API/security boundary, Sites packaging, and update-monitor behavior | live provider credentials or private fixtures |
-| `design-qa.md`, `qa/` | accepted visual and interaction evidence, the current compatibility triage in full, and a one-row-per-run verification history whose superseded detail lives in git history | current runtime state |
+| `tests/` | API/security boundary, production-browser flows, real-agent compatibility, release/launcher and Sites packaging, update-monitor behavior | live provider credentials or private fixtures |
+| `design-qa.md`, `qa/` | dated visual, interaction, and compatibility evidence; a bounded verification history with links to archived detail and historical screenshots | current runtime state |
 
 ## Configuration ownership
 
 | File | Access | Manager-owned behavior |
 | --- | --- | --- |
 | `auth.json` | read/write | stores new or migrated provider credentials; existing values never enter browser responses |
-| `models.json` | read/write | edits providers, models, protocol selection, provider-level request headers, and known compatibility fields while preserving unknown fields; model headers and other unrecognised fields stay on disk but do not enter browser state |
+| `models.json` | read/write | edits providers, models, protocol selection, provider-level request headers, and known compatibility fields while preserving unknown fields; the supported literal `anthropic-beta` model header is editable; other model headers and unrecognised fields stay on disk and do not enter browser state |
 | `settings.json` | read/write | edits `defaultProvider`, `defaultModel`, `defaultThinkingLevel`, `hideThinkingBlock`, and `transport`; preserves other keys |
 | `models-store.json` | none | intentionally never read or written |
 | `$CODEX_HOME/config.toml` | read/write | the owned `[model_providers.<id>]` and the top-level `model`, `model_provider`, `model_reasoning_effort`, `plan_mode_reasoning_effort`, `model_verbosity`, `model_context_window`; every other key, comment, and hand-written provider table is preserved byte for byte. Also removes `[profiles.*]` tables recorded as generated by 0.2.0/0.2.1, which current Codex rejects |
@@ -82,12 +84,12 @@ Only `server.mjs` writes Pi or Codex configuration, in the first two paths. The 
 | `$CODEX_HOME/auth.json` | read/write | `auth_mode` and `OPENAI_API_KEY` for the active provider only; other keys, including a ChatGPT login's `tokens`, are preserved, and a provider with `requires_openai_auth = false` does not touch the file at all |
 | `$CODEX_HOME/pi-provider-manager-store.json` | read/write | this manager's own provider store, `0600` |
 
-Provider saves and deletions snapshot all three writable files, validate temporary JSON, replace files with private permissions where supported, and restore the snapshots if any write fails. Every state response also carries an opaque HMAC revision over the raw contents of the three files. Provider, provider-delete, and settings writes must echo that revision; a mismatch returns HTTP 409 before any write, so a stale browser tab cannot overwrite a change made by CC Switch, another manager process, or a text editor. The HMAC key is process-local and never exposes a hash that can be tested against a stored credential. Deleting a provider removes its credential by default, may retain it as an auth-only entry for later reuse, and requires a valid replacement provider/model when the target is Pi's current default. Bulk deletion (`POST /api/providers/delete-bulk`) removes a set in one write under a single revision, is all-or-nothing — one invalid or missing id refuses the whole request — and requires that the replacement for Pi's default be a provider outside the set. Bulk deletion is Pi only. Auth-only entries remain available as credential sources but are not rendered as model providers. Settings-only saves use the same validated atomic write primitive for `settings.json`.
+Pi provider saves and deletions snapshot all three writable files, validate temporary JSON, replace files with private permissions where supported, and restore the snapshots if any write fails. Every state response also carries an opaque HMAC revision over the raw contents of the three files. Provider, provider-delete, and settings writes must echo that revision; a mismatch returns HTTP 409 before any write, so a stale browser tab cannot overwrite a change made by CC Switch, another manager process, or a text editor. The HMAC key is process-local and never exposes a hash that can be tested against a stored credential. Deleting a provider removes its credential by default, may retain it as an auth-only entry for later reuse, and requires a valid replacement provider/model when the target is Pi's current default. Bulk deletion (`POST /api/providers/delete-bulk`) removes a set in one write under a single revision, is all-or-nothing — one invalid or missing id refuses the whole request — and requires that the replacement for Pi's default be a provider outside the set. Codex has a separate `POST /api/codex/providers/delete-bulk` endpoint under its own revision, with the same all-or-nothing validation; deleting the active provider requires a surviving replacement and removes the selected store entries and their keys. On Pi, auth-only entries remain available as credential sources but are not rendered as model providers. Settings-only saves use the same validated atomic write primitive for `settings.json`.
 
 
 ### The Codex exception to "the config file is the source of truth"
 
-For Pi, the three JSON files are the whole truth and this manager stores nothing of its own. Codex cannot work that way, and the difference is deliberate rather than accidental:
+For Pi provider, credential, and runtime settings, the three native JSON files are the whole truth. The optional prompt library stores alternatives separately for both agents. Codex provider configuration cannot live entirely in its native files:
 
 - Codex has exactly one credential slot (`auth.json` → `OPENAI_API_KEY`).
 - This project writes exactly one `[model_providers.<id>]` table, so `config.toml` describes only the provider currently in use — that is what makes the file match, line for line, the snippet a vendor publishes.
@@ -109,7 +111,7 @@ Three rules hold that supervision honest. The proxy is pinned to `127.0.0.1`, be
 
 ### Reproduce retained-credential deletion
 
-Use a temporary `PI_CODING_AGENT_DIR` with a non-default provider that has one model and an `auth.json` entry. First read `/api/state` and carry its opaque `revision` into the write; the revision is intentionally not derived in the client and must not be invented. Against the production-shaped server, send:
+Use separate temporary `PI_CODING_AGENT_DIR` and `PI_PROVIDER_MANAGER_CODEX_DIR` directories, with a non-default Pi provider that has one model and an `auth.json` entry. First read `/api/state` and carry its opaque `revision` into the write; the revision is intentionally not derived in the client and must not be invented. Against the production-shaped server, send:
 
 ```http
 POST /api/providers/delete
@@ -149,7 +151,7 @@ The save succeeds and reuses the retained credential. The canonical automated re
 
 ## Security boundary
 
-The browser can send credentials during a save, so the local API is a security boundary even though it listens only on loopback.
+The browser can send new credentials during a save or an explicit Pi catalog request, so the local API is a security boundary even though it listens only on loopback.
 
 Required invariants:
 
@@ -166,7 +168,7 @@ Changes to these rules require exercising real requests against `PI_PROVIDER_MAN
 
 ## Compatibility isolation
 
-The only product-level compatibility input is `piValidatedVersion` in `package.json`. Vite injects it into the non-writing demo fixture, and the server reports it beside the locally detected `pi --version`; neither path downloads Pi metadata or decides compatibility at runtime.
+The declared compatibility baselines are `piValidatedVersion` and `codexValidatedVersion` in `package.json`. Vite injects them into the non-writing demo fixture, and the server reports them beside the locally detected agent versions. These values are validation records, not runtime dependencies; startup does not download upstream metadata.
 
 The scheduled monitor lives under `.github/workflows/` and reads the public `earendil-works/pi` latest stable GitHub Release. A newer release creates or refreshes a maintenance issue. It never changes code, installs Pi, updates `piValidatedVersion`, or claims the new release is compatible. See [compatibility.md](compatibility.md) for the triage and validation policy.
 
@@ -175,16 +177,16 @@ The scheduled monitor lives under `.github/workflows/` and reads the public `ear
 | Question | Source of truth |
 | --- | --- |
 | Manager version reported by a build | `package.json.version` |
-| Pi compatibility baseline | `package.json.piValidatedVersion` |
+| Pi / Codex compatibility baselines | `package.json.piValidatedVersion` / `package.json.codexValidatedVersion` |
 | Shipped versions | Git tags and GitHub Releases; `CHANGELOG.md` records release history and pending `Unreleased` work |
 | Pi file schema and write behavior | `server.mjs`, guarded by `tests/server.test.mjs` |
 | Product runtime and security ownership | this document and `SECURITY.md`, checked against the server tests |
 | Pi update triage and validation steps | `docs/compatibility.md` |
 | Historical visual and compatibility evidence | dated entries in `design-qa.md`; they are evidence, not live runtime state |
 | How to install, operate, and troubleshoot the product | `docs/usage.zh-CN.md`, written for users rather than maintainers; it ships inside release archives |
-| Publication tasks still open | `OPEN_SOURCE_CHECKLIST.md` |
+| Completed first-publication record | `OPEN_SOURCE_CHECKLIST.md` |
 
-Do not create another live copy of the app version, validated Pi version, or open-item count. Release notes and dated QA evidence may quote the values they actually tested; current documentation should point to the source above.
+Do not create another live copy of the app version, validated agent versions, or open-item count. Release notes and dated QA evidence may quote the values they actually tested; current documentation should point to the source above.
 
 ## Verification matrix
 

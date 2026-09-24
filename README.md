@@ -18,24 +18,24 @@ Pi is model-centric at runtime but provider-scoped in configuration:
 
 Pi Provider Manager makes that relationship visible instead of forcing users to hand-edit three JSON files.
 
-Codex has the opposite problem. Its configuration is small but unforgiving: one credential slot, one wire protocol it still accepts, and a TOML table where a single unrecognised key fails the whole thing. Switching gateways by hand means editing two files correctly every time, and keeping the key you are not currently using somewhere safe. The same three-step workflow now covers that too — see [Codex support](#codex-support).
+Codex has the opposite problem. Its configuration is small but unforgiving: one credential slot, one wire protocol it still accepts, and a TOML provider table that must include `name` or the whole config fails to load. Switching gateways by hand means editing two files correctly every time, and keeping the key you are not currently using somewhere safe. The same three-step workflow now covers that too — see [Codex support](#codex-support).
 
 ## Highlights
 
 - **Pi-native provider/model workflow** — model IDs, default thinking level, image capability, context/output limits, and per-model API overrides.
 - **Router-first catalog management** — one OpenRouter-like gateway can contain models from many upstream vendors.
-- **Provider-level compatibility UA** — the third step keeps an optional literal `User-Agent` override with explicit none/literal/external handling; model-level overrides are surfaced without exposing their headers.
+- **Provider-level compatibility UA** — the third step keeps an optional literal `User-Agent` override with explicit none/literal/external handling; model-level User-Agent overrides are reported without returning their values. The editable model-level `anthropic-beta` literal is exposed separately.
 - **Secret-safe local boundary** — existing API keys are never returned to the browser; the backend binds to `127.0.0.1` only.
 - **Validated atomic writes** — updates to `models.json`, `auth.json`, and `settings.json` use validated temporary files and rollback on failure.
 - **Concurrent-edit protection** — every write carries an opaque revision; changes made by CC Switch, another tab, or a text editor cause a `409` instead of being overwritten by stale form data.
-- **Guarded provider deletion** — removing a gateway names every affected model, deletes its credential by default with an option to retain it, and requires a valid replacement before deleting Pi's current default.
-- **Row menu and bulk deletion** — every provider row carries a menu to duplicate or delete it without opening it into the wizard first, and a 选择 mode deletes several at once in a single all-or-nothing write (Pi only).
+- **Guarded provider deletion** — Pi deletion names every affected model, deletes its credential by default with an option to retain it, and requires a valid replacement before deleting the current default. Codex deletion removes the stored key and requires a surviving provider to replace the active one.
+- **Row menu and bulk deletion** — every provider row carries a menu to duplicate or delete it without opening it into the wizard first, and a 选择 mode deletes several at once in a single all-or-nothing write for either Pi or Codex.
 - **Forward-compatible edits** — unknown provider, model, and settings fields are preserved when known fields are updated.
 - **Beginner save handoff** — after saving, the app gives the exact `pi --model provider/model:thinking` command and `/model` verification steps.
 - **Large catalog UX** — sticky model header, internal scrolling, bulk model-ID import, a 获取模型 dialog that lists the gateway's own catalogue as checkboxes (fetched server-side with the credential a save would use, never returned to the browser, with an overridable listing path for relays that put their catalogue elsewhere), and warnings when `-max`/`-xhigh` may be thinking levels rather than real model IDs.
 - **Per-model `anthropic-beta` header** — for gateways that still ask for `context-1m-2025-08-07` or another beta token: literal, validated, settable on any protocol (Pi sends model headers on every API; a gateway that ignores it is the gateway's business), with the same none/literal/external contract as the User-Agent. `npm run test:pi-real` runs the installed Pi against a loopback gateway to prove what reaches the wire.
 - **Duplicate a provider** — for either agent, start a new draft from an existing one when only the gateway address and the key differ. The models and their compatibility settings carry over; the credential deliberately does not, because a stored key never returns to the browser.
-- **Real Pi settings** — default provider/model/thinking, transport, thinking-block visibility, installed Pi version, and compatibility status, including an update check you press for (nothing else reaches the network), an in-place `git` upgrade for a checkout, and a restart that applies it without leaving you without a manager if it fails.
+- **Real Pi settings** — default provider/model/thinking, transport, thinking-block visibility, installed Pi version, and compatibility status, including an update check you press for, an in-place `git` upgrade for a checkout, and a restart that applies it without leaving you without a manager if it fails. Remote update checks and Pi catalog discovery are user-triggered; startup and page load do not fetch them.
 - **Codex CLI support** — the same sidebar and three-step wizard manage `~/.codex/config.toml` and `auth.json`, switch the active gateway in one click, and preserve every comment and hand-written table in the file.
 - **Chat-Completions-only upstreams** — Codex speaks only the Responses API, so the manager configures and supervises a local LiteLLM bridge for gateways that never implemented it. You install LiteLLM; it writes the config, wires Codex to the proxy, and starts or stops it.
 - **No database lock-in** — Pi remains the source of truth; the app edits Pi's own documented files and never reads or writes `models-store.json`.
@@ -113,7 +113,7 @@ Both agents read their global instructions from the directory this manager alrea
 | Pi | `~/.pi/agent/APPEND_SYSTEM.md` | appended to the default system prompt |
 | Codex | `$CODEX_HOME/AGENTS.md` | concatenated with the project's `AGENTS.md` |
 
-A file that predates the manager is adopted rather than presented as absent, on the read path only — opening the screen never writes. Deleting the document that is currently in a file requires naming its replacement, the same rule as deleting a live provider.
+Existing content that matches no saved prompt is adopted on the read path only — opening the screen never writes. An unmatched zero-byte file is not adopted; whitespace is preserved as content, and a saved empty prompt can still match the file. Deleting the document that is currently in a file requires naming its replacement, the same rule as deleting a live provider.
 
 Prompt text is returned to the browser, unlike a credential. That is deliberate: a document nobody can read back cannot be edited. Anything secret belongs in a credential, not in a prompt.
 
@@ -257,7 +257,7 @@ The dedicated port range also avoids stale Service Workers and cached apps commo
 - The API binds to `127.0.0.1` only.
 - API requests require an allowlisted loopback `Host`; writes additionally require `application/json`, so a foreign page cannot use a simple cross-origin request to mutate configuration.
 - Existing API keys are never serialized into browser responses.
-- New keys are accepted only on save and written to `auth.json` with private permissions.
+- New keys may be used for an explicit Pi catalog request before saving. Saves write credentials to the relevant `auth.json` or Codex provider store with private permissions; managed-bridge upstream keys stay in the store.
 - Backend tests use temporary directories and fake keys.
 - Do not attach `auth.json`, API keys, or private provider exports to GitHub issues.
 
@@ -268,6 +268,8 @@ See [SECURITY.md](SECURITY.md) for the disclosure policy and threat boundary.
 The Pi release this manager is validated against is recorded once, as `piValidatedVersion` in `package.json`, and surfaced in Settings next to the Pi version actually detected on your machine. Settings says so plainly when the two differ. `codexValidatedVersion` does the same for Codex.
 
 Pi evolves independently, so every release runs the compatibility checklist in [docs/compatibility.md](docs/compatibility.md) and states the validated Pi version in its release notes.
+
+Codex has no automated release monitor. Follow the [Codex compatibility checks](docs/compatibility.md#codex-compatibility) and run the real-binary suite when reviewing an upgrade.
 
 A separate daily repository workflow compares that baseline with Pi's latest stable GitHub Release and opens or refreshes a maintenance issue when review is needed. It is not part of the app: startup and builds do not contact upstream, no Pi package is added as a dependency, and the baseline never advances without manual compatibility validation.
 
@@ -298,13 +300,13 @@ npm run test:pi-update
 
 Use `/?demo=1` for a non-writing visual and interaction demo.
 
-The normal development command starts the real writable API. Set `PI_CODING_AGENT_DIR` to a temporary directory before using it when you do not intend to edit your normal Pi configuration. Demo mode and the Sites artifact are the non-writing paths.
+The normal development command starts the real writable API. Set `PI_CODING_AGENT_DIR` and `PI_PROVIDER_MANAGER_CODEX_DIR` to separate temporary directories before using it when you do not intend to edit your normal configuration; state reads inspect both targets. Demo mode and the Sites artifact are the non-writing paths.
 
 `npm run check:pi-update` performs an optional live, read-only comparison against Pi's latest stable GitHub Release.
 
 ## Open-source status
 
-Released under the [MIT License](LICENSE). See [OPEN_SOURCE_CHECKLIST.md](OPEN_SOURCE_CHECKLIST.md) for repository hardening tasks that remain after the first push.
+Released under the [MIT License](LICENSE). See [OPEN_SOURCE_CHECKLIST.md](OPEN_SOURCE_CHECKLIST.md) for the completed first-publication and repository-hardening record.
 
 ## Support
 
@@ -317,10 +319,10 @@ Entirely voluntary. It unlocks nothing, gates nothing, and the tool stays free e
 ## Roadmap
 
 - Stable maintenance: security fixes, confirmed correctness defects, and Pi or Codex compatibility updates
-- No planned CSV/CC-Switch import, model discovery, session browser, Skills, usage dashboard, or proxy features
+- Pi model discovery and managed LiteLLM supervision are existing features. No planned CSV/CC-Switch import, Codex model discovery, session browser, Skills, usage dashboard, or manager-owned traffic proxy
 - Broader all-in-one workflows belong in CC Switch; this project stays focused on Pi and Codex credentials, defaults, and native-file consistency
 
-See `design-qa.md` and `qa/` for visual comparisons, interaction evidence, and QA history.
+See [design-qa.md](design-qa.md) for dated interaction and compatibility evidence. Screenshots in `qa/` are historical references, not a current acceptance baseline.
 
 ## Star History
 
