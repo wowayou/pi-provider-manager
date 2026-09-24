@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **`test:codex-real` adapts to Codex `0.156`'s stricter `doctor` (test-only).** Codex `0.156.1` now flags a deprecated setting in the user's own config (`disable_response_storage`) as an ignored setting, which turns `codex doctor --json`'s `config.load` status from `ok` to `warning` even though the config parses and loads. The real-binary test read that `warning` as a fixture failure. The assertion now checks what this file exists to answer — that Codex could load the config, i.e. the status is not `fail` — and adds a stronger check that the manager's own output introduces no new startup warning by comparing the notice before and after the save. No product code changed; the manager still preserves the user's deprecated key byte for byte. Verified against Codex `0.156.1` with `test:codex-real` 5/5 and full `npm test` green, 0 skips.
+
 ## 0.4.6 - 2026-09-24
 
 - **Validated against Pi `0.87.1` (unchanged baseline).** A UX-hardening round with no change to config layout, provider/credential schema, API identifiers, thinking levels, or model capability fields. `npm test` ran with 0 skips — `test:ui` 25/25, `test:server` 77/77 (including the new `draftSignature` unit tests and unknown-field preservation), `test:codex` 71/71, `test:codex-real` 5/5, `test:pi-real` 2/2, `test:prompts` 11/11, `test:sites` 4/4, `test:pi-update` 8/8, `test:launcher` 8/8, `test:release` 1/1 — plus the two-theme WCAG-AA sweep and a new both-theme CJK-size sweep. `piValidatedVersion` stays `0.87.1`.

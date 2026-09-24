@@ -32,7 +32,7 @@ function codexVersion() {
 // non-zero whenever any check fails — including checks we do not care about,
 // such as free disk space — so the exit code is ignored and the machine
 // readable result is used instead.
-function doctorConfigStatus(codexHome) {
+function doctorConfigCheck(codexHome) {
   let stdout;
   try {
     stdout = execFileSync("codex", ["doctor", "--json"], {
@@ -49,7 +49,21 @@ function doctorConfigStatus(codexHome) {
     stdout = error.stdout;
   }
   const report = JSON.parse(stdout);
-  return report.checks["config.load"].status;
+  return report.checks["config.load"];
+}
+
+// "fail" is the only status that means Codex could not load the config; "ok"
+// and "warning" both loaded, differing only in whether Codex printed a startup
+// warning (e.g. a deprecated setting in the user's own config).
+function doctorConfigStatus(codexHome) {
+  return doctorConfigCheck(codexHome).status;
+}
+
+// The deprecation/ignored-setting notice Codex prints on load, or "" when the
+// config is clean. Comparing it before and after a save proves the manager's
+// own output introduces none of its own.
+function doctorStartupWarning(codexHome) {
+  return (doctorConfigCheck(codexHome).details || {})["startup warning"] || "";
 }
 
 function freePort() {
@@ -154,7 +168,12 @@ trust_level = "trusted"
 `;
   fs.writeFileSync(path.join(codexDir, "config.toml"), before);
   try {
-    assert.equal(doctorConfigStatus(codexDir), "ok", "the fixture itself must be valid");
+    // Current Codex loads this fixture but flags the user's own deprecated
+    // `disable_response_storage` key, so a clean "ok" is no longer the bar:
+    // "fail" is the only status meaning Codex could not load it. The manager
+    // must preserve that key byte for byte, warning and all.
+    assert.notEqual(doctorConfigStatus(codexDir), "fail", "the fixture itself must load");
+    const fixtureWarning = doctorStartupWarning(codexDir);
 
     await saveThroughServer(codexDir, {
       providerId: "packy",
@@ -170,8 +189,11 @@ trust_level = "trusted"
       setActive: true,
     });
 
-    // The question this file exists to answer: does Codex accept it?
-    assert.equal(doctorConfigStatus(codexDir), "ok", "Codex rejected the generated config");
+    // The question this file exists to answer: does Codex accept it? "fail"
+    // is rejection; any warning must be exactly the one the fixture already
+    // carried, so the manager's own output is proven to add none of its own.
+    assert.notEqual(doctorConfigStatus(codexDir), "fail", "Codex rejected the generated config");
+    assert.equal(doctorStartupWarning(codexDir), fixtureWarning, "the manager introduced a new startup warning");
 
     const after = fs.readFileSync(path.join(codexDir, "config.toml"), "utf8");
     assert.match(after, /^name = "PackyCode"$/m);
