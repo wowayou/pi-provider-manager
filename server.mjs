@@ -891,6 +891,29 @@ function mergeExistingModel(existing, normalized, submitted, providerApi) {
   return merged;
 }
 
+// settings.json refers to a provider in more places than defaultProvider: Pi keys
+// per-model thinking levels and compaction overrides by exact `provider/modelId`,
+// and enabledModels holds `provider/model` patterns. A rename that left those on
+// the old ID would silently drop the user's per-model settings, so every
+// reference that names the old provider exactly is moved; anything that does not
+// start with `<old>/` (a fuzzy or bare-model pattern) is left alone.
+function renameSettingsReferences(settings, fromId, toId) {
+  const prefix = `${fromId}/`;
+  const moveKey = (key) => (key.startsWith(prefix) ? `${toId}/${key.slice(prefix.length)}` : key);
+  const renameKeys = (record) => {
+    if (!isObject(record)) return record;
+    return Object.fromEntries(Object.entries(record).map(([key, value]) => [moveKey(key), value]));
+  };
+  if (settings.defaultProvider === fromId) settings.defaultProvider = toId;
+  if (isObject(settings.modelThinkingLevels)) settings.modelThinkingLevels = renameKeys(settings.modelThinkingLevels);
+  if (isObject(settings.compaction) && isObject(settings.compaction.modelOverrides)) {
+    settings.compaction = { ...settings.compaction, modelOverrides: renameKeys(settings.compaction.modelOverrides) };
+  }
+  if (Array.isArray(settings.enabledModels)) {
+    settings.enabledModels = settings.enabledModels.map((pattern) => (typeof pattern === "string" ? moveKey(pattern) : pattern));
+  }
+}
+
 function saveProvider(payload) {
   if (!isObject(payload)) throw new Error("请求内容无效。");
   const revision = requireCurrentRevision(payload);
@@ -910,6 +933,27 @@ function saveProvider(payload) {
   const auth = readJson(AUTH_PATH);
   const models = readJson(MODELS_PATH);
   const settings = readJson(SETTINGS_PATH);
+  if (models.providers === undefined) models.providers = {};
+  if (!isObject(models.providers)) throw new Error("models.json 中的 providers 必须是对象。");
+
+  // A rename moves one stored provider to a new ID in the same write: its
+  // models.json entry (with every field we do not know), its auth.json
+  // credential, and every settings.json reference keyed by provider. The target
+  // must be free in both files — renaming onto an existing provider or a
+  // retained credential would silently destroy it.
+  const renameFrom = typeof payload.renameFrom === "string" ? payload.renameFrom.trim() : "";
+  const renaming = renameFrom !== "" && renameFrom !== providerId;
+  if (renaming) {
+    if (!PROVIDER_ID_PATTERN.test(renameFrom) || !Object.hasOwn(models.providers, renameFrom) || !isObject(models.providers[renameFrom])) {
+      throw new Error("要改名的供应商不存在。");
+    }
+    if (Object.hasOwn(models.providers, providerId) || Object.hasOwn(auth, providerId)) {
+      throw new Error(`供应商 ID ${providerId} 已被占用（已有同名供应商或保留的凭据），不能改名为它。`);
+    }
+  }
+  // The ID the stored configuration currently lives under.
+  const ownerId = renaming ? renameFrom : providerId;
+
   // models.json and settings.json have to stay in step: the submitted list replaces
   // the stored one wholesale, so dropping the model settings.json points at would
   // leave Pi with a default it cannot resolve. Only the setDefault branch below
@@ -917,7 +961,7 @@ function saveProvider(payload) {
   // it is reachable from a stale tab or a direct API call.
   if (
     !payload.setDefault &&
-    settings.defaultProvider === providerId &&
+    settings.defaultProvider === ownerId &&
     typeof settings.defaultModel === "string" &&
     settings.defaultModel !== "" &&
     !normalizedModels.some((model) => model.id === settings.defaultModel)
@@ -926,9 +970,7 @@ function saveProvider(payload) {
       `Pi 当前的默认模型 ${settings.defaultModel} 不在这次提交的模型列表里。请用“保存并设为默认”指定新的默认模型。`,
     );
   }
-  if (models.providers === undefined) models.providers = {};
-  if (!isObject(models.providers)) throw new Error("models.json 中的 providers 必须是对象。");
-  const existingProvider = isObject(models.providers[providerId]) ? models.providers[providerId] : {};
+  const existingProvider = isObject(models.providers[ownerId]) ? models.providers[ownerId] : {};
   const existingModels = new Map(
     (Array.isArray(existingProvider.models) ? existingProvider.models : [])
       .filter((model) => isObject(model) && typeof model.id === "string")
@@ -950,10 +992,23 @@ function saveProvider(payload) {
   const mergedCompat = { ...keptCompat, ...submittedCompat };
   if (Object.keys(mergedCompat).length > 0) providerConfig.compat = mergedCompat;
   else delete providerConfig.compat;
-  models.providers[providerId] = providerConfig;
+  if (renaming) {
+    // Rebuild rather than delete-and-append, so the renamed entry keeps its place
+    // in models.json and the diff a user sees is the rename, not a move.
+    models.providers = Object.fromEntries(Object.entries(models.providers).map(([id, value]) =>
+      id === renameFrom ? [providerId, providerConfig] : [id, value]));
+  } else {
+    models.providers[providerId] = providerConfig;
+  }
 
   const credential = isObject(payload.credential) ? payload.credential : { mode: "keep" };
-  if (credential.mode === "new") {
+  if (renaming && credential.mode !== "new" && credential.mode !== "migrate") {
+    // Keeping the credential of a renamed provider means carrying it over.
+    if (!Object.hasOwn(auth, renameFrom) || !isObject(auth[renameFrom])) {
+      throw new Error("该供应商尚未配置凭据，请输入新 key 或从已有供应商迁移。");
+    }
+    auth[providerId] = auth[renameFrom];
+  } else if (credential.mode === "new") {
     const key = String(credential.apiKey || "").trim();
     if (!key) throw new Error("请输入 API Key。");
     auth[providerId] = { type: "api_key", key };
@@ -968,6 +1023,12 @@ function saveProvider(payload) {
     if (credential.move && source !== providerId) delete auth[source];
   } else if (!auth[providerId]) {
     throw new Error("该供应商尚未配置凭据，请输入新 key 或从已有供应商迁移。");
+  }
+  if (renaming) {
+    // The old ID no longer names a provider; leaving its key behind would be an
+    // orphaned secret the user never asked to retain.
+    delete auth[renameFrom];
+    renameSettingsReferences(settings, renameFrom, providerId);
   }
 
   if (payload.setDefault) {
@@ -1500,7 +1561,18 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === "POST" && request.url === "/api/codex/providers") {
-      codex.saveProvider(await readBody(request));
+      const saved = codex.saveProvider(await readBody(request));
+      if (saved.renamedFrom) {
+        // Runtime state, outside the config revision: a failure to relabel must
+        // not report a committed rename as failed.
+        try {
+          bridge.relabel(saved.renamedFrom, saved.providerId);
+        } catch (error) {
+          try {
+            fs.appendFileSync(bridge.logPath, `\n[pi-provider-manager] 无法更新桥的供应商记录：${error.message}\n`);
+          } catch {}
+        }
+      }
       syncBridgeConfig();
       sendJson(response, 200, { ok: true, state: publicState() });
       return;

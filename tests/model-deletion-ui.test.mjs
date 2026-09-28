@@ -2495,10 +2495,14 @@ test("the credentials step says when saving would replace another provider", { t
     assert.equal((await idField()).value, "review-router");
     assert.deepEqual(await warnings(), []);
 
-    // Renaming that same draft onto its sibling is a collision again.
+    // An edited saved provider cannot turn a rename into an overwrite.
     await setId("single-router");
     await cdp.waitFor(`document.querySelector('.field-warning')`);
-    assert.match((await warnings())[0], /已有同名供应商/);
+    assert.match((await warnings())[0], /已被占用/);
+    assert.equal((await idField()).invalid, "true");
+    await clickText(".wizard-footer .primary-button", "下一步");
+    await cdp.waitFor("document.querySelector('.error-banner')?.textContent.includes('已被占用')");
+    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.model-row'))"), false);
 
     // Warning about a write is not performing one.
     assert.equal(fs.readFileSync(modelsPath, "utf8"), untouched);
@@ -3870,4 +3874,231 @@ test("the Codex context-window field is bounded and the API key can be revealed"
     fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     fs.rmSync(codexDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
+});
+
+// Rename checks share a production server, isolated agent directories and the
+// existing CDP driver. Keys below are fixtures; no personal configuration is read.
+async function withRenameBrowser(run, { demo = false } = {}) {
+  requireFreshBuiltUi();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-ui-rename-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-chrome-rename-"));
+  writeFixture(agentDir);
+  const [appPort, debugPort, gatewayPort] = await Promise.all([freePort(), freePort(), freePort()]);
+  const baseUrl = `http://127.0.0.1:${appPort}`;
+  const modelsPath = path.join(agentDir, "models.json");
+  const fixture = JSON.parse(fs.readFileSync(modelsPath, "utf8"));
+  fixture.providers["review-router"].baseUrl = `http://127.0.0.1:${gatewayPort}/v1`;
+  fixture.providers["review-router"].headers = { "User-Agent": "!external-ua" };
+  fixture.providers["review-router"].models[0].headers = { "anthropic-beta": "!external-beta" };
+  fs.writeFileSync(modelsPath, JSON.stringify(fixture));
+  const authPath = path.join(agentDir, "auth.json");
+  fs.writeFileSync(authPath, JSON.stringify({ ...JSON.parse(fs.readFileSync(authPath, "utf8")), retained: { type: "api_key", key: "dummy-retained-key" } }));
+  let server; let chrome; let gateway; let cdp; let gatewayOutput = ""; let serverOutput = "";
+  const state = () => fetch(`${baseUrl}/api/state`).then((response) => response.json());
+  const postCodex = async (body) => {
+    const revision = (await state()).codex.revision;
+    const response = await fetch(`${baseUrl}/api/codex/providers`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, revision }) });
+    assert.equal(response.status, 200, await response.text());
+  };
+  const snapshotFiles = (target) => {
+    const dir = target === "codex" ? isolatedCodexDir(agentDir) : agentDir;
+    const files = target === "codex" ? ["config.toml", "auth.json", "pi-provider-manager-store.json"] : ["models.json", "auth.json", "settings.json"];
+    return files.map((name) => fs.readFileSync(path.join(dir, name), "utf8"));
+  };
+  try {
+    gateway = spawn(process.execPath, [path.join(projectRoot, "tests/fixtures/fake-chat-gateway.mjs"), String(gatewayPort), "dummy-browser-test-key"], { stdio: ["ignore", "ignore", "pipe"] });
+    gateway.stderr.on("data", (chunk) => { gatewayOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${gatewayPort}/v1/models`);
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+      cwd: projectRoot,
+      env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; });
+    server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl(`${baseUrl}/api/state`);
+    for (const id of ["codex-a", "codex-b", "bridge-a"]) {
+      await postCodex({
+        providerId: id, name: id, baseUrl: `https://${id}.example/v1`,
+        models: [{ id: `model-${id}`, reasoningEffort: "high" }], defaultModelId: `model-${id}`,
+        credential: id === "bridge-a" ? { mode: "keep" } : { mode: "new", apiKey: `dummy-${id}-key` },
+        ...(id === "bridge-a" ? { bridge: { upstreamBaseUrl: "https://bridge.example/v1", apiKey: "dummy-bridge-key" } } : {}),
+        setActive: id === "codex-a",
+      });
+    }
+    chrome = spawn(findChrome(), ["--headless", "--no-sandbox", "--disable-gpu", `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profileDir}`, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    chrome.stdout.resume(); chrome.stderr.resume();
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
+    const target = await fetch(`http://127.0.0.1:${debugPort}/json/new?about:blank`, { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl);
+    await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    await cdp.send("Page.navigate", { url: `${baseUrl}${demo ? "/?demo=1" : ""}` });
+    await cdp.waitFor("document.querySelector('.model-row')");
+    const click = (selector, text) => cdp.evaluate(`[...document.querySelectorAll(${JSON.stringify(selector)})].find((node) => node.textContent.includes(${JSON.stringify(text)})).click()`);
+    const type = async (selector, value) => {
+      await cdp.evaluate(`(() => { const input = document.querySelector(${JSON.stringify(selector)}); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      await cdp.waitFor(`document.querySelector(${JSON.stringify(selector)})?.value === ${JSON.stringify(value)}`);
+    };
+    const back = async () => { await click(".wizard-footer button", "上一步"); await cdp.waitFor("document.querySelector('.form-grid input')"); };
+    const next = async () => { await click(".wizard-footer button", "下一步"); await cdp.waitFor("document.querySelector('.model-row')"); };
+    const select = async (id) => {
+      await cdp.evaluate(`[...document.querySelectorAll('.provider-select')].find((node) => node.title.split(' · ').at(-1) === ${JSON.stringify(id)}).click()`);
+      await cdp.waitFor(`document.querySelector('.provider-item.is-selected .provider-select')?.title.endsWith(' · ' + ${JSON.stringify(id)}) && document.querySelector('.model-row')`);
+    };
+    await run({ cdp, click, type, back, next, select, state, agentDir, snapshotFiles, gatewayOutput: () => gatewayOutput });
+    assert.deepEqual(cdp.errors, []);
+  } catch (error) {
+    error.message += `\nServer: ${serverOutput}\nGateway: ${gatewayOutput}`;
+    throw error;
+  } finally {
+    cdp?.close(); await stopProcess(chrome, true); await stopProcess(server); await stopProcess(gateway);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+}
+
+test("Pi rename keeps credentials through retyping, refuses collisions, and discovers before saving", { timeout: 90_000 }, async () => {
+  await withRenameBrowser(async ({ cdp, click, type, back, next, state, agentDir, snapshotFiles, gatewayOutput }) => {
+    const before = snapshotFiles("pi");
+    await back();
+    for (const id of ["", "review-renamed", "single-router", "retained", "review-router"]) {
+      await type(".form-grid input", id);
+      assert.equal(await cdp.evaluate("document.querySelector('.credential-tabs .is-active')?.textContent"), "保留现有 key");
+      if (["single-router", "retained"].includes(id)) {
+        await cdp.waitFor("document.querySelector('.form-grid input').getAttribute('aria-invalid') === 'true'");
+        await click(".wizard-footer button", "下一步");
+        await cdp.waitFor("document.querySelector('.error-banner')?.textContent.includes('已被占用')");
+        assert.equal(await cdp.evaluate("Boolean(document.querySelector('.model-row'))"), false);
+        assert.deepEqual(snapshotFiles("pi"), before);
+      }
+    }
+    // Explicit credential choices survive subsequent ID edits too.
+    await click(".credential-tabs button", "输入新 key");
+    await type(".form-grid input", "review-renamed");
+    assert.equal(await cdp.evaluate("document.querySelector('.credential-tabs .is-active').textContent"), "输入新 key");
+    await click(".credential-tabs button", "从已有凭据迁移");
+    await type(".form-grid input", "review-renamed-again");
+    assert.equal(await cdp.evaluate("document.querySelector('.credential-tabs .is-active').textContent"), "从已有凭据迁移");
+    await click(".credential-tabs button", "保留现有 key");
+    assert.equal(await cdp.evaluate("document.querySelector('.form-grid input').getAttribute('aria-invalid')"), null);
+    await next();
+    await click(".models-actions button", "获取模型");
+    await cdp.waitFor("document.querySelector('.discover-row')");
+    assert.match(gatewayOutput(), /GET \/v1\/models auth=yes/);
+    assert.equal(await cdp.evaluate("document.querySelector('.discover-row .mono').textContent"), "fake-chat-model");
+    await click(".discover-modal .secondary-button", "取消");
+    await cdp.waitFor("!document.querySelector('.discover-modal')");
+    assert.deepEqual(snapshotFiles("pi"), before, "discovery must not save the rename");
+    await click(".wizard-footer button", "只保存");
+    await cdp.waitFor("document.querySelector('.success-page')");
+    const saved = await state();
+    assert.equal(saved.providers.some((provider) => provider.id === "review-router"), false);
+    assert.equal(saved.settings.defaultProvider, "review-renamed-again");
+    const auth = JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"));
+    assert.equal(auth["review-renamed-again"].key, "dummy-browser-test-key");
+    assert.equal(Object.hasOwn(auth, "review-router"), false);
+    assert.equal(JSON.stringify(saved).includes("dummy-browser-test-key"), false);
+    const models = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+    assert.equal(models.providers["review-renamed-again"].headers["User-Agent"], "!external-ua");
+    assert.equal(models.providers["review-renamed-again"].models[0].headers["anthropic-beta"], "!external-beta");
+    assert.equal(await cdp.evaluate("[...document.querySelectorAll('.provider-select')].find(n => n.title.endsWith(' · review-renamed-again')).querySelector('.provider-badge').textContent"), "默认");
+    await click(".success-page button", "返回");
+    await cdp.waitFor("document.querySelector('.provider-item.is-selected .provider-select')?.title.endsWith(' · review-renamed-again')");
+  });
+});
+
+test("Codex rename refuses collisions and keeps direct and bridge credentials without reentry", { timeout: 90_000 }, async () => {
+  await withRenameBrowser(async ({ cdp, click, type, back, next, select, state, agentDir, snapshotFiles }) => {
+    await click(".target-switch button", "Codex");
+    await cdp.waitFor("document.querySelector('.model-row.is-codex')");
+    const before = snapshotFiles("codex");
+    await back(); await type(".form-grid input", "codex-b");
+    await cdp.waitFor("document.querySelector('.form-grid input').getAttribute('aria-invalid') === 'true'");
+    await click(".wizard-footer button", "下一步");
+    await cdp.waitFor("document.querySelector('.error-banner')?.textContent.includes('已被占用')");
+    assert.deepEqual(snapshotFiles("codex"), before);
+    await type(".form-grid input", ""); await type(".form-grid input", "codex-renamed");
+    assert.equal(await cdp.evaluate("document.querySelector('.credential-tabs .is-active').textContent"), "保留现有 key");
+    await next(); await click(".wizard-footer button", "只保存");
+    await cdp.waitFor("document.querySelector('.success-page')");
+    let saved = (await state()).codex;
+    assert.equal(saved.activeProviderId, "codex-renamed");
+    assert.equal(saved.providers.some((provider) => provider.id === "codex-a"), false);
+    assert.equal(JSON.stringify(saved).includes("dummy-codex-a-key"), false);
+    const readStore = () => JSON.parse(fs.readFileSync(path.join(isolatedCodexDir(agentDir), "pi-provider-manager-store.json"), "utf8"));
+    assert.equal(readStore().providers["codex-renamed"].credential.key, "dummy-codex-a-key");
+    assert.equal(await cdp.evaluate("[...document.querySelectorAll('.provider-select')].find(n => n.title.endsWith(' · codex-renamed')).querySelector('.provider-badge').textContent"), "生效中");
+    await select("bridge-a"); await back(); await type(".form-grid input", "bridge-renamed");
+    assert.equal(await cdp.evaluate("document.querySelector('.key-field input').placeholder"), "留空表示沿用已保存的 key");
+    assert.equal(await cdp.evaluate("document.querySelector('.key-field input').value"), "");
+    await next(); await click(".wizard-footer button", "只保存");
+    await cdp.waitFor("document.querySelector('.success-page .bridge-control')");
+    saved = (await state()).codex;
+    assert.equal(saved.activeProviderId, "codex-renamed", "renaming an inactive bridge must not activate it");
+    assert.equal(saved.providers.some((provider) => provider.id === "bridge-a"), false);
+    assert.equal(readStore().providers["bridge-renamed"].bridge.credential.key, "dummy-bridge-key");
+    assert.equal(JSON.stringify(saved).includes("dummy-bridge-key"), false);
+    await click(".success-page button", "返回");
+    await cdp.waitFor("document.querySelector('.provider-item.is-selected .provider-select')?.title.endsWith(' · bridge-renamed')");
+  });
+});
+
+test("demo renames preserve headers, selection and a running bridge across saves", { timeout: 90_000 }, async () => {
+  await withRenameBrowser(async ({ cdp, click, type, back, next, select, snapshotFiles }) => {
+    const files = [snapshotFiles("pi"), snapshotFiles("codex")];
+    await cdp.evaluate("document.querySelector('.advanced-panel').open = true");
+    await type(".user-agent-field input", "RenameDemo/1.0");
+    await type(".beta-value-field input", "rename-beta");
+    await click(".wizard-footer button", "保存更改");
+    await cdp.waitFor("document.querySelector('.success-page')");
+    await click(".success-page button", "返回");
+    await cdp.waitFor("document.querySelector('.model-row')");
+    await back(); await type(".form-grid input", "any-renamed"); await next();
+    await click(".wizard-footer button", "只保存");
+    await cdp.waitFor("document.querySelector('.success-page')");
+    await select("any-renamed");
+    assert.equal(await cdp.evaluate("document.querySelector('.user-agent-field input').value"), "RenameDemo/1.0");
+    assert.equal(await cdp.evaluate("document.querySelector('.beta-value-field input').value"), "rename-beta");
+    assert.equal(await cdp.evaluate("document.querySelector('.provider-item.is-selected .provider-badge').textContent"), "默认");
+    assert.equal(await cdp.evaluate("[...document.querySelectorAll('.provider-select')].some(n => n.title.endsWith(' · any-claude'))"), false);
+
+    await click(".target-switch button", "Codex");
+    await cdp.waitFor("document.querySelector('.model-row.is-codex')");
+    await back(); await type(".form-grid input", "kimi");
+    await cdp.waitFor("document.querySelector('.form-grid input').getAttribute('aria-invalid') === 'true'");
+    await type(".form-grid input", "packy-renamed"); await next();
+    await click(".wizard-footer button", "只保存");
+    await cdp.waitFor("document.querySelector('.success-page')");
+    assert.equal(await cdp.evaluate("[...document.querySelectorAll('.provider-select')].find(n => n.title.endsWith(' · packy-renamed')).querySelector('.provider-badge').textContent"), "生效中");
+
+    // Give the demo a saved bridge, then start it and rename it with no new key.
+    await select("deepseek-relay");
+    await cdp.evaluate("document.querySelector('.stepper .step').click()");
+    await cdp.waitFor("document.querySelector('.protocol-grid')");
+    await click(".protocol-card", "上游只有");
+    await click(".wizard-footer button", "下一步");
+    await cdp.waitFor("document.querySelector('.form-grid input')");
+    await type(".form-grid input[type=url]", "https://bridge.example/v1");
+    await type(".key-field input", "dummy-demo-bridge-key");
+    await next(); await click(".wizard-footer button", "只保存");
+    await cdp.waitFor("document.querySelector('.success-page .bridge-control')");
+    await click(".bridge-control button", "启动桥");
+    await cdp.waitFor("document.querySelector('.bridge-status')?.textContent.includes('本地桥正在运行')");
+    await click(".success-page button", "返回"); await cdp.waitFor("document.querySelector('.model-row')");
+    await back(); await type(".form-grid input", "bridge-renamed");
+    assert.equal(await cdp.evaluate("document.querySelector('.key-field input').value"), "");
+    assert.match(await cdp.evaluate("document.querySelector('.bridge-status').textContent"), /本地桥正在运行/);
+    // Controls still address the stored source while the new ID is only a draft.
+    await click(".bridge-control button", "停止桥");
+    await cdp.waitFor("document.querySelector('.bridge-status')?.textContent.includes('本地桥未运行')");
+    await click(".bridge-control button", "启动桥");
+    await cdp.waitFor("document.querySelector('.bridge-status')?.textContent.includes('本地桥正在运行')");
+    await next(); await click(".wizard-footer button", "只保存");
+    await cdp.waitFor("document.querySelector('.success-page .bridge-status')?.textContent.includes('本地桥正在运行')");
+    assert.equal(await cdp.evaluate("[...document.querySelectorAll('.provider-select')].some(n => n.title.endsWith(' · deepseek-relay'))"), false);
+    await click(".success-page button", "返回"); await cdp.waitFor("document.querySelector('.model-row')");
+    await back();
+    assert.equal(await cdp.evaluate("document.querySelector('.key-field input').placeholder"), "留空表示沿用已保存的 key");
+    assert.deepEqual([snapshotFiles("pi"), snapshotFiles("codex")], files, "demo saves must stay in the browser");
+  }, { demo: true });
 });

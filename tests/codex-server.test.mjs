@@ -94,6 +94,9 @@ async function withServer(configToml, run) {
     auth() {
       return JSON.parse(fs.readFileSync(api.authPath, "utf8"));
     },
+    store() {
+      return JSON.parse(fs.readFileSync(api.storePath, "utf8"));
+    },
   };
   try {
     await waitForServer(`${baseUrl}/api/state`);
@@ -233,6 +236,111 @@ test("switching providers replaces the owned table with no residue", async () =>
     // not ask for it again.
     const { codex } = await api.state();
     assert.equal(codex.providers.find((provider) => provider.id === "packy").credentialConfigured, true);
+  });
+});
+
+test("renames a stored provider, moving its key and the active marker in one write", async () => {
+  await withServer(null, async (api) => {
+    // An inactive provider first, so the rename can be proven not to disturb it.
+    let response = await api.post("/api/codex/providers", newProvider({
+      providerId: "keeper",
+      name: "Keeper",
+      credential: { mode: "new", apiKey: OTHER_SECRET },
+      models: [{ id: "keeper-model", reasoningEffort: "low" }],
+      defaultModelId: "keeper-model",
+      setActive: false,
+    }));
+    assert.equal(response.status, 200);
+    // The active provider that will be renamed.
+    response = await api.post("/api/codex/providers", newProvider());
+    assert.equal(response.status, 200);
+    let { codex } = await api.state();
+    assert.equal(codex.activeProviderId, "packy");
+
+    // Rename the active provider, keeping its credential. The store entry moves
+    // to the new ID and the active marker follows it; config.toml never named
+    // the store ID, so it still just holds the active provider's fields.
+    response = await api.post("/api/codex/providers", newProvider({
+      providerId: "packy-renamed",
+      credential: { mode: "keep" },
+      renameFrom: "packy",
+      setActive: false,
+    }));
+    assert.equal(response.status, 200);
+    const store = api.store();
+    assert.equal(Object.hasOwn(store.providers, "packy"), false, "the old id no longer names a provider");
+    assert.ok(Object.hasOwn(store.providers, "packy-renamed"), "the new id names the moved provider");
+    assert.equal(store.providers["packy-renamed"].credential.key, SECRET, "the credential moved under the new id");
+    assert.equal(store.activeProviderId, "packy-renamed", "the active marker followed the rename");
+    assert.equal(store.providers.keeper.credential.key, OTHER_SECRET, "the untouched provider kept its key");
+
+    ({ codex } = await api.state());
+    assert.equal(codex.activeProviderId, "packy-renamed");
+    assert.equal(codex.providers.find((provider) => provider.id === "packy-renamed").isActive, true);
+    // Codex still holds the active provider's own key.
+    assert.equal(api.auth().OPENAI_API_KEY, SECRET);
+    assert.equal(JSON.stringify(codex).includes(SECRET), false);
+  });
+});
+
+test("refuses a rename onto an id that already names a provider", async () => {
+  await withServer(null, async (api) => {
+    let response = await api.post("/api/codex/providers", newProvider({ providerId: "one", name: "One", models: [{ id: "m-one", reasoningEffort: "low" }], defaultModelId: "m-one", setActive: false }));
+    assert.equal(response.status, 200);
+    response = await api.post("/api/codex/providers", newProvider({ providerId: "two", name: "Two", models: [{ id: "m-two", reasoningEffort: "low" }], defaultModelId: "m-two" }));
+    assert.equal(response.status, 200);
+    const staleRevision = (await api.state()).codex.revision;
+    const files = () => [api.config(), JSON.stringify(api.auth()), JSON.stringify(api.store())];
+    const before = files();
+    // Rename "one" onto "two": the occupied target is refused, and "two" keeps
+    // its own model rather than being silently overwritten.
+    response = await api.post("/api/codex/providers", newProvider({
+      providerId: "two",
+      name: "One renamed",
+      credential: { mode: "keep" },
+      models: [{ id: "m-one", reasoningEffort: "low" }],
+      defaultModelId: "m-one",
+      renameFrom: "one",
+      setActive: false,
+    }));
+    assert.equal(response.status, 400);
+    assert.deepEqual(files(), before);
+    response = await api.post("/api/codex/providers", newProvider({
+      providerId: "one-renamed", renameFrom: "one", credential: { mode: "keep" }, setActive: false,
+    }));
+    assert.equal(response.status, 200);
+    const beforeStale = files();
+    response = await api.post("/api/codex/providers", newProvider({
+      providerId: "one-again", renameFrom: "one-renamed", credential: { mode: "keep" }, setActive: false,
+    }), staleRevision);
+    assert.equal(response.status, 409);
+    assert.deepEqual(files(), beforeStale);
+    const store = api.store();
+    assert.ok(Object.hasOwn(store.providers, "one-renamed"), "the stale request leaves the renamed provider intact");
+    assert.deepEqual(store.providers.two.models.map((model) => model.id), ["m-two"], "the target keeps its own model");
+  });
+});
+
+test("bridge rename relabels only its runtime record outside the config revision", async () => {
+  await withServer(null, async (api) => {
+    const bridge = { upstreamBaseUrl: "https://bridge.example/v1", apiKey: SECRET };
+    let response = await api.post("/api/codex/providers", newProvider({ bridge, credential: { mode: "keep" } }));
+    assert.equal(response.status, 200);
+    const revision = (await api.state()).codex.revision;
+    const runtimePath = path.join(api.codexDir, "pi-provider-manager-bridge.json");
+    const runtime = { providerId: "packy", pid: 0, port: 4000 };
+    fs.writeFileSync(runtimePath, JSON.stringify(runtime));
+    assert.equal((await api.state()).codex.revision, revision);
+    response = await api.post("/api/codex/providers", newProvider({
+      providerId: "bridge-renamed", renameFrom: "packy", setActive: false,
+      credential: { mode: "keep" }, bridge: { ...bridge, apiKey: "" },
+    }), revision);
+    assert.equal(response.status, 200);
+    assert.deepEqual(JSON.parse(fs.readFileSync(runtimePath, "utf8")), { ...runtime, providerId: "bridge-renamed" });
+    assert.equal(api.store().providers["bridge-renamed"].bridge.credential.key, SECRET);
+    assert.equal(api.store().activeProviderId, "bridge-renamed");
+    assert.equal(api.config().includes(SECRET), false);
+    assert.equal(JSON.stringify(await api.state()).includes(SECRET), false);
   });
 });
 

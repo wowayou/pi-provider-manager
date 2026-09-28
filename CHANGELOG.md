@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Provider rename with credential preservation.** Editing a saved provider's ID now moves its configuration and credential, including Pi's default-provider and provider-qualified settings references and Codex's active selection. An occupied target is refused in the wizard and on the server; Pi also protects retained credential IDs. Keeping the existing key works throughout ID edits, Pi model discovery, and Codex bridge saves. Pi and Codex retain separate revision checks. A running bridge's provider label is updated separately after the configuration commits, without restarting or signalling the process. New and duplicated drafts retain their existing overwrite warning and save behavior.
+
 - **Sidebar utility alignment.** The support link now shares the appearance control's 36px height and 18px icon size, with its icon centre and text aligned to the navigation above.
 
 ## 0.4.7 - 2026-09-24

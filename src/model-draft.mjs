@@ -17,6 +17,35 @@ export function draftSignature(form) {
   });
 }
 
+// The stored provider a draft renames, or "" when the save is not a rename.
+// A draft opened from a stored provider whose ID field now says something else
+// is a rename of that provider — not a second provider forked from it, which
+// is what 复制供应商 is for. Shared by the Pi and Codex save paths.
+export function renameSourceId(selectedId, draftId, storedIds) {
+  const source = String(selectedId || "").trim();
+  const target = String(draftId || "").trim();
+  if (!source || !target || source === target) return "";
+  // Occupancy cannot change the user's intent into an overwrite. The caller
+  // reports the conflict, and the server independently refuses it on save.
+  return storedIds.includes(source) ? source : "";
+}
+
+export function providerDraftIdentity(selectedId, draftId, storedIds, credentialIds = []) {
+  const selected = String(selectedId || "").trim();
+  const targetId = String(draftId || "").trim();
+  const sourceId = storedIds.includes(selected) ? selected : "";
+  const renameFrom = renameSourceId(sourceId, targetId, storedIds);
+  const occupied = storedIds.includes(targetId) || credentialIds.includes(targetId);
+  return {
+    sourceId,
+    // The source still owns the key while the user clears or retypes the ID.
+    ownerId: sourceId || targetId,
+    renameFrom,
+    conflict: renameFrom && occupied ? "供应商 ID 已被占用，不能改名为它。请使用未占用的 ID。" : "",
+    overwrites: !sourceId && storedIds.includes(targetId),
+  };
+}
+
 export function changedPersistedModel(models) {
   return models.find((model) => {
     const persistedId = typeof model.persistedId === "string" ? model.persistedId : "";

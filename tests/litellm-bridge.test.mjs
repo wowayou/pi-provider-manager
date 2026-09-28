@@ -79,7 +79,15 @@ test("pins LiteLLM to loopback rather than its default 0.0.0.0", async (t) => {
     // The key reaches the process through the environment, as the config's
     // os.environ reference requires.
     assert.equal(fs.readFileSync(keyPath, "utf8"), "upstream-secret");
-    assert.equal(started.status().running, true);
+    const beforeRename = started.status();
+    assert.equal(beforeRename.running, true);
+    assert.equal(started.relabel("p", "renamed"), true);
+    const afterRename = started.status();
+    assert.equal(afterRename.running, true);
+    assert.equal(afterRename.providerId, "renamed");
+    assert.equal(afterRename.pid, beforeRename.pid);
+    assert.equal(afterRename.port, beforeRename.port);
+    assert.equal(fs.readFileSync(keyPath, "utf8"), "upstream-secret");
     assert.equal(started.stop().stopped, true);
     assert.equal(started.status().running, false);
   } finally {
@@ -288,6 +296,30 @@ test("reports not running when nothing was ever started", () => {
     assert.equal(status.running, false);
     assert.equal(status.pid, 0);
     assert.equal(status.configPath, path.join(dir, "pi-provider-manager-litellm.yaml"));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("relabel moves a running bridge's record to the renamed id, and only its own", () => {
+  const dir = sandbox();
+  try {
+    const statePath = path.join(dir, "pi-provider-manager-bridge.json");
+    // A record naming another provider is left untouched: a rename of a
+    // different provider must not steal this bridge's identity.
+    fs.writeFileSync(statePath, JSON.stringify({ pid: 4242, port: 4000, providerId: "other" }));
+    const runner = createBridgeRunner({ dir });
+    assert.equal(runner.relabel("packy", "packy-renamed"), false, "a record for another provider is not touched");
+    assert.equal(JSON.parse(fs.readFileSync(statePath, "utf8")).providerId, "other");
+
+    // The record naming the renamed provider moves; the pid and port, the proof
+    // it is still ours, are left exactly as they were — nothing is signalled.
+    fs.writeFileSync(statePath, JSON.stringify({ pid: 4242, port: 4000, providerId: "packy" }));
+    assert.equal(runner.relabel("packy", "packy-renamed"), true);
+    const moved = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    assert.equal(moved.providerId, "packy-renamed");
+    assert.equal(moved.pid, 4242, "the process id is unchanged");
+    assert.equal(moved.port, 4000, "the port is unchanged");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

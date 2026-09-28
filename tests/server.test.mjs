@@ -345,6 +345,106 @@ test("handles model Anthropic Beta through the real HTTP boundary", async () => 
     assert.equal(stale.status, 409);
   } finally { await stopAndClean(child, [agentDir]); }
 });
+test("renaming a provider moves its models, credential, and settings references in one write", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-provider-manager-rename-"));
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
+    providers: {
+      "old-router": {
+        baseUrl: "https://old.example/v1",
+        api: "anthropic-messages",
+        futureProviderField: "keep-provider",
+        models: [
+          { id: "claude-opus", name: "Opus", contextWindow: 200000, maxTokens: 8192, reasoning: true, input: ["text"], futureModelField: "keep-model" },
+        ],
+      },
+      "other-router": {
+        baseUrl: "https://other.example/v1",
+        api: "openai-responses",
+        models: [{ id: "gpt", name: "GPT", contextWindow: 128000, maxTokens: 16000, reasoning: true, input: ["text"] }],
+      },
+    },
+  }));
+  fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({
+    "old-router": { type: "api_key", key: "old-key-not-a-secret" },
+    "other-router": { type: "api_key", key: "other-key-not-a-secret" },
+    retained: { type: "api_key", key: "retained-key-not-a-secret" },
+  }));
+  // settings.json refers to old-router as the default and by exact
+  // provider/model keys in the places a rename must move.
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({
+    defaultProvider: "old-router",
+    defaultModel: "claude-opus",
+    modelThinkingLevels: { "old-router/claude-opus": "high", "other-router/gpt": "on" },
+    enabledModels: ["old-router/claude-opus", "other-router/gpt"],
+    compaction: { modelOverrides: { "old-router/claude-opus": { keep: 5 } } },
+  }));
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+    cwd: projectRoot,
+    env: serverEnv({
+      PI_CODING_AGENT_DIR: agentDir,
+      PI_PROVIDER_MANAGER_API_PORT: String(port),
+      PI_PROVIDER_MANAGER_CODEX_DIR: path.join(agentDir, "codex"),
+    }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+    const state = await (await fetch(`${baseUrl}/api/state`)).json();
+    const renamed = await postJson(baseUrl, "/api/providers", {
+      providerId: "new-router",
+      renameFrom: "old-router",
+      baseUrl: "https://old.example/v1",
+      api: "anthropic-messages",
+      credential: { mode: "keep" },
+      models: [{ id: "claude-opus", name: "Opus", contextWindow: 200000, maxTokens: 8192, supportsImages: false, reasoning: true, maximumThinking: "high" }],
+      setDefault: false,
+      defaultModelId: "claude-opus",
+    }, state.revision);
+    assert.equal(renamed.status, 200, await renamed.text());
+
+    const models = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+    const auth = JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"));
+    const settings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+    // The old ID is gone from every file; the new ID carries the config.
+    assert.equal(models.providers["old-router"], undefined);
+    assert.equal(auth["old-router"], undefined);
+    assert.equal(models.providers["new-router"].futureProviderField, "keep-provider");
+    assert.equal(models.providers["new-router"].models[0].futureModelField, "keep-model");
+    assert.equal(auth["new-router"].key, "old-key-not-a-secret");
+    assert.equal(settings.defaultProvider, "new-router");
+    assert.deepEqual(settings.modelThinkingLevels, { "new-router/claude-opus": "high", "other-router/gpt": "on" });
+    assert.deepEqual(settings.enabledModels, ["new-router/claude-opus", "other-router/gpt"]);
+    assert.deepEqual(settings.compaction.modelOverrides, { "new-router/claude-opus": { keep: 5 } });
+    // The untouched provider is left exactly as it was.
+    assert.equal(auth["other-router"].key, "other-key-not-a-secret");
+    assert.ok(models.providers["other-router"]);
+    // The rename keeps its position: order is old-router's slot, now new-router.
+    assert.deepEqual(Object.keys(models.providers), ["new-router", "other-router"]);
+
+    // Every rejection preserves all three files, including a retained key and
+    // a request carrying the revision from before the successful rename.
+    const after = await (await fetch(`${baseUrl}/api/state`)).json();
+    const files = ["models.json", "auth.json", "settings.json"];
+    const contents = () => files.map((file) => fs.readFileSync(path.join(agentDir, file), "utf8"));
+    const before = contents();
+    for (const [providerId, revision, status] of [
+      ["other-router", after.revision, 400], ["retained", after.revision, 400], ["stale-rename", state.revision, 409],
+    ]) {
+      const response = await postJson(baseUrl, "/api/providers", {
+        providerId, renameFrom: "new-router", baseUrl: "https://old.example/v1", api: "anthropic-messages",
+        credential: { mode: "keep" },
+        models: [{ id: "claude-opus", name: "Opus", contextWindow: 200000, maxTokens: 8192, supportsImages: false, reasoning: true, maximumThinking: "high" }],
+        setDefault: false, defaultModelId: "claude-opus",
+      }, revision);
+      assert.equal(response.status, status);
+      if (status === 400) assert.match((await response.json()).error, /已被占用/);
+      assert.deepEqual(contents(), before);
+    }
+  } finally { await stopAndClean(child, [agentDir]); }
+});
+
 test("discovers a gateway's models with the credential a save would use, and never returns it", async () => {
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-provider-manager-discover-"));
   const STORED_KEY = "stored-key-not-real";
