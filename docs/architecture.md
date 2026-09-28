@@ -81,6 +81,7 @@ Only `server.mjs` writes Pi or Codex configuration, in the first two paths. The 
 | `~/.pi/agent/AGENTS.md`, `SYSTEM.md`, `APPEND_SYSTEM.md` | read/write | whole-file: each holds the one prompt document currently active. Alternatives live in `pi-provider-manager-prompts.json` |
 | `$CODEX_HOME/AGENTS.md` | read/write | same, for Codex |
 | `<config dir>/pi-provider-manager-prompts.json` | read/write | this manager's own prompt library, `0600`, one per agent directory |
+| `~/.pi/agent/pi-provider-manager-model-hints.json` | read/write | this manager's own per-gateway learned context/output capacities, `0600`; keyed by (provider id, model id), outside the config revision |
 | `$CODEX_HOME/auth.json` | read/write | `auth_mode` and `OPENAI_API_KEY` for the active provider only; other keys, including a ChatGPT login's `tokens`, are preserved, and a provider with `requires_openai_auth = false` does not touch the file at all |
 | `$CODEX_HOME/pi-provider-manager-store.json` | read/write | this manager's own provider store, `0600` |
 
@@ -166,7 +167,7 @@ Required invariants:
 - require `application/json` for writes so cross-origin simple requests cannot mutate state
 - do not enable CORS or answer cross-origin preflight without redesigning the authorization boundary
 - never serialize an existing credential to the browser
-- the one endpoint that sends a stored credential somewhere on demand, `POST /api/providers/discover-models`, only ever sends it to a URL that passes the same rule as a save, refuses redirects, bounds and parses the answer, and returns IDs and display names — never the key, never the body. Its caller-supplied listing path is resolved against the baseUrl and confined to that origin; origin is the whole boundary, since the path cannot change who receives the credential
+- the one endpoint that sends a stored credential somewhere on demand, `POST /api/providers/discover-models`, only ever sends it to a URL that passes the same rule as a save, refuses redirects, bounds and parses the answer, and returns IDs, display names, and — where the gateway itself reports them — context/output capacities as bounded integers; never the key, never the body, never free text or URLs from it. Its caller-supplied listing path is resolved against the baseUrl and confined to that origin; origin is the whole boundary, since the path cannot change who receives the credential
 - cap request bodies and validate provider IDs, URLs, protocols, models, and settings
 - serve the pre-paint theme script under a hash-based CSP in production
 

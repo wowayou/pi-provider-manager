@@ -300,3 +300,19 @@ test("the config JSON editor refuses a non-object, empty models, and duplicate I
   assert.throws(() => piConfigJsonToForm({ models: [{ id: "x" }, { id: "x" }] }, form), /重复/);
   assert.throws(() => piConfigJsonToForm({ models: [{ name: "no id" }] }, form), /缺少 id/);
 });
+
+test("config JSON preserves automatic capacities until either number is changed", () => {
+  const form = jsonEditorForm();
+  form.models[0] = { ...form.models[0], persistedId: "", limitsAuto: true };
+  const parsed = JSON.parse(piFormToConfigJson(form));
+  const unchanged = piConfigJsonToForm(parsed, form);
+  assert.equal(unchanged.models[0].limitsAuto, true);
+  assert.equal(draftSignature(form), draftSignature({ ...form, models: form.models.map((row) => ({ ...row, limitsAuto: false })) }));
+  for (const field of ["contextWindow", "maxTokens"]) {
+    const edited = JSON.parse(piFormToConfigJson(form));
+    edited.models[0][field] -= 1;
+    assert.equal(piConfigJsonToForm(edited, form).models[0].limitsAuto, false, field);
+  }
+  parsed.models[0].id = "new-model";
+  assert.equal(piConfigJsonToForm(parsed, form).models[0].limitsAuto, false, "new JSON rows carry explicitly supplied capacities");
+});

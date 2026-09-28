@@ -34,6 +34,7 @@ import { detectCodexVersion, detectPiVersion, liveVersion } from "./lib/version-
 import { applyUserAgent, readUserAgent } from "./lib/pi-user-agent.mjs";
 import { applyAnthropicBeta, readAnthropicBeta, normalizeAnthropicBeta } from "./lib/pi-anthropic-beta.mjs";
 import { describeDiscoveryStatus, discoveryRequest, parseModelList } from "./lib/model-discovery.mjs";
+import { publicModelHints, recordModelHints } from "./lib/model-hints.mjs";
 import { ConflictError, PROVIDER_ID_PATTERN, isLoopbackHostname, normalizeUrl } from "./lib/validation.mjs";
 
 const HOST = "127.0.0.1";
@@ -58,6 +59,9 @@ const AGENT_DIR_SOURCE = process.env.PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE || (
 const AUTH_PATH = path.join(AGENT_DIR, "auth.json");
 const MODELS_PATH = path.join(AGENT_DIR, "models.json");
 const SETTINGS_PATH = path.join(AGENT_DIR, "settings.json");
+// Manager-private, not a Pi file: per-gateway learned capacity hints, kept
+// outside the config revision so learning one never 409s a draft of another.
+const MODEL_HINTS_PATH = path.join(AGENT_DIR, "pi-provider-manager-model-hints.json");
 // The handoff is the one operation that can take this process down, and its only
 // account used to be a `process.stdout` line. That line is not a reliable record:
 // the launcher's WSL branch discarded stdout entirely, and `outlivesUs` below
@@ -781,6 +785,9 @@ function publicState() {
     // Every settings value above is normalized, so a fallback is indistinguishable
     // from a stored value. Say which keys settings.json actually carries.
     settingsPresent: SETTINGS_KEYS.filter((key) => Object.hasOwn(settings, key)),
+    // Per-gateway learned capacities, so a re-added model pre-fills the numbers
+    // last saved for it on that provider rather than the family guess.
+    modelHints: publicModelHints(MODEL_HINTS_PATH),
     codex: codexState(),
     // Empty unless a restart was asked for and did not take. The page that asked
     // is the one that needs to hear about it.
@@ -1053,6 +1060,10 @@ function saveProvider(payload) {
     for (const [filePath, bytes] of originals) restore(filePath, bytes);
     throw error;
   }
+  // After the three Pi files are safely written: remember each model's capacity
+  // under this provider, so a later re-add pre-fills it. Keyed by the id the
+  // provider now lives under, and never able to fail the save that just landed.
+  recordModelHints(MODEL_HINTS_PATH, providerId, mergedModels);
 }
 
 function deleteProvider(payload) {

@@ -115,6 +115,30 @@ test("drops what cannot be a model id and never relays other body content", () =
   assert.equal(many.length, 2000);
 });
 
+test("reads capacities where a gateway reports them, as bounded integers only", () => {
+  // OpenRouter-shaped: context_length plus a nested max_completion_tokens.
+  assert.deepEqual(
+    parseModelList({ data: [{ id: "big", context_length: 1_000_000, top_provider: { max_completion_tokens: 128_000 } }] }),
+    [{ id: "big", contextWindow: 1_000_000, maxTokens: 128_000 }],
+  );
+  // The flatter names some relays use.
+  assert.deepEqual(
+    parseModelList({ data: [{ id: "flat", context_window: 200_000, max_output_tokens: 64_000 }] }),
+    [{ id: "flat", contextWindow: 200_000, maxTokens: 64_000 }],
+  );
+  // A string, a float, zero, a negative, or an absurd value is dropped — never
+  // relayed as a capacity — and a standard listing without the fields is unchanged.
+  assert.deepEqual(
+    parseModelList({ data: [{ id: "junk", context_length: "1000000", max_completion_tokens: 1.5 }] }),
+    [{ id: "junk" }],
+  );
+  assert.deepEqual(
+    parseModelList({ data: [{ id: "bad", context_length: -5, max_output_tokens: 999_999_999_999 }] }),
+    [{ id: "bad" }],
+  );
+  assert.deepEqual(parseModelList({ data: [{ id: "plain", object: "model" }] }), [{ id: "plain" }]);
+});
+
 test("explains a gateway status without the key or the body", () => {
   assert.match(describeDiscoveryStatus(401), /拒绝了这个凭据/);
   assert.match(describeDiscoveryStatus(403), /403/);

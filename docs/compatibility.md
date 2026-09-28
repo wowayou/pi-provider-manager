@@ -70,7 +70,11 @@ own path: DeepSeek's Anthropic endpoint is `https://api.deepseek.com/anthropic` 
 Bearer plus `anthropic-version` for Anthropic — deliberately not Pi's `x-api-key`, because the relays this is
 for reject that header on `/v1/models` (Anyrouter: 401 "未提供令牌") while Anthropic itself accepts Bearer —
 Bearer for OpenAI, `x-goog-api-key` for Gemini. The response is reduced to IDs and display names in
-`lib/model-discovery.mjs`.
+`lib/model-discovery.mjs`, plus — where the gateway itself reports them (OpenRouter-class listings carry
+`context_length` / `max_completion_tokens`; standard `/v1/models` carries neither) — context/output
+capacities, accepted only as bounded integers and used to pre-fill a ticked row. This widens the "id and
+name only" reduction to numeric capacities on purpose; free text, URLs, and the rest of the body still never
+reach the browser.
 
 
 ## Codex compatibility
