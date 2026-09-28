@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.4.9 - 2026-09-28
+
+- **Pi model capacity suggestions, with unchanged compatibility baselines.** Pi `0.87.1` and Codex `0.154.0` remain the declared baselines. This release changes initial capacity suggestions and adds a manager-private cache; it does not migrate existing Pi or Codex configuration.
+- **Validated release candidate:** full `npm test` passed 243/243 with 0 failures and 0 skips, including 33 production-browser tests, 5 real-Codex tests on `0.157.1`, and 2 real-Pi tests on `0.87.1`. The Linux/WSL archive also passed an isolated startup/save check without `node_modules`.
+
+- **Adding a model now fills its context/output capacities by generation instead of a flat 128000 / 16384.** In particular, GPT-4.1 uses 1047576 / 32768, separately from GPT-5's 400000 / 128000; [capacity sources and policy](docs/model-capacities.md) record the verification. Manual entry, bulk paste, and discovery share one rule: the last values saved for that gateway+model, then gateway-reported capacities, then the generation defaults. Imported rows remain automatic until either capacity is manually edited; changing their ID then re-seeds for the new model. Partial or conflicting discovery metadata keeps the reported context and reduces an oversized output to the smaller of 16384 and half that context, so the generated pair can be saved. The "安全值" controls remain the conservative dial-down (128000 / 16384).
+- **获取模型 reads capacities where a gateway reports them, within the same request.** `parseModelList` now also extracts `context_length` / `max_completion_tokens` (and the flatter `context_window` / `max_output_tokens`) as bounded integers only — a string, float, or out-of-range value is dropped, never relayed. No new network request, host, or credential path: it parses fields already present in the listing this manager already fetches. Standard `/v1/models` carries none of these; OpenRouter-class gateways do.
+- **Per-gateway learned capacities.** A successful provider save records each model's context/output under (provider id, model id) in a manager-private `pi-provider-manager-model-hints.json` (`0600`), so re-adding a model on the same gateway — after a delete, or while rebuilding a list — pre-fills the numbers last chosen for it. Keyed by gateway and ID so the same ID behind two relays never shares a value. It is outside the config revision, like the bridge runtime record, and a failure to write it can never fail the save that already landed.
+- **Acceptance boundaries covered.** Prototype-named cache IDs are stored as ordinary data, corrupt timestamps cannot break a state read, and the cache is bounded to 1000 entries. An unchanged advanced JSON round trip preserves automatic capacities; editing either number stops them. The capacity source document ships in both release archives.
+
 ## 0.4.8 - 2026-09-28
 
 - **Validated against Pi `0.87.1` and Codex `0.154.0` (unchanged baselines).** A feature release for provider renaming and a sidebar alignment fix. Full `npm test` on the release candidate passed 224/224 with 0 skips, including 29 production-browser cases, 5 real-Codex cases, and 2 real-Pi cases. No configuration format, provider/credential schema, API identifier, thinking-level, or compatibility baseline change.

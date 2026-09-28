@@ -26,6 +26,7 @@ export function prepareReleaseArtifacts() {
     // checkout to read it from, and it is the document that answers the
     // questions a first run raises.
     ["docs/usage.zh-CN.md", "docs/usage.zh-CN.md"],
+    ["docs/model-capacities.md", "docs/model-capacities.md"],
     ["bin/pi-provider-manager-ui", "bin/pi-provider-manager-ui"],
     ["bin/pi-provider-manager.ps1", "bin/pi-provider-manager.ps1"],
     ["dist/client", "dist/client"],

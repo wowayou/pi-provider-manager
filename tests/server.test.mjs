@@ -130,6 +130,44 @@ async function postJson(baseUrl, route, body, revision) {
   });
 }
 
+test("a failed capacity-cache write cannot fail a committed provider save", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-hint-failure-"));
+  const hintsPath = path.join(agentDir, "pi-provider-manager-model-hints.json");
+  // A directory where the cache file belongs is a portable write failure,
+  // including on CI runners where a chmod-based failure would be unreliable.
+  fs.mkdirSync(hintsPath);
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+    cwd: projectRoot,
+    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: path.join(agentDir, "codex"), PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+    const response = await postJson(baseUrl, "/api/providers", {
+      providerId: "cache-review", api: "openai-completions", baseUrl: "https://gateway.example/v1",
+      credential: { mode: "new", apiKey: "dummy-cache-review-key" },
+      models: [{ id: "gpt-4.1", contextWindow: 64000, maxTokens: 8192 }],
+      setDefault: true, defaultModelId: "gpt-4.1",
+    });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.deepEqual(result.state.modelHints, {});
+    assert.equal(JSON.stringify(result).includes("dummy-cache-review-key"), false);
+    const model = readJson(path.join(agentDir, "models.json")).providers["cache-review"].models[0];
+    assert.deepEqual([model.contextWindow, model.maxTokens], [64000, 8192]);
+    assert.equal(readJson(path.join(agentDir, "settings.json")).defaultModel, "gpt-4.1");
+    assert.equal(readJson(path.join(agentDir, "auth.json"))["cache-review"].key, "dummy-cache-review-key");
+    // Changing only the manager-private cache must not conflict with a draft.
+    fs.rmdirSync(hintsPath);
+    writeJsonAtomic(hintsPath, { hints: { "cache-review": { "gpt-4.1": { contextWindow: 64000, maxTokens: 8192 } } } });
+    assert.equal(await currentRevision(baseUrl), result.state.revision);
+  } finally {
+    await stopAndClean(child, [agentDir]);
+  }
+});
+
 test("writes router-style providers without exposing credentials", async () => {
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-provider-manager-"));
   fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
@@ -219,6 +257,12 @@ test("writes router-style providers without exposing credentials", async () => {
     assert.equal(createBody.state.compatibility.servicePort, port);
     assert.equal(createBody.state.providers[0].models.length, 2);
     assert.equal(createBody.state.providers[0].credentialConfigured, true);
+    // The save is learned as a per-gateway capacity hint, keyed by provider+id,
+    // so a later re-add of the same model on this gateway pre-fills these numbers.
+    assert.deepEqual(createBody.state.modelHints["any-router"]["anthropic/claude-opus"], { contextWindow: 200000, maxTokens: 16000 });
+    assert.deepEqual(createBody.state.modelHints["any-router"]["openai/gpt-router"], { contextWindow: 128000, maxTokens: 16000 });
+    // Manager-private, kept out of the three Pi files.
+    assert.equal(fs.existsSync(path.join(agentDir, "pi-provider-manager-model-hints.json")), true);
 
     const auth = JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"));
     const models = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
@@ -254,6 +298,8 @@ test("writes router-style providers without exposing credentials", async () => {
     assert.equal(migratedAuth["any-router"], undefined);
     assert.equal(migratedAuth["new-router"].key, "test-secret-not-real");
     assert.equal(JSON.stringify(await migrateResponse.json()).includes("test-secret-not-real"), false);
+    const afterMigrate = await (await fetch(`${baseUrl}/api/state`)).json();
+    assert.deepEqual(afterMigrate.modelHints["new-router"]["gpt-5.6-sol"], { contextWindow: 1050000, maxTokens: 128000 });
 
     const settingsResponse = await postJson(baseUrl, "/api/settings", {
         defaultProvider: "new-router",

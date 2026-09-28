@@ -24,6 +24,7 @@ Codex has the opposite problem. Its configuration is small but unforgiving: one 
 
 - **Pi-native provider/model workflow** — model IDs, default thinking level, image capability, context/output limits, and per-model API overrides.
 - **Router-first catalog management** — one OpenRouter-like gateway can contain models from many upstream vendors.
+- **Pi capacity suggestions** — manual entry, bulk paste, and discovery reuse the last capacities saved for that gateway/model, then gateway-reported limits, then generation defaults. Editing either number stops automatic updates. See [capacity sources and rules](docs/model-capacities.md).
 - **Provider-level compatibility UA** — the third step keeps an optional literal `User-Agent` override with explicit none/literal/external handling; model-level User-Agent overrides are reported without returning their values. The editable model-level `anthropic-beta` literal is exposed separately.
 - **Secret-safe local boundary** — existing API keys are never returned to the browser; the backend binds to `127.0.0.1` only.
 - **Validated atomic writes** — updates to `models.json`, `auth.json`, and `settings.json` use validated temporary files and rollback on failure.
@@ -47,6 +48,7 @@ Pi:
 - `~/.pi/agent/auth.json`
 - `~/.pi/agent/models.json`
 - `~/.pi/agent/settings.json`
+- `~/.pi/agent/pi-provider-manager-model-hints.json` — the manager's capacity cache (`0600`), separate from Pi configuration and its revision; a cache write failure does not fail a committed save.
 
 `models-store.json` is outside the manager's scope and is never read or written.
 

@@ -4102,3 +4102,139 @@ test("demo renames preserve headers, selection and a running bridge across saves
     assert.deepEqual([snapshotFiles("pi"), snapshotFiles("codex")], files, "demo saves must stay in the browser");
   }, { demo: true });
 });
+
+test('production UI seeds model capacities consistently across all add paths', { timeout: 90_000 }, async (t) => {
+  requireFreshBuiltUi();
+  const { createServer } = await import('node:http');
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ppm-capacity-review-'));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ppm-capacity-chrome-'));
+  writeFixture(agentDir);
+  const gateway = createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: [
+      { id: 'partial-limits', context_length: 8192 },
+      { id: 'gemini-2.5-pro', context_length: 200000, max_completion_tokens: 32000 },
+    ] }));
+  });
+  await new Promise(resolve => gateway.listen(0, '127.0.0.1', resolve));
+  const modelsPath = path.join(agentDir, 'models.json');
+  const fixture = JSON.parse(fs.readFileSync(modelsPath));
+  fixture.providers['review-router'].baseUrl = `http://127.0.0.1:${gateway.address().port}/v1`;
+  fs.writeFileSync(modelsPath, JSON.stringify(fixture));
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  const url = `http://127.0.0.1:${appPort}`;
+  let server; let chrome; let cdp;
+
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, 'server.mjs')], {
+      cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
+        PI_PROVIDER_MANAGER_SERVE_UI: '1', PI_PROVIDER_MANAGER_PORT: String(appPort) },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    server.stdout.resume(); server.stderr.resume();
+    await waitForUrl(url + '/api/state');
+    const savedModels = fixture.providers['review-router'].models;
+    const learned = { id: 'gemini-2.5-pro', contextWindow: 64000, maxTokens: 8192 };
+    // Learn through the real save endpoint, then remove from the stored list.
+    for (const models of [[...savedModels, learned], savedModels]) {
+      const state = await (await fetch(url + '/api/state')).json();
+      const response = await fetch(url + '/api/providers', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revision: state.revision, providerId: 'review-router',
+          baseUrl: fixture.providers['review-router'].baseUrl, api: 'openai-completions',
+          credential: { mode: 'keep' }, models, setDefault: false }),
+      });
+      assert.equal(response.status, 200, await response.text());
+    }
+    const state = await (await fetch(url + '/api/state')).json();
+    assert.deepEqual(state.modelHints['review-router'][learned.id], { contextWindow: 64000, maxTokens: 8192 });
+    if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(agentDir, 'pi-provider-manager-model-hints.json')).mode & 0o777, 0o600);
+    chrome = spawn(findChrome(), ['--headless', '--no-sandbox', '--disable-gpu',
+      `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profileDir}`, 'about:blank'],
+      { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    chrome.stdout.resume(); chrome.stderr.resume();
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
+    const target = await (await fetch(`http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(url)}`, { method: 'PUT' })).json();
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl);
+    await cdp.send('Page.enable'); await cdp.send('Runtime.enable');
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    const reload = async () => {
+      await cdp.send('Page.navigate', { url });
+      await cdp.waitFor("document.querySelectorAll('.model-row').length === 3 && document.querySelector('.model-row input[readonly]')");
+    };
+    const click = (selector, text) => cdp.evaluate(`(() => { const el = [...document.querySelectorAll(${JSON.stringify(selector)})].find(e => e.textContent.includes(${JSON.stringify(text)})); if (!el) throw Error('missing control'); el.click(); })()`);
+    const setValue = (selector, value) => cdp.evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, ${JSON.stringify(value)}); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    const limits = (id) => cdp.evaluate(`(() => {
+      const row = [...document.querySelectorAll('.model-row')].find(row => row.querySelector('.model-name-cell input').value.trim() === ${JSON.stringify(id)});
+      return ['上下文容量', '最大输出'].map(label => Number(row.querySelector('input[aria-label="' + label + '"]').title.match(/[0-9][0-9,]*/)[0].replaceAll(',', '')));
+    })()`);
+    const idInput = '.model-row:last-child .model-name-cell input';
+    const contextInput = '.model-row:last-child input[aria-label="上下文容量"]';
+    const focus = (selector) => cdp.evaluate(`document.querySelector(${JSON.stringify(selector)}).focus()`);
+    const blur = (selector) => cdp.evaluate(`document.querySelector(${JSON.stringify(selector)}).blur()`);
+
+    await t.test('manual re-add uses learned hints until the user edits a capacity', async () => {
+      await reload();
+      await click('.models-actions button', '添加模型');
+      await cdp.waitFor("document.querySelectorAll('.model-row').length === 4");
+      await setValue(idInput, '  ' + learned.id + '  ');
+      assert.deepEqual(await limits(learned.id), [64000, 8192]);
+      // Merely focusing a field is not a manual edit.
+      await focus(contextInput); await blur(contextInput);
+      await cdp.evaluate("document.querySelector('.advanced-panel summary').click()");
+      await click('.json-group button', '编辑原始配置');
+      await cdp.waitFor("document.querySelector('textarea[aria-label=\"供应商配置 JSON\"]')");
+      await click('.json-editor-actions button', '应用到表单');
+      await cdp.waitFor("!document.querySelector('textarea[aria-label=\"供应商配置 JSON\"]')");
+      await setValue(idInput, 'gpt-4.1');
+      assert.deepEqual(await limits('gpt-4.1'), [1047576, 32768], 'an unchanged JSON round trip preserves automatic limits');
+      await focus(contextInput); await setValue(contextInput, '96000'); await blur(contextInput);
+      await setValue(idInput, 'gpt-5');
+      assert.deepEqual(await limits('gpt-5'), [96000, 32768], 'a deliberate capacity edit stops reseeding both values');
+    });
+
+    await t.test('bulk import still reseeds an untouched row after its ID changes', async () => {
+      await reload();
+      await click('.models-actions button', '批量添加');
+      await cdp.waitFor("document.querySelector('.bulk-modal textarea')");
+      await setValue('.bulk-modal textarea', learned.id);
+      await click('.bulk-modal .primary-button', '导入');
+      await cdp.waitFor("document.querySelectorAll('.model-row').length === 4");
+      assert.deepEqual(await limits(learned.id), [64000, 8192]);
+      await setValue(idInput, 'gpt-5');
+      assert.deepEqual(await limits('gpt-5'), [400000, 128000]);
+      const outputInput = '.model-row:last-child input[aria-label="最大输出"]';
+      await focus(outputInput); await setValue(outputInput, '8192'); await blur(outputInput);
+      await setValue(idInput, 'gpt-4.1');
+      assert.deepEqual(await limits('gpt-4.1'), [400000, 8192], 'editing output also stops reseeding both values');
+    });
+
+    await t.test('discovery prefers learned hints and a partial listing produces a saveable model', async () => {
+      await reload();
+      await click('.models-actions button', '获取模型');
+      await cdp.waitFor("document.querySelectorAll('.discover-row input[type=checkbox]').length === 2");
+      await click('.discover-bulk-actions button', '全选');
+      await click('.discover-modal .primary-button', '导入');
+      await cdp.waitFor("document.querySelectorAll('.model-row').length === 5");
+      assert.deepEqual(await limits(learned.id), [64000, 8192], 'learned values outrank the gateway listing');
+      const partial = await limits('partial-limits');
+      assert.deepEqual(partial, [8192, 4096], 'fallback output leaves room for input inside the reported context');
+      await setValue(idInput, 'gpt-4.1');
+      assert.deepEqual(await limits('gpt-4.1'), [1047576, 32768], 'a discovered row also follows its new ID');
+      await click('.wizard-footer .primary-button', '保存更改');
+      await cdp.waitFor("document.querySelector('.success-page')");
+      const stored = JSON.parse(fs.readFileSync(modelsPath)).providers['review-router'].models;
+      const model = stored.find(model => model.id === 'partial-limits');
+      assert.deepEqual([model.contextWindow, model.maxTokens], partial);
+      assert.equal(stored.some(model => Object.hasOwn(model, 'limitsAuto')), false);
+      assert.deepEqual(cdp.errors, []);
+    });
+  } finally {
+    if (cdp) { await Promise.race([cdp.send('Browser.close').catch(() => {}), new Promise(r => setTimeout(r, 500))]); cdp.close(); }
+    await stopProcess(chrome, true); await stopProcess(server);
+    gateway.closeAllConnections(); await new Promise(resolve => gateway.close(resolve));
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});

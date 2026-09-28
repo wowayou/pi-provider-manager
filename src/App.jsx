@@ -42,6 +42,7 @@ import { validateUserAgent } from "../lib/pi-user-agent.mjs";
 import { changedPersistedModel, draftSignature, duplicateCodexForm, duplicatePiForm, providerDraftIdentity, selectedNamedModel, userAgentSaveIntent, anthropicBetaSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "./model-draft.mjs";
 import { normalizeAnthropicBeta } from "../lib/pi-anthropic-beta.mjs";
 import { defaultDiscoveryPath } from "../lib/model-discovery.mjs";
+import { CONSERVATIVE, recommendedDefaults, seedModelLimits } from "./model-catalog.mjs";
 import { USER_AGENT_PRESETS } from "./user-agent-presets.mjs";
 import { PromptsScreen } from "./prompts-view.jsx";
 import { ManagerCard } from "./manager-card.jsx";
@@ -184,13 +185,15 @@ function ThemeToggle({ theme, onTheme }) {
   );
 }
 
-function safeDefaults(modelId = "") {
-  if (modelId === "gpt-5.6-sol") return { contextWindow: 1_050_000, maxTokens: 128_000 };
-  return { contextWindow: 128_000, maxTokens: 16_384 };
+// The conservative floor the "安全值" controls dial down to when a relay's real
+// ceiling turns out to be lower than a family's published maximum. New rows are
+// seeded from the fuller family catalogue (recommendedDefaults) instead; this is
+// only the escape hatch, so it stays flat and cautious for every model.
+function safeDefaults() {
+  return { ...CONSERVATIVE };
 }
 
-function blankModel(id = "") {
-  const limits = safeDefaults(id);
+function blankModel(id = "", limits = recommendedDefaults(id)) {
   return {
     rowId: crypto.randomUUID(),
     persistedId: "",
@@ -198,6 +201,10 @@ function blankModel(id = "") {
     name: id,
     contextWindow: limits.contextWindow,
     maxTokens: limits.maxTokens,
+    // While true, editing the model ID re-seeds from this gateway's learned
+    // hints or the family catalogue. A manual edit to either number turns it off
+    // so a deliberate value is never overwritten. Stored rows start with it off.
+    limitsAuto: true,
     supportsImages: true,
     maximumThinking: "on",
     api: "inherit",
@@ -282,6 +289,7 @@ const DEMO_STATE = {
     ],
   },
   settings: { defaultProvider: "any-claude", defaultModel: "claude-3-5-sonnet", defaultThinkingLevel: "high" },
+  modelHints: {},
   providers: [
     {
       id: "any-claude",
@@ -315,6 +323,9 @@ function providerToForm(provider, state) {
         name: model.name || model.id,
         contextWindow: model.contextWindow || 128000,
         maxTokens: model.maxTokens || 16384,
+        // A stored model's numbers are already what the user wants; never re-seed
+        // them from the catalogue behind the persisted (read-only) ID.
+        limitsAuto: false,
         supportsImages: Array.isArray(model.input) && model.input.includes("image"),
         maximumThinking: model.thinkingLevelMap?.max
           ? "max"
@@ -850,7 +861,7 @@ function TokenField({ value, onChange, label }) {
   useEffect(() => { if (!focused) setDraft(String(value)); }, [value, focused]);
   const invalid = focused && draft.trim() !== "" && !isValidTokens(draft);
   const commit = () => {
-    if (isValidTokens(draft)) onChange(parseTokens(draft));
+    if (isValidTokens(draft) && parseTokens(draft) !== value) onChange(parseTokens(draft));
     setFocused(false);
   };
   return (
@@ -895,7 +906,12 @@ function ModelRow({ model, isDefault, isLiveDefault, onChange, onDefault, onArmR
             className={`mono ${isPersisted ? "is-readonly" : ""}`}
             value={model.id}
             onChange={(event) => {
-              if (!isPersisted) onChange({ ...model, id: event.target.value, name: event.target.value });
+              if (!isPersisted) {
+                const id = event.target.value;
+                // The parent resolves capacities with the same gateway hints
+                // used by bulk paste and discovery.
+                onChange({ ...model, id, name: id });
+              }
             }}
             readOnly={isPersisted}
             aria-label="模型 ID"
@@ -916,10 +932,10 @@ function ModelRow({ model, isDefault, isLiveDefault, onChange, onDefault, onArmR
         </span>
       </label>
       <label>
-        <TokenField label="上下文容量" value={model.contextWindow} onChange={(value) => onChange({ ...model, contextWindow: value })} />
+        <TokenField label="上下文容量" value={model.contextWindow} onChange={(value) => onChange({ ...model, contextWindow: value, limitsAuto: false })} />
         <button type="button" className="safe-default" onClick={onSafeDefaults}>这一行用安全值</button>
       </label>
-      <label><TokenField label="最大输出" value={model.maxTokens} onChange={(value) => onChange({ ...model, maxTokens: value })} /></label>
+      <label><TokenField label="最大输出" value={model.maxTokens} onChange={(value) => onChange({ ...model, maxTokens: value, limitsAuto: false })} /></label>
       <label><span className="sr-only">图像能力</span><select value={model.supportsImages ? "yes" : "no"} onChange={(event) => onChange({ ...model, supportsImages: event.target.value === "yes" })}><option value="yes">支持</option><option value="no">不支持</option></select></label>
       <label><span className="sr-only">推理能力</span><select value={model.maximumThinking} onChange={(event) => onChange({ ...model, maximumThinking: event.target.value })}>{THINKING_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       <label className="default-radio"><input type="radio" name="default-model" checked={isDefault} onChange={onDefault} disabled={!model.id.trim()} aria-label={`将 ${model.id || "该模型"} 设为默认`} /></label>
@@ -965,7 +981,7 @@ function userAgentValidationError(value) {
   }
 }
 
-function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, onDiscover, onEditProtocol, onEditGateway, canDeleteProvider, isExistingProvider, isCurrentDefault, hasProviders, dirty, liveDefaultModelId, userAgentFocusRequest, betaFocusRequest }) {
+function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, onDiscover, onEditProtocol, onEditGateway, canDeleteProvider, isExistingProvider, isCurrentDefault, hasProviders, dirty, liveDefaultModelId, modelHints, userAgentFocusRequest, betaFocusRequest }) {
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [showDiscover, setShowDiscover] = useState(false);
@@ -982,7 +998,15 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
   const betaIsAnthropic = betaModel ? (betaModel.api === "inherit" ? form.api : betaModel.api) === "anthropic-messages" : false;
   const betaError = betaModel && betaModel.anthropicBetaKind === "literal" ? (() => { try { normalizeAnthropicBeta(betaModel.anthropicBeta); return ""; } catch (problem) { return problem.message; } })() : "";
   useEffect(() => { if (!betaFocusRequest?.serial) return; setBetaRowId(betaFocusRequest.rowId || ""); advancedRef.current?.setAttribute("open", ""); requestAnimationFrame(() => betaInputRef.current?.focus()); }, [betaFocusRequest?.serial]);
-  const updateModel = (rowId, value) => setForm((current) => ({ ...current, models: current.models.map((model) => model.rowId === rowId ? value : model) }));
+  const seedLimits = (id, discovered) => seedModelLimits(id, { hint: modelHints?.[id.trim()], discovered });
+  const updateModel = (rowId, value) => setForm((current) => ({
+    ...current,
+    models: current.models.map((model) => {
+      if (model.rowId !== rowId) return model;
+      return model.limitsAuto && model.id.trim() !== value.id.trim()
+        ? { ...value, ...seedLimits(value.id) } : value;
+    }),
+  }));
   const addModel = () => setForm((current) => ({ ...current, models: [...current.models, blankModel()], defaultRowId: current.defaultRowId || current.models[0]?.rowId || "" }));
   // Which row would inherit the default marker once this one is gone: the radio
   // stays where it is unless it is the row being removed.
@@ -1061,14 +1085,12 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
   };
   const applySafeToAll = () => {
     const previous = form.models;
-    const changed = previous.filter((model) => {
-      const safe = safeDefaults(model.id);
-      return model.contextWindow !== safe.contextWindow || model.maxTokens !== safe.maxTokens;
-    });
+    const safe = safeDefaults();
+    const changed = previous.filter((model) => model.contextWindow !== safe.contextWindow || model.maxTokens !== safe.maxTokens);
     if (changed.length === 0) { onNotify("所有模型已经是安全默认值"); return; }
     setForm((current) => ({
       ...current,
-      models: current.models.map((model) => ({ ...model, ...safeDefaults(model.id) })),
+      models: current.models.map((model) => ({ ...model, ...safeDefaults(), limitsAuto: false })),
     }));
     // This overwrites numbers the user may have typed themselves, so it has to be reversible.
     onNotify(`已把 ${changed.length} 个模型的容量与输出改为安全值`, "success", {
@@ -1077,7 +1099,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
         ...current,
         models: current.models.map((model) => {
           const before = previous.find((item) => item.rowId === model.rowId);
-          return before ? { ...model, contextWindow: before.contextWindow, maxTokens: before.maxTokens } : model;
+          return before ? { ...model, contextWindow: before.contextWindow, maxTokens: before.maxTokens, limitsAuto: before.limitsAuto } : model;
         }),
       })),
     });
@@ -1089,7 +1111,9 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
   const existingIds = useMemo(() => new Set(form.models.map((model) => model.id).filter(Boolean)), [form.models]);
   const newBulkIds = bulkIds.filter((id) => !existingIds.has(id));
   // Shared by the paste dialog and the gateway listing: rows are appended, IDs
-  // already in the draft are skipped, and a lone blank first row gives way.
+  // already in the draft are skipped, and a lone blank first row gives way. Each
+  // row remains automatic until the user edits a capacity. A different ID must
+  // never inherit the discovery metadata or hint of the previous model.
   const addModelEntries = (entries) => {
     setForm((current) => {
       const existing = new Set(current.models.map((model) => model.id).filter(Boolean));
@@ -1097,7 +1121,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
       for (const entry of entries) {
         if (existing.has(entry.id)) continue;
         existing.add(entry.id);
-        additions.push({ ...blankModel(entry.id), name: entry.name || entry.id });
+        additions.push({ ...blankModel(entry.id, seedLimits(entry.id, entry)), name: entry.name || entry.id });
       }
       const hasOnlyBlank = current.models.length === 1 && !current.models[0].id;
       const models = [...(hasOnlyBlank ? [] : current.models), ...additions];
@@ -1238,7 +1262,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
         {thinkingAliasModels.length > 0 && <div className="model-warning"><WarningCircle size={20} weight="fill" /><span><strong>发现疑似思考档位后缀：</strong>{thinkingAliasModels.map((model) => model.id).join("、")}。只有网关真的把它们作为模型 ID 时才应保留；否则用右侧“推理能力”和 Pi 的 Shift+Tab 切换。</span></div>}
         <div className={`models-table ${scrolled ? "is-scrolled" : ""}`} onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 2)}>
           <div className="model-table-head"><span>模型 ID</span><span>上下文容量</span><span>最大输出</span><span>图像能力</span><span>推理能力</span><span>默认模型</span><span className="model-action-cell" /></div>
-          {visibleModels.map((model) => <ModelRow key={model.rowId} model={model} isDefault={form.defaultRowId === model.rowId && Boolean(model.id.trim())} isLiveDefault={Boolean(liveDefaultModelId) && model.id.trim() === liveDefaultModelId} onChange={(value) => updateModel(model.rowId, value)} onSafeDefaults={() => updateModel(model.rowId, { ...model, ...safeDefaults(model.id) })} onDefault={() => setForm((current) => ({ ...current, defaultRowId: model.rowId }))} onArmRemove={() => armRemoveModel(model)} onRemove={() => removeModel(model.rowId)} onBlockedRemove={blockLastModelRemoval} canRemove={form.models.length > 1} />)}
+          {visibleModels.map((model) => <ModelRow key={model.rowId} model={model} isDefault={form.defaultRowId === model.rowId && Boolean(model.id.trim())} isLiveDefault={Boolean(liveDefaultModelId) && model.id.trim() === liveDefaultModelId} onChange={(value) => updateModel(model.rowId, value)} onSafeDefaults={() => updateModel(model.rowId, { ...model, ...safeDefaults(), limitsAuto: false })} onDefault={() => setForm((current) => ({ ...current, defaultRowId: model.rowId }))} onArmRemove={() => armRemoveModel(model)} onRemove={() => removeModel(model.rowId)} onBlockedRemove={blockLastModelRemoval} canRemove={form.models.length > 1} />)}
           {showModelFilter && modelFilterText && visibleModels.length === 0 && <p className="list-empty">没有匹配 <code className="mono">{modelFilter.trim()}</code> 的模型。</p>}
         </div>
         <p className="scroll-hint">表格可左右滑动，查看上下文容量、图像与推理能力等字段。</p>
@@ -3125,7 +3149,7 @@ export function App() {
               />
             </>
           )
-        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={goToStep} allowJump={state.providers.some((provider) => provider.id === form.providerId.trim())} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} identity={piIdentity} apiFocusRequest={apiFocusRequest} credentialFocus={credentialFocus} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} onDiscover={discoverModels} onEditProtocol={() => goToStep(1)} onEditGateway={editGatewayAddress} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} hasProviders={state.providers.length > 0} dirty={piDirty} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} userAgentFocusRequest={userAgentFocusRequest} betaFocusRequest={betaFocusRequest} />}</>}
+        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={goToStep} allowJump={state.providers.some((provider) => provider.id === form.providerId.trim())} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} identity={piIdentity} apiFocusRequest={apiFocusRequest} credentialFocus={credentialFocus} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} onDiscover={discoverModels} onEditProtocol={() => goToStep(1)} onEditGateway={editGatewayAddress} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} hasProviders={state.providers.length > 0} dirty={piDirty} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} modelHints={state.modelHints?.[piIdentity.ownerId]} userAgentFocusRequest={userAgentFocusRequest} betaFocusRequest={betaFocusRequest} />}</>}
       </section>
       {codexDeleteTargetId && codexProvider(codexDeleteTargetId) && (
         <CodexDeleteDialog

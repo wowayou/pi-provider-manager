@@ -13,7 +13,10 @@ export function draftSignature(form) {
   return JSON.stringify({
     ...rest,
     defaultModelId,
-    models: models.map(({ rowId, ...fields }) => fields),
+    // `limitsAuto` is ephemeral UI state (whether typing an ID still re-seeds the
+    // capacities), like `rowId` — it never reaches the server, so it must not
+    // make an otherwise-unchanged draft look edited.
+    models: models.map(({ rowId, limitsAuto, ...fields }) => fields),
   });
 }
 
@@ -204,8 +207,10 @@ export function piConfigJsonToForm(parsed, form) {
     const prior = byId.get(id);
     const rowId = prior && !usedRowIds.has(prior.rowId) ? prior.rowId : freshRowId();
     if (prior) usedRowIds.add(prior.rowId);
-    const contextWindow = Number(raw.contextWindow);
-    const maxTokens = Number(raw.maxTokens);
+    const rawContext = Number(raw.contextWindow);
+    const rawOutput = Number(raw.maxTokens);
+    const contextWindow = Number.isFinite(rawContext) && rawContext > 0 ? rawContext : (prior?.contextWindow || 128000);
+    const maxTokens = Number.isFinite(rawOutput) && rawOutput > 0 ? rawOutput : (prior?.maxTokens || 16384);
     let anthropicBeta = prior?.anthropicBeta || "";
     let anthropicBetaKind = prior?.anthropicBetaKind || "none";
     let anthropicBetaEdited = prior ? Boolean(prior.anthropicBetaEdited) : false;
@@ -222,8 +227,11 @@ export function piConfigJsonToForm(parsed, form) {
       persistedId: prior ? prior.persistedId : "",
       id,
       name: raw.name ? String(raw.name) : id,
-      contextWindow: Number.isFinite(contextWindow) && contextWindow > 0 ? contextWindow : (prior?.contextWindow || 128000),
-      maxTokens: Number.isFinite(maxTokens) && maxTokens > 0 ? maxTokens : (prior?.maxTokens || 16384),
+      contextWindow,
+      maxTokens,
+      // An unchanged JSON round trip must not disable a new row's automatic
+      // limits. Explicit capacity edits and newly supplied JSON rows are manual.
+      limitsAuto: Boolean(prior?.limitsAuto && contextWindow === prior.contextWindow && maxTokens === prior.maxTokens),
       supportsImages: Object.hasOwn(raw, "supportsImages") ? Boolean(raw.supportsImages) : Boolean(prior?.supportsImages),
       maximumThinking: PI_THINKING_VALUES.has(raw.thinking) ? raw.thinking : (prior?.maximumThinking || "on"),
       api: typeof raw.api === "string" ? raw.api : (prior?.api || "inherit"),
