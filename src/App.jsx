@@ -39,7 +39,7 @@ import {
 } from "@phosphor-icons/react";
 import { PROVIDER_ID_PATTERN, normalizeUrl } from "../lib/validation.mjs";
 import { validateUserAgent } from "../lib/pi-user-agent.mjs";
-import { changedPersistedModel, draftSignature, duplicateCodexForm, duplicatePiForm, selectedNamedModel, userAgentSaveIntent, anthropicBetaSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "./model-draft.mjs";
+import { changedPersistedModel, draftSignature, duplicateCodexForm, duplicatePiForm, providerDraftIdentity, selectedNamedModel, userAgentSaveIntent, anthropicBetaSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "./model-draft.mjs";
 import { normalizeAnthropicBeta } from "../lib/pi-anthropic-beta.mjs";
 import { defaultDiscoveryPath } from "../lib/model-discovery.mjs";
 import { USER_AGENT_PRESETS } from "./user-agent-presets.mjs";
@@ -791,7 +791,7 @@ function ProtocolStep({ form, setForm, onNext }) {
   );
 }
 
-function CredentialsStep({ form, setForm, state, error, overwrites, apiFocusRequest, credentialFocus, onBack, onNext }) {
+function CredentialsStep({ form, setForm, state, error, identity, apiFocusRequest, credentialFocus, onBack, onNext }) {
   const sources = state.authProviders.filter((id) => id !== form.providerId);
   const providerIdRef = useRef(null);
   const baseUrlRef = useRef(null);
@@ -819,16 +819,16 @@ function CredentialsStep({ form, setForm, state, error, overwrites, apiFocusRequ
         <div className="form-grid">
           <label><span>供应商 ID</span><small>例如 any-router；用于 Pi 内部识别</small><input className="mono" value={form.providerId} onChange={(event) => setForm((current) => {
             const providerId = event.target.value.toLowerCase().replace(/\s+/g, "-");
-            // "keep" only means something while the id still names a stored credential.
-            const keepStillValid = state.authProviders.includes(providerId);
+            // A saved draft keeps its source credential even while its ID is retyped.
+            const keepStillValid = state.authProviders.includes(identity.sourceId || providerId);
             return { ...current, providerId, credentialMode: current.credentialMode === "keep" && !keepStillValid ? "new" : current.credentialMode };
-          })} placeholder="any-router" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" ref={providerIdRef} aria-invalid={providerIdInvalid || erroredField === "providerId" || undefined} aria-describedby={erroredField === "providerId" ? "credential-error-banner" : undefined} />{providerIdInvalid && <span className="field-warning"><WarningCircle size={15} weight="fill" />只能使用小写字母、数字、点、下划线和连字符，且以字母或数字开头。</span>}{overwrites && !providerIdInvalid && <span className="field-warning"><WarningCircle size={15} weight="fill" />已有同名供应商，保存会替换它的地址与模型列表。</span>}</label>
+          })} placeholder="any-router" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" ref={providerIdRef} aria-invalid={providerIdInvalid || Boolean(identity.conflict) || (erroredField === "providerId" && !form.providerId.trim()) || undefined} aria-describedby={identity.conflict ? "pi-rename-conflict" : erroredField === "providerId" && !form.providerId.trim() ? "credential-error-banner" : undefined} />{providerIdInvalid && <span className="field-warning"><WarningCircle size={15} weight="fill" />只能使用小写字母、数字、点、下划线和连字符，且以字母或数字开头。</span>}{identity.overwrites && !providerIdInvalid && <span className="field-warning"><WarningCircle size={15} weight="fill" />已有同名供应商，保存会替换它的地址与模型列表。</span>}{identity.conflict && !providerIdInvalid && <span id="pi-rename-conflict" className="field-warning"><WarningCircle size={15} weight="fill" />{identity.conflict}</span>}{identity.renameFrom && !identity.conflict && !providerIdInvalid && <span className="field-note"><Info size={15} weight="duotone" />保存会把 <code className="mono">{identity.renameFrom}</code> 改名为这个 ID：模型、凭据和默认设置都会一并迁移，旧 ID 不再保留。</span>}</label>
           <label><span>API 地址</span><small>填写接口根地址，不要包含具体模型路径</small><input ref={baseUrlRef} className="mono" type="url" inputMode="url" value={form.baseUrl} onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))} placeholder="https://api.example.com/v1" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" aria-invalid={erroredField === "baseUrl" || undefined} aria-describedby={erroredField === "baseUrl" ? "credential-error-banner" : undefined} /></label>
         </div>
         <fieldset className="credential-box">
           <legend>访问凭据</legend>
           <div className="credential-tabs">
-            {state.authProviders.includes(form.providerId) && <button type="button" className={form.credentialMode === "keep" ? "is-active" : ""} onClick={() => setForm((current) => ({ ...current, credentialMode: "keep" }))}>保留现有 key</button>}
+            {state.authProviders.includes(identity.ownerId) && <button type="button" className={form.credentialMode === "keep" ? "is-active" : ""} onClick={() => setForm((current) => ({ ...current, credentialMode: "keep" }))}>保留现有 key</button>}
             <button type="button" className={form.credentialMode === "new" ? "is-active" : ""} onClick={() => setForm((current) => ({ ...current, credentialMode: "new" }))}>输入新 key</button>
             {sources.length > 0 && <button type="button" className={form.credentialMode === "migrate" ? "is-active" : ""} onClick={() => setForm((current) => ({ ...current, credentialMode: "migrate", migrateFrom: current.migrateFrom || sources[0] }))}>从已有凭据迁移</button>}
           </div>
@@ -1929,6 +1929,7 @@ export function App() {
   // user changes something. User edits use the plain setters.
   const loadForm = useCallback((next) => { setForm(next); setPiBaseline(draftSignature(next)); }, []);
   const loadCodexForm = useCallback((next) => { setCodexForm(next); setCodexBaseline(draftSignature(next)); }, []);
+  const piIdentity = providerDraftIdentity(selectedId, form.providerId, state.providers.map((provider) => provider.id), state.authProviders);
   const piDirty = useMemo(() => draftSignature(form) !== piBaseline, [form, piBaseline]);
   const codexDirty = useMemo(() => draftSignature(codexForm) !== codexBaseline, [codexForm, codexBaseline]);
   // The draft the current screen would lose on navigation. Settings and prompts
@@ -2103,8 +2104,10 @@ export function App() {
     const providerId = form.providerId.trim();
     if (!providerId) return { field: "providerId", message: "请输入供应商 ID。" };
     if (!PROVIDER_ID_PATTERN.test(providerId)) return { field: "providerId", message: "供应商 ID 只能使用小写字母、数字、点、下划线和连字符，且以字母或数字开头。" };
+    if (piIdentity.conflict) return { field: "providerId", message: piIdentity.conflict };
     if (!form.baseUrl.trim()) return { field: "baseUrl", message: "请输入 API 地址。" };
     try { normalizeUrl(form.baseUrl); } catch (problem) { return { field: "baseUrl", message: problem.message }; }
+    if (form.credentialMode === "keep" && !state.authProviders.includes(piIdentity.ownerId)) return { field: "apiKey", message: "该供应商尚未配置凭据，请输入新 key 或从已有供应商迁移。" };
     if (form.credentialMode === "new" && !form.apiKey.trim()) return { field: "apiKey", message: "请输入 API Key。" };
     if (form.credentialMode === "migrate" && !form.migrateFrom) return { field: "migrateFrom", message: "请选择要迁移的已有凭据。" };
     return null;
@@ -2173,14 +2176,14 @@ export function App() {
           mode: form.credentialMode,
           apiKey: form.credentialMode === "new" ? form.apiKey : undefined,
           fromProvider: form.credentialMode === "migrate" ? form.migrateFrom : undefined,
-          providerId: form.providerId.trim(),
+          providerId: piIdentity.ownerId,
         },
       }),
     });
     return readApiResponse(response, "获取模型列表失败");
     // validateCredentials reads the same form fields listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [demoMode, form.baseUrl, form.api, form.credentialMode, form.apiKey, form.migrateFrom, form.providerId]);
+  }, [demoMode, form.baseUrl, form.api, form.credentialMode, form.apiKey, form.migrateFrom, form.providerId, piIdentity.ownerId, piIdentity.conflict, state.authProviders]);
 
   const save = async (setDefault) => {
     setConflict(false);
@@ -2202,14 +2205,22 @@ export function App() {
     if (!selectedModel) { setError("请选择一个已命名模型作为默认模型。"); return; }
     const targetProviderId = form.providerId.trim();
     const targetProvider = state.providers.find((provider) => provider.id === targetProviderId);
+    // A draft opened from a stored provider whose ID now differs is a rename of
+    // that provider, not a fork of it. The server moves models.json, auth.json
+    // and every settings.json reference in one write; the client only names the
+    // source. When renaming, the stored config carries over under the new ID, so
+    // the UA/Beta save-intents treat the new ID as the source too — an unedited
+    // value is preserved by omission rather than cleared as a target switch.
+    const renameFrom = piIdentity.renameFrom;
+    const intentSourceId = renameFrom ? targetProviderId : selectedId;
     for (const model of form.models.filter((item) => item.id.trim())) {
       const targetModelExists = Boolean(targetProvider?.models?.some((item) => item.id === model.id.trim()));
-      const betaIntent = anthropicBetaSaveIntent(model, selectedId, targetProviderId, targetModelExists);
+      const betaIntent = anthropicBetaSaveIntent(model, intentSourceId, targetProviderId, targetModelExists);
       if (betaIntent.write && betaIntent.value) {
         try { betaIntent.value = normalizeAnthropicBeta(betaIntent.value); } catch (problem) { setError("模型 " + model.id.trim() + " 的 Anthropic Beta 请求头无效：" + problem.message); setBetaFocusRequest((current) => ({ rowId: model.rowId, serial: current.serial + 1 })); setStep(3); return; }
       }
     }
-    const userAgentIntent = userAgentSaveIntent(form, selectedId, Boolean(targetProvider));
+    const userAgentIntent = userAgentSaveIntent(form, intentSourceId, Boolean(targetProvider));
     setSaving(true);
     setError("");
     const payload = {
@@ -2234,7 +2245,7 @@ export function App() {
         forceAdaptiveThinking: model.forceAdaptiveThinking,
         ...(() => {
           const targetModelExists = Boolean(targetProvider?.models?.some((item) => item.id === model.id.trim()));
-          const intent = anthropicBetaSaveIntent(model, selectedId, targetProviderId, targetModelExists);
+          const intent = anthropicBetaSaveIntent(model, intentSourceId, targetProviderId, targetModelExists);
           return intent.write ? { anthropicBeta: intent.value ? normalizeAnthropicBeta(intent.value) : "" } : {};
         })(),
       })),
@@ -2245,10 +2256,14 @@ export function App() {
       compat: form.compat,
       revision: state.revision,
     };
+    // Naming the source turns a save under a changed ID into a rename: the
+    // server moves the stored provider rather than forking a second one.
+    if (renameFrom) payload.renameFrom = renameFrom;
     if (userAgentIntent.write) payload.userAgent = userAgentIntent.value;
     try {
       if (demoMode) {
         await new Promise((resolve) => setTimeout(resolve, 500));
+        const preservedProvider = state.providers.find((provider) => provider.id === piIdentity.ownerId);
         const demoProvider = {
           id: payload.providerId,
           name: titleFromId(payload.providerId),
@@ -2258,14 +2273,14 @@ export function App() {
             ? payload.userAgent.trim()
               ? { kind: "literal", value: payload.userAgent.trim() }
               : { kind: "none" }
-            : targetProvider?.userAgent?.kind === "external"
+            : preservedProvider?.userAgent?.kind === "external"
               ? { kind: "external" }
-              : targetProvider?.userAgent?.kind === "literal"
-                ? targetProvider.userAgent
+              : preservedProvider?.userAgent?.kind === "literal"
+                ? preservedProvider.userAgent
                 : { kind: "none" },
           hasModelUserAgentOverride: Boolean(form.hasModelUserAgentOverride),
           credentialConfigured: true,
-          isDefault: setDefault,
+          isDefault: Boolean(setDefault || state.settings.defaultProvider === piIdentity.ownerId),
           compat: payload.compat || {},
           models: payload.models.map((model) => ({
             id: model.id,
@@ -2277,21 +2292,27 @@ export function App() {
             api: model.api === "inherit" ? undefined : model.api,
             anthropicBeta: Object.hasOwn(model, "anthropicBeta")
               ? (model.anthropicBeta ? { kind: "literal", value: model.anthropicBeta } : { kind: "none" })
-              : (targetProvider?.models?.find((item) => item.id === model.id)?.anthropicBeta || { kind: "none" }),
+              : (preservedProvider?.models?.find((item) => item.id === model.id)?.anthropicBeta || { kind: "none" }),
           })),
         };
+        // A rename drops the old ID: the demo state must remove the source
+        // provider and its credential too, and carry a live default across to
+        // the new ID, or the fake happy path would show both rows.
+        const renamedDefault = renameFrom && !setDefault && state.settings.defaultProvider === renameFrom;
         const demoState = {
           ...state,
           providers: [
             ...state.providers
-              .filter((provider) => provider.id !== payload.providerId)
+              .filter((provider) => provider.id !== payload.providerId && provider.id !== renameFrom)
               .map((provider) => ({ ...provider, isDefault: setDefault ? false : provider.isDefault })),
             demoProvider,
           ],
-          authProviders: [...new Set([...state.authProviders, payload.providerId])],
+          authProviders: [...new Set([...state.authProviders.filter((id) => id !== renameFrom), payload.providerId])],
           settings: setDefault
             ? { ...state.settings, defaultProvider: payload.providerId, defaultModel: payload.defaultModelId }
-            : state.settings,
+            : renamedDefault
+              ? { ...state.settings, defaultProvider: payload.providerId }
+              : state.settings,
         };
         setState(demoState);
         setSelectedId(payload.providerId);
@@ -2500,6 +2521,7 @@ export function App() {
 
   const codex = state.codex || { providers: [], settings: {}, revision: "" };
   const codexProvider = (id) => codex.providers.find((provider) => provider.id === id);
+  const codexIdentity = providerDraftIdentity(codexSelectedId, codexForm.providerId, codex.providers.map((provider) => provider.id));
 
   const switchTarget = (next) => {
     if (next === target) return;
@@ -2549,11 +2571,12 @@ export function App() {
 
   const validateCodexCredentials = () => {
     if (!codexForm.providerId.trim()) return "请输入供应商 ID。";
+    if (codexIdentity.conflict) return codexIdentity.conflict;
     if (!codexForm.name.trim()) return "请填写供应商名称。";
     if (codexForm.upstream === "bridge") {
       if (!codexForm.bridgeUpstreamUrl.trim()) return "请输入上游 API 地址。";
       try { normalizeUrl(codexForm.bridgeUpstreamUrl); } catch (problem) { return problem.message; }
-      const savedBridge = codexProvider(codexForm.providerId.trim())?.bridge;
+      const savedBridge = codexProvider(codexIdentity.ownerId)?.bridge;
       if (!codexForm.bridgeApiKey.trim() && !savedBridge?.credentialConfigured) return "请输入上游 API Key。";
       return "";
     }
@@ -2585,9 +2608,9 @@ export function App() {
   };
 
   const bridgeAction = async (action) => {
+    const providerId = codexIdentity.ownerId;
     if (demoMode) {
       await new Promise((resolve) => setTimeout(resolve, 400));
-      const providerId = codexForm.providerId.trim();
       setState((current) => ({
         ...current,
         codex: {
@@ -2611,7 +2634,7 @@ export function App() {
     const response = await fetch(`/api/codex/bridge/${action}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ providerId: codexForm.providerId.trim() }),
+      body: JSON.stringify({ providerId }),
     });
     const data = await readApiResponse(response, action === "start" ? "启动桥失败" : "停止桥失败");
     // The bridge is runtime state, not configuration, so refresh it without
@@ -2630,6 +2653,11 @@ export function App() {
     if (named.length === 0) { setError("至少填写一个模型 ID。"); return; }
     const selected = codexForm.models.find((model) => model.rowId === codexForm.defaultRowId && model.id.trim());
     if (!selected) { setError("请选择一个已命名模型作为该供应商的默认模型。"); return; }
+    // A draft opened from a stored Codex provider whose ID now differs is a
+    // rename of that provider, not a fork. The server moves its stored config
+    // and active marker together, then relabels any matching bridge runtime
+    // record separately; the client only names the source.
+    const codexRenameFrom = codexIdentity.renameFrom;
     setSaving(true);
     setError("");
     try {
@@ -2640,23 +2668,38 @@ export function App() {
         // is the fixture's "", which the real API refuses with 409.
         await new Promise((resolve) => setTimeout(resolve, 500));
         const requiresAuth = codexForm.upstream !== "bridge" && codexForm.requiresAuth;
+        const existing = codexProvider(codexIdentity.ownerId);
+        const bridge = codexForm.upstream === "bridge" ? {
+          ...existing?.bridge,
+          upstreamBaseUrl: codexForm.bridgeUpstreamUrl.trim(),
+          port: existing?.bridge?.port || 4000,
+          credentialConfigured: Boolean(codexForm.bridgeApiKey.trim() || existing?.bridge?.credentialConfigured),
+        } : null;
         const saved = {
           id: codexForm.providerId.trim(),
           name: codexForm.name.trim() || titleFromId(codexForm.providerId.trim()),
-          baseUrl: codexForm.baseUrl.trim(),
+          baseUrl: bridge ? `http://127.0.0.1:${bridge.port}/v1` : codexForm.baseUrl.trim(),
+          bridge,
           requiresAuth,
           models: named.map((model) => ({ id: model.id.trim(), reasoningEffort: model.reasoningEffort })),
           defaultModelId: selected.id.trim(),
           credentialConfigured: !requiresAuth || codexForm.credentialMode !== "new" || Boolean(codexForm.apiKey.trim()),
           adopted: false,
-          isActive: Boolean(setActive) || codex.activeProviderId === codexForm.providerId.trim(),
+          isActive: Boolean(setActive || codex.activeProviderId === codexForm.providerId.trim() || (codexRenameFrom && codex.activeProviderId === codexRenameFrom)),
         };
         const demoCodex = {
           ...codex,
-          activeProviderId: setActive ? saved.id : codex.activeProviderId,
+          bridge: codexRenameFrom && codex.bridge?.providerId === codexRenameFrom
+            ? { ...codex.bridge, providerId: saved.id }
+            : codex.bridge,
+          activeProviderId: setActive
+            ? saved.id
+            : codexRenameFrom && codex.activeProviderId === codexRenameFrom
+              ? saved.id
+              : codex.activeProviderId,
           providers: [
             ...codex.providers
-              .filter((provider) => provider.id !== saved.id)
+              .filter((provider) => provider.id !== saved.id && provider.id !== codexRenameFrom)
               .map((provider) => (setActive ? { ...provider, isActive: false } : provider)),
             saved,
           ],
@@ -2704,6 +2747,7 @@ export function App() {
             ? { upstreamBaseUrl: codexForm.bridgeUpstreamUrl.trim(), apiKey: codexForm.bridgeApiKey }
             : undefined,
           setActive,
+          ...(codexRenameFrom ? { renameFrom: codexRenameFrom } : {}),
         }),
       });
       const data = await readApiResponse(response, "保存失败");
@@ -3081,7 +3125,7 @@ export function App() {
               />
             </>
           )
-        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={goToStep} allowJump={state.providers.some((provider) => provider.id === form.providerId.trim())} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} overwrites={selectedId !== form.providerId.trim() && state.providers.some((provider) => provider.id === form.providerId.trim())} apiFocusRequest={apiFocusRequest} credentialFocus={credentialFocus} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} onDiscover={discoverModels} onEditProtocol={() => goToStep(1)} onEditGateway={editGatewayAddress} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} hasProviders={state.providers.length > 0} dirty={piDirty} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} userAgentFocusRequest={userAgentFocusRequest} betaFocusRequest={betaFocusRequest} />}</>}
+        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={goToStep} allowJump={state.providers.some((provider) => provider.id === form.providerId.trim())} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} identity={piIdentity} apiFocusRequest={apiFocusRequest} credentialFocus={credentialFocus} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} onDiscover={discoverModels} onEditProtocol={() => goToStep(1)} onEditGateway={editGatewayAddress} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} hasProviders={state.providers.length > 0} dirty={piDirty} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} userAgentFocusRequest={userAgentFocusRequest} betaFocusRequest={betaFocusRequest} />}</>}
       </section>
       {codexDeleteTargetId && codexProvider(codexDeleteTargetId) && (
         <CodexDeleteDialog

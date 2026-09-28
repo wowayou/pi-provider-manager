@@ -28,6 +28,7 @@ import {
 } from "@phosphor-icons/react";
 
 import { CODEX_REASONING_EFFORTS, CODEX_VERBOSITIES, adoptableEffort, codexConfigJsonToForm, codexFormToConfigJson, effortOptions, idSlug } from "../lib/codex-shared.mjs";
+import { providerDraftIdentity } from "./model-draft.mjs";
 import { TomlDocument } from "../lib/toml-document.mjs";
 import { isLoopbackHostname } from "../lib/validation.mjs";
 import { ManagerCard } from "./manager-card.jsx";
@@ -315,11 +316,13 @@ function BridgeControl({ codex, providerId, onStart, onStop, onNotify }) {
 function CodexCredentialsStep({ form, setForm, codex, selectedId, error, conflict, onBack, onNext, onNotify, onStartBridge, onStopBridge }) {
   const [snippet, setSnippet] = useState("");
   const [showSnippet, setShowSnippet] = useState(false);
+  const providerIdRef = useRef(null);
   const sources = codex.providers.filter((item) => item.id !== form.providerId && item.credentialConfigured);
-  const existing = codex.providers.find((item) => item.id === form.providerId);
-  // An ID that names a provider other than the one this draft was opened
-  // from: saving replaces that provider, which the field should say.
-  const overwrites = Boolean(existing) && selectedId !== form.providerId.trim();
+  const identity = providerDraftIdentity(selectedId, form.providerId, codex.providers.map((item) => item.id));
+  const existing = codex.providers.find((item) => item.id === identity.ownerId);
+  useEffect(() => {
+    if (identity.conflict && error === identity.conflict) providerIdRef.current?.focus();
+  }, [error, identity.conflict]);
   const isBridge = form.upstream === "bridge";
   const isLocal = !isBridge && isLocalAddress(form.baseUrl);
 
@@ -389,8 +392,10 @@ function CodexCredentialsStep({ form, setForm, codex, selectedId, error, conflic
         <div className="form-grid">
           <label>
             <span>供应商 ID</span><small>本管理器内部标识</small>
-            <input className="mono" value={form.providerId} onChange={(event) => setForm((current) => ({ ...current, providerId: idSlug(event.target.value) }))} placeholder="packy" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
-            {overwrites && <span className="field-warning"><WarningCircle size={15} weight="fill" />已有同名供应商，保存会替换它的地址、模型列表和 key。</span>}
+            <input ref={providerIdRef} className="mono" value={form.providerId} onChange={(event) => setForm((current) => ({ ...current, providerId: idSlug(event.target.value) }))} placeholder="packy" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" aria-invalid={Boolean(identity.conflict) || undefined} aria-describedby={identity.conflict ? "codex-rename-conflict" : undefined} />
+            {identity.overwrites && <span className="field-warning"><WarningCircle size={15} weight="fill" />已有同名供应商，保存会替换它的地址、模型列表和 key。</span>}
+            {identity.conflict && <span id="codex-rename-conflict" className="field-warning"><WarningCircle size={15} weight="fill" />{identity.conflict}</span>}
+            {identity.renameFrom && !identity.conflict && <span className="field-note"><Info size={15} weight="duotone" />保存会把 <code className="mono">{identity.renameFrom}</code> 改名为这个 ID：模型、凭据和当前选中状态都会一并迁移，旧 ID 不再保留。</span>}
           </label>
           <label>
             <span>显示名称</span><small>写入 config.toml 的 name 字段</small>
@@ -453,7 +458,7 @@ function CodexCredentialsStep({ form, setForm, codex, selectedId, error, conflic
                 </div>
               </div>
               {existing?.bridge && (
-                <BridgeControl codex={codex} providerId={form.providerId.trim()} onStart={onStartBridge} onStop={onStopBridge} onNotify={onNotify} />
+                <BridgeControl codex={codex} providerId={identity.ownerId} onStart={onStartBridge} onStop={onStopBridge} onNotify={onNotify} />
               )}
             </>
           )}

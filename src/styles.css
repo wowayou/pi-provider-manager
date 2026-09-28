@@ -1040,6 +1040,9 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
    names a provider — said beside the field rather than after the save. */
 .field-warning { display: flex; align-items: flex-start; gap: 6px; color: var(--warn-text); font-size: 12px; font-weight: 500; line-height: 1.5; }
 .field-warning svg { flex: none; margin-top: 1px; color: var(--warn-icon); }
+.field-note { display: flex; align-items: flex-start; gap: 6px; color: var(--ink-2); font-size: 12px; font-weight: 500; line-height: 1.5; }
+.field-note svg { flex: none; margin-top: 1px; color: var(--orange); }
+.field-note code { color: var(--ink); background: var(--info-code); border-radius: var(--radius-sm); padding: 1px 5px; }
 
 .profile-chip { margin-left: 8px; }
 .success-caveat { display: flex; align-items: flex-start; gap: 9px; max-width: 640px; margin: 18px auto 0; color: var(--muted); font-size: 13px; line-height: 1.6; text-align: left; }

@@ -1,6 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { changedPersistedModel, draftSignature, duplicateCodexForm, duplicatePiForm, selectedNamedModel, suggestCopyId, userAgentSaveIntent, anthropicBetaSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "../src/model-draft.mjs";
+import { changedPersistedModel, draftSignature, duplicateCodexForm, duplicatePiForm, renameSourceId, providerDraftIdentity, selectedNamedModel, suggestCopyId, userAgentSaveIntent, anthropicBetaSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "../src/model-draft.mjs";
+
+test("a saved draft remains a rename when its target is occupied", () => {
+  const ids = ["router", "other"];
+  assert.equal(renameSourceId("router", "new-router", ids), "router");
+  assert.equal(renameSourceId("router", "other", ids), "router");
+  assert.equal(renameSourceId(" router ", " new-router ", ids), "router");
+  for (const [source, target] of [["", "new"], ["router", "router"], ["router", " "], ["ghost", "new"]]) {
+    assert.equal(renameSourceId(source, target, ids), "");
+  }
+});
+
+test("draft identity preserves credential ownership and separates conflicts from new-draft overwrites", () => {
+  const ids = ["router", "other"];
+  for (const target of ["", "new", "router", "other", "retained"]) {
+    const identity = providerDraftIdentity("router", target, ids, ["retained"]);
+    assert.equal(identity.ownerId, "router");
+    assert.equal(identity.overwrites, false);
+    assert.equal(Boolean(identity.conflict), target === "other" || target === "retained");
+  }
+  assert.equal(providerDraftIdentity("", "other", ids).overwrites, true);
+  assert.equal(providerDraftIdentity("", "other", ids).conflict, "");
+  assert.equal(providerDraftIdentity("", "router-copy", ids).sourceId, "");
+  assert.equal(providerDraftIdentity("", "router-copy", ids).ownerId, "router-copy");
+});
 
 test("draftSignature ignores rowId churn but tracks real edits", () => {
   const form = {
