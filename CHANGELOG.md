@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.4.8 - 2026-09-28
+
+- **Validated against Pi `0.87.1` and Codex `0.154.0` (unchanged baselines).** A feature release for provider renaming and a sidebar alignment fix. Full `npm test` on the release candidate passed 224/224 with 0 skips, including 29 production-browser cases, 5 real-Codex cases, and 2 real-Pi cases. No configuration format, provider/credential schema, API identifier, thinking-level, or compatibility baseline change.
+
 - **Provider rename with credential preservation.** Editing a saved provider's ID now moves its configuration and credential, including Pi's default-provider and provider-qualified settings references and Codex's active selection. An occupied target is refused in the wizard and on the server; Pi also protects retained credential IDs. Keeping the existing key works throughout ID edits, Pi model discovery, and Codex bridge saves. Pi and Codex retain separate revision checks. A running bridge's provider label is updated separately after the configuration commits, without restarting or signalling the process. New and duplicated drafts retain their existing overwrite warning and save behavior.
 
 - **Sidebar utility alignment.** The support link now shares the appearance control's 36px height and 18px icon size, with its icon centre and text aligned to the navigation above.
