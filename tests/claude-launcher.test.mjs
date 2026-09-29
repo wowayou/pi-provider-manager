@@ -249,7 +249,11 @@ process.exit(7);`);
   assert.deepEqual(sessions(dir), []);
 });
 
-test("Windows: a force-killed launcher's snapshot is swept by the next launch once Claude is gone", { skip: process.platform === "win32" ? false : "Windows only; covered by the CI Windows job", timeout: 30000 }, async (t) => {
+// Unlike POSIX, Claude does not outlive a force-killed launcher on Windows:
+// libuv assigns every non-detached child to a kill-on-close job object, so the
+// launcher's death ends Claude too. The "Claude still running" branch of the
+// sweep is covered by the cross-platform owner-record test above.
+test("Windows: a force-killed launcher takes Claude with it, and the next launch sweeps the snapshot", { skip: process.platform === "win32" ? false : "Windows only; covered by the CI Windows job", timeout: 30000 }, async (t) => {
   const { dir } = fixture(t);
   const hold = path.join(dir, "hold-claude.mjs");
   const pidFile = path.join(dir, "claude.pid");
@@ -264,12 +268,11 @@ await runClaude({ dir: ${JSON.stringify(dir)}, providerId: "one" }, { binary: ${
   await until(() => JSON.parse(fs.readFileSync(path.join(dir, "pi-provider-manager-runs", orphan, "owner.json"), "utf8")).claudePid === claudePid, "owner record names claude");
   // Task Manager's End task: no handler runs.
   execFileSync("taskkill", ["/PID", String(launcher.pid), "/F"]);
+  t.after(() => { try { execFileSync("taskkill", ["/PID", String(claudePid), "/F"], { stdio: "ignore" }); } catch {} });
   await until(() => processGone(launcher.pid), "launcher gone");
+  await until(() => processGone(claudePid), "Claude ends with its launcher (kill-on-close job object)");
+  assert.deepEqual(sessions(dir), [orphan], "no handler ran: the snapshot is still on disk");
   const quick = path.join(dir, "quick-claude.mjs"); fs.writeFileSync(quick, "process.exit(0);");
-  assert.equal(await runClaude({ dir, providerId: "one" }, { binary: quick, stdio: "ignore" }), 0);
-  assert.deepEqual(sessions(dir), [orphan], "Claude still running: snapshot kept");
-  execFileSync("taskkill", ["/PID", String(claudePid), "/F"]);
-  await until(() => processGone(claudePid), "claude gone");
   assert.equal(await runClaude({ dir, providerId: "one" }, { binary: quick, stdio: "ignore" }), 0);
   assert.deepEqual(sessions(dir), []);
 });

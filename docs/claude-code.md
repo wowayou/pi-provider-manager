@@ -97,7 +97,9 @@ gateway if immediate revocation is required.
   that directory once both recorded processes are provably gone. A directory
   without a readable record is removed after 10 minutes. A reused process ID
   can only delay removal, never remove a live session's file. A machine that
-  never launches again keeps the file until you delete it.
+  never launches again keeps the file until you delete it. On Windows, Node
+  places Claude in a kill-on-close job object, so force-ending the launcher
+  also ends Claude; its snapshot is swept on the next launch (verified in CI).
 - The launcher refuses a runtime directory that is a symlink or owned by another
   account, and tightens its permissions to `0700` on POSIX.
 
