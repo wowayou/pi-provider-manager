@@ -11,7 +11,7 @@ second copy of Pi.
 3. Run `./bin/pi-provider-manager-ui` from the extracted directory.
 
 The full usage manual travels in this archive as `docs/usage.zh-CN.md` (Simplified
-Chinese): both provider wizards step by step, the managed bridge, every environment
+Chinese): all three provider wizards step by step, the managed bridge, every environment
 variable, upgrade and uninstall, and a troubleshooting table indexed by the exact
 text on screen.
 

@@ -25,6 +25,7 @@ jobs:
       - run: npm run build
       - run: npm run test:server
       - run: npm run test:codex
+      - run: npm run test:claude
       - run: npm run test:prompts
       - run: npm run test:launcher
       - run: npm run test:sites
@@ -96,12 +97,19 @@ jobs:
       # is the only place the Windows start-and-reuse path is executed at all.
       - run: npm ci --ignore-scripts
       - run: npm run build
+      # The Claude terminal launcher on Windows: an npm .cmd shim resolved to its
+      # JavaScript entry without cmd.exe, literal arguments, snapshot cleanup, and
+      # the next launch sweeping a snapshot left by a taskkill /F. The real Windows
+      # Claude binary is not installed here; that remains a manual check.
+      - name: Run the Claude launcher on Windows
+        run: node --test tests/claude-launcher.test.mjs
       - name: Report a reused instance rather than pretending to start one
         shell: pwsh
         run: |
           $env:PI_PROVIDER_MANAGER_OPEN_BROWSER = "0"
           $env:PI_PROVIDER_MANAGER_PORT = "43137"
           $env:PI_CODING_AGENT_DIR = Join-Path $env:TEMP "ppm-ci-agent"
+          $env:PI_PROVIDER_MANAGER_CLAUDE_DIR = Join-Path $env:TEMP "ppm-ci-claude"
           $env:PI_PROVIDER_MANAGER_CODEX_DIR = Join-Path $env:TEMP "ppm-ci-codex"
           # On the record, because the next person to read the assertions below
           # will want to know what this runner's TEMP actually is.

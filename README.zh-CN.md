@@ -2,9 +2,9 @@
 
 [English](README.md)
 
-一个面向 **Pi 与 Codex CLI** 的本地模型目录与 API 网关管理器。它不替代这两个 agent，而是安全、可视化地维护它们各自的原生配置文件。
+一个面向 **Pi、Codex CLI 与 Claude Code** 的本地模型目录与 API 网关管理器。它不替代这三个 agent，而是安全、可视化地维护它们各自的原生配置文件。
 
-**详细使用说明书：[docs/usage.zh-CN.md](docs/usage.zh-CN.md)** —— 面向使用者写的，覆盖安装、两个向导、托管桥、全部环境变量，以及一张按屏幕原话索引的故障排查表。
+**详细使用说明书：[docs/usage.zh-CN.md](docs/usage.zh-CN.md)** —— 面向使用者写的，覆盖安装、三个向导、托管桥、全部环境变量，以及一张按屏幕原话索引的故障排查表。
 
 ## 我们解决的核心问题
 
@@ -26,7 +26,7 @@ Codex 的问题正好相反：配置很小，但一点都不宽容 —— 只有
 - **适合聚合网关**：一个类似 OpenRouter 的网关可以挂载多个上游厂商模型。
 - **Pi 容量建议**：手输、批量添加和模型发现优先恢复同网关同模型上次保存的容量，其次用网关返回值，最后用代际默认值。手动修改任一容量后停止自动更新，见[来源与规则](docs/model-capacities.md)。
 - **供应商级兼容 UA**：第三步的高级兼容设置支持可选的字面量 `User-Agent` 覆盖，明确区分未设置、字面量和外部配置；模型级 User-Agent 覆盖只提示，不回传其值；可编辑的模型级 `anthropic-beta` 字面量单独提供。
-- **key 不回传浏览器**：已有 key 保存在对应 agent 的 `auth.json` 或 Codex 供应商库，前端只能看到“已配置”。
+- **key 不回传浏览器**：已有 key 保存在对应 agent 的原生凭据／设置文件或私有供应商库，前端只能看到“已配置”。
 - **三文件原子写入与回滚**：写入前校验，失败时回滚，避免半配置状态。
 - **并发编辑保护**：每次写入都携带不透明 revision；CC Switch、另一个标签页或文本编辑器改过文件后，旧表单会收到 `409`，不会覆盖新修改。
 - **受保护的供应商删除**：Pi 删除会列明受影响的模型，默认删除凭据，也可选择保留；删除当前默认项必须先指定替代供应商和模型。Codex 删除会移除保存的 key，删除生效项必须由保留的供应商接替。
@@ -60,6 +60,23 @@ Codex（`$CODEX_HOME`，缺省 `~/.codex`）：
 - `pi-provider-manager-store.json` —— 本管理器自己的供应商库，权限 `0600`，见 [Codex 支持](#codex-支持)。
 - `pi-provider-manager-litellm.yaml`、`pi-provider-manager-bridge.json`、`pi-provider-manager-bridge.log` —— 只有供应商用了托管桥时才会写：LiteLLM 的生成配置、代理的运行时记录，以及它的输出。
 
+
+## Claude Code 支持
+
+第三个目标支持静态凭据的 Anthropic Messages 网关、模型别名、回复偏好和全局
+`CLAUDE.md`。**保存供应商**后可复制专属终端命令；**保存并设为全局默认**还会
+更新直接运行 `claude` 时的默认配置。命令卡片提供两种启动方式：**固定此供应商**
+每次启动使用独立的私有配置快照，两个终端可以分别使用两家供应商，切换全局默认也
+不会串线；**跟随全局默认**就是直接运行 `claude`，由 Claude Code 自己热加载，运行
+中的会话从下一条请求起跟随全局切换。已有密钥不会返回浏览器，也不会出现在复制的
+命令中。
+
+文件位于 `CLAUDE_CONFIG_DIR`（默认 `~/.claude`）：`settings.json`、私有
+`pi-provider-manager-store.json`、`CLAUDE.md`、提示词库，以及临时
+`pi-provider-manager-runs/session-*/` 快照。正常退出、Ctrl+C 和关闭终端都会清理
+快照；强制结束后，下次启动会在记录的两个进程都已退出时自动清理。组织策略仍有
+更高优先级。完整工作流、利弊、
+文件边界和验证方式见 [Claude Code 支持](docs/claude-code.md)。
 
 ## Codex 支持
 
@@ -107,7 +124,7 @@ codex -m gpt-5.1-codex -c model_reasoning_effort="low"
 
 ### 全局提示词
 
-两个 agent 的全局提示词都落在本管理器已经在管的目录里，所以一套界面同时服务两边。每个文件同时只有一份内容生效，其余存在管理器自己的库里 —— 和未生效的供应商是同一套做法。
+三个 agent 的全局提示词都落在各自配置目录里，所以一套界面同时服务它们。每个文件同时只有一份内容生效，其余存在管理器自己的库里 —— 和未生效的供应商是同一套做法。
 
 | Agent | 文件 | 作用 |
 |---|---|---|
@@ -115,6 +132,7 @@ codex -m gpt-5.1-codex -c model_reasoning_effort="low"
 | Pi | `~/.pi/agent/SYSTEM.md` | 整体替换默认系统提示 |
 | Pi | `~/.pi/agent/APPEND_SYSTEM.md` | 追加在默认系统提示之后 |
 | Codex | `$CODEX_HOME/AGENTS.md` | 与项目的 `AGENTS.md` 拼接 |
+| Claude Code | `$CLAUDE_CONFIG_DIR/CLAUDE.md` | 用户全局指令，与项目指令一起读取 |
 
 已有内容与库内提示词不匹配时会被**接管**，且只发生在读路径上 —— 打开这个界面永远不写盘。未匹配的零字节文件不接管；空白字符仍算内容，已保存的空提示词仍可与文件匹配。删除当前正在文件里的那一份时必须指定替代，规则与删除生效中的供应商一致。
 
@@ -174,7 +192,7 @@ Codex 还会从当前工作目录往上找 `.codex/config.toml`，遇到它在�
 
 ## 项目状态与 CC Switch
 
-本项目处于维护模式。后续只处理确认过的缺陷、安全修复和 Pi / Codex 兼容变化，不再追求与 [CC Switch](https://github.com/farion1231/cc-switch) 的大而全功能对齐。
+本项目处于维护模式。后续只处理确认过的缺陷、安全修复和 Pi / Codex / Claude Code 兼容变化，不再追求与 [CC Switch](https://github.com/farion1231/cc-switch) 的大而全功能对齐。
 
 Codex 支持是有意加入的，范围同样收窄：供应商、凭据和当前生效项。不做预设库、模型发现、用量看板，也不做流量代理。
 
@@ -239,6 +257,8 @@ Release 归档不需要这一步:归档升级时是整个替换的,指向归档�
 | 环境变量 | 自动默认值 | 用途 |
 |---|---|---|
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi 的 auth/models/settings 配置目录 |
+| `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code 用户配置目录 |
+| `PI_PROVIDER_MANAGER_CLAUDE_DIR` | `CLAUDE_CONFIG_DIR` 的值 | 管理器及其复制的启动命令使用的 Claude 目录覆盖 |
 | `CODEX_HOME` | `~/.codex` | Codex 配置目录，沿用 Codex 自己的优先级 |
 | `PI_PROVIDER_MANAGER_CODEX_DIR` | `CODEX_HOME` 的值 | 仅对本管理器生效的 Codex 目录覆盖 |
 | `PI_PROVIDER_MANAGER_LITELLM` | 依次查找 `~/.local/bin/litellm`、`~/.local/litellm/bin/litellm` 等常见 venv 路径，最后回落到 `PATH` | 启动托管桥使用的可执行文件。只有装在冷僻位置时才需要设置；凭据那一步会显示实际选中的是哪个。 |
@@ -257,7 +277,7 @@ Release 归档不需要这一步:归档升级时是整个替换的,指向归档�
 - 服务只监听 `127.0.0.1`
 - API 请求必须携带白名单内的 loopback `Host`；写请求还必须使用 `application/json`，防止外部网页通过跨域简单请求修改配置
 - 已有 key 不会出现在浏览器响应中
-- 新 key 可以在保存前用于主动发起的 Pi 模型清单请求；保存时以私有权限写入对应的 `auth.json` 或 Codex 供应商库，托管桥的上游 key 只留在供应商库。
+- 新 key 可以在保存前用于主动发起的 Pi 模型清单请求；保存时以私有权限写入对应的原生凭据／设置文件或私有供应商库，托管桥的上游 key 只留在供应商库。
 - 后端测试全部使用临时目录和假 key
 - 禁止在 GitHub Issue 中上传 `auth.json`、真实 key 或私有供应商导出
 
@@ -302,7 +322,7 @@ npm run test:pi-update
 
 使用 `/?demo=1` 进入不会写配置的视觉和交互 demo。
 
-普通开发命令会启动真实、可写的 API；如果不希望修改日常配置，请先把 `PI_CODING_AGENT_DIR` 和 `PI_PROVIDER_MANAGER_CODEX_DIR` 指向各自的临时目录；状态读取会访问两边。只有 demo 模式和 Sites 产物是不可写路径。
+普通开发命令会启动真实、可写的 API；如果不希望修改日常配置，请先把 `PI_CODING_AGENT_DIR`、`PI_PROVIDER_MANAGER_CODEX_DIR` 和 `PI_PROVIDER_MANAGER_CLAUDE_DIR` 指向各自的临时目录；状态读取会访问三个目标。只有 demo 模式和 Sites 产物是不可写路径。
 
 ## 开源状态
 
@@ -318,7 +338,7 @@ npm run test:pi-update
 
 ## 路线图
 
-- 稳定维护：安全修复、确认过的正确性缺陷和 Pi / Codex 兼容更新
+- 稳定维护：安全修复、确认过的正确性缺陷和 Pi / Codex / Claude Code 兼容更新
 - Pi 模型发现和 LiteLLM 托管已经实现；不再计划 CSV/CC-Switch 导入、Codex 模型发现、会话浏览、Skills、用量看板或管理器自建流量代理
 - 更广的一站式工作流交给 CC Switch；本项目保持聚焦于 Pi 与 Codex 的凭据、默认项和原生文件一致性
 

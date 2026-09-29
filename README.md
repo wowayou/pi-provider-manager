@@ -2,9 +2,9 @@
 
 [简体中文](README.zh-CN.md)
 
-A local model catalog and API gateway manager for **Pi and the Codex CLI**. It gives each agent's own config files a safe visual workflow without hiding or replacing their native configuration model.
+A local model catalog and API gateway manager for **Pi, the Codex CLI, and Claude Code**. It gives each agent's own config files a safe visual workflow without hiding or replacing their native configuration model.
 
-A step-by-step usage manual, written for people using the tool rather than maintaining it, is in [docs/usage.zh-CN.md](docs/usage.zh-CN.md) (Simplified Chinese). It covers installation, both wizards, the managed bridge, every environment variable, and a troubleshooting table indexed by the exact text on screen.
+A step-by-step usage manual, written for people using the tool rather than maintaining it, is in [docs/usage.zh-CN.md](docs/usage.zh-CN.md) (Simplified Chinese). It covers installation, the three wizards, the managed bridge, every environment variable, and a troubleshooting table indexed by the exact text on screen.
 
 ## Why this exists
 
@@ -35,7 +35,7 @@ Codex has the opposite problem. Its configuration is small but unforgiving: one 
 - **Beginner save handoff** — after saving, the app gives the exact `pi --model provider/model:thinking` command and `/model` verification steps.
 - **Large catalog UX** — sticky model header, internal scrolling, bulk model-ID import, a 获取模型 dialog that lists the gateway's own catalogue as checkboxes (fetched server-side with the credential a save would use, never returned to the browser, with an overridable listing path for relays that put their catalogue elsewhere), and warnings when `-max`/`-xhigh` may be thinking levels rather than real model IDs.
 - **Per-model `anthropic-beta` header** — for gateways that still ask for `context-1m-2025-08-07` or another beta token: literal, validated, settable on any protocol (Pi sends model headers on every API; a gateway that ignores it is the gateway's business), with the same none/literal/external contract as the User-Agent. `npm run test:pi-real` runs the installed Pi against a loopback gateway to prove what reaches the wire.
-- **Duplicate a provider** — for either agent, start a new draft from an existing one when only the gateway address and the key differ. The models and their compatibility settings carry over; the credential deliberately does not, because a stored key never returns to the browser.
+- **Duplicate a provider** — for any supported agent, start a new draft from an existing one when only the gateway address and the key differ. The models and their compatibility settings carry over; the credential deliberately does not, because a stored key never returns to the browser.
 - **Real Pi settings** — default provider/model/thinking, transport, thinking-block visibility, installed Pi version, and compatibility status, including an update check you press for, an in-place `git` upgrade for a checkout, and a restart that applies it without leaving you without a manager if it fails. Remote update checks and Pi catalog discovery are user-triggered; startup and page load do not fetch them.
 - **Codex CLI support** — the same sidebar and three-step wizard manage `~/.codex/config.toml` and `auth.json`, switch the active gateway in one click, and preserve every comment and hand-written table in the file.
 - **Chat-Completions-only upstreams** — Codex speaks only the Responses API, so the manager configures and supervises a local LiteLLM bridge for gateways that never implemented it. You install LiteLLM; it writes the config, wires Codex to the proxy, and starts or stops it.
@@ -59,6 +59,25 @@ Codex (`$CODEX_HOME`, default `~/.codex`):
 - `pi-provider-manager-store.json` — this manager's own provider store, `0600`. See [Codex support](#codex-support).
 - `pi-provider-manager-litellm.yaml`, `pi-provider-manager-bridge.json`, `pi-provider-manager-bridge.log` — written only when a provider uses the managed bridge: LiteLLM's generated config, the proxy's runtime record, and its output.
 
+
+## Claude Code support
+
+The third target manages static Anthropic Messages gateways, credentials, model
+aliases, reply settings and global `CLAUDE.md`. **保存供应商** gives a dedicated
+terminal command; **保存并设为全局默认** also updates the normal `claude` default.
+The command card offers two launch modes. **固定此供应商** takes a private settings
+snapshot per launch, so two terminals can use different providers even while the
+global default changes. **跟随全局默认** is plain `claude`, which Claude Code itself
+hot-reloads: a running session follows a global switch from its next request.
+Existing credentials never return to the browser or appear in the command line.
+
+Claude files live under `CLAUDE_CONFIG_DIR` (default `~/.claude`): `settings.json`,
+the private `pi-provider-manager-store.json`, `CLAUDE.md`, a private prompt library,
+and temporary `pi-provider-manager-runs/session-*/` snapshots. Normal exit,
+Ctrl+C and closing the terminal clean up the snapshot; after a forced kill, the
+next launch removes it once both recorded processes have exited. Organization
+policy retains priority. See [Claude Code support and
+tradeoffs](docs/claude-code.md) for the workflow, ownership and verification.
 
 ## Codex support
 
@@ -106,7 +125,7 @@ Note that a bridged provider only serves the models you listed in the wizard —
 
 ### Global prompts
 
-Both agents read their global instructions from the directory this manager already owns, so one screen serves both. Each file holds one document at a time; the alternatives live in the manager's own store, exactly as inactive providers do.
+All three agents read global instructions from their configuration directories, so one screen serves them. Each file holds one document at a time; the alternatives live in the manager's own store, exactly as inactive providers do.
 
 | Agent | File | Effect |
 |---|---|---|
@@ -114,6 +133,7 @@ Both agents read their global instructions from the directory this manager alrea
 | Pi | `~/.pi/agent/SYSTEM.md` | replaces the default system prompt entirely |
 | Pi | `~/.pi/agent/APPEND_SYSTEM.md` | appended to the default system prompt |
 | Codex | `$CODEX_HOME/AGENTS.md` | concatenated with the project's `AGENTS.md` |
+| Claude Code | `$CLAUDE_CONFIG_DIR/CLAUDE.md` | user instructions loaded with project instructions |
 
 Existing content that matches no saved prompt is adopted on the read path only — opening the screen never writes. An unmatched zero-byte file is not adopted; whitespace is preserved as content, and a saved empty prompt can still match the file. Deleting the document that is currently in a file requires naming its replacement, the same rule as deleting a live provider.
 
@@ -173,7 +193,7 @@ New sessions pick up the change cleanly. **Resuming an old session against a dif
 
 ## Project status and CC Switch
 
-This project is in maintenance mode. New work is limited to confirmed defects, security fixes, and Pi or Codex compatibility changes; it does not plan to match the broader feature set in [CC Switch](https://github.com/farion1231/cc-switch).
+This project is in maintenance mode. New work is limited to confirmed defects, security fixes, and Pi, Codex or Claude Code compatibility changes; it does not plan to match the broader feature set in [CC Switch](https://github.com/farion1231/cc-switch).
 
 Codex support was added deliberately and stays narrow: providers, credentials, and the active selection. It does not add presets, model discovery, usage dashboards, or a traffic proxy.
 
@@ -241,6 +261,8 @@ If the repository is cloned elsewhere, `npm run install:launcher` records that p
 | Variable | Auto-detected default | Purpose |
 |---|---|---|
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi config directory used for auth, models, and settings |
+| `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code user configuration directory |
+| `PI_PROVIDER_MANAGER_CLAUDE_DIR` | value of `CLAUDE_CONFIG_DIR` | Claude directory override for this manager and its copied launcher command |
 | `CODEX_HOME` | `~/.codex` | Codex config directory, following Codex's own precedence |
 | `PI_PROVIDER_MANAGER_CODEX_DIR` | value of `CODEX_HOME` | Codex directory override for this manager only |
 | `PI_PROVIDER_MANAGER_LITELLM` | first of `~/.local/bin/litellm`, `~/.local/litellm/bin/litellm`, a few sibling virtualenv paths, then `PATH` | Executable used to start the managed bridge. Only needed when LiteLLM is somewhere unusual; the credentials step shows which one was picked. |
@@ -259,7 +281,7 @@ The dedicated port range also avoids stale Service Workers and cached apps commo
 - The API binds to `127.0.0.1` only.
 - API requests require an allowlisted loopback `Host`; writes additionally require `application/json`, so a foreign page cannot use a simple cross-origin request to mutate configuration.
 - Existing API keys are never serialized into browser responses.
-- New keys may be used for an explicit Pi catalog request before saving. Saves write credentials to the relevant `auth.json` or Codex provider store with private permissions; managed-bridge upstream keys stay in the store.
+- New keys may be used for an explicit Pi catalog request before saving. Saves write credentials to the relevant native credential/settings file or private provider store with private permissions; managed-bridge upstream keys stay in the store.
 - Backend tests use temporary directories and fake keys.
 - Do not attach `auth.json`, API keys, or private provider exports to GitHub issues.
 
@@ -302,7 +324,7 @@ npm run test:pi-update
 
 Use `/?demo=1` for a non-writing visual and interaction demo.
 
-The normal development command starts the real writable API. Set `PI_CODING_AGENT_DIR` and `PI_PROVIDER_MANAGER_CODEX_DIR` to separate temporary directories before using it when you do not intend to edit your normal configuration; state reads inspect both targets. Demo mode and the Sites artifact are the non-writing paths.
+The normal development command starts the real writable API. Set `PI_CODING_AGENT_DIR`, `PI_PROVIDER_MANAGER_CODEX_DIR`, and `PI_PROVIDER_MANAGER_CLAUDE_DIR` to separate temporary directories before using it when you do not intend to edit your normal configuration; state reads inspect all three targets. Demo mode and the Sites artifact are the non-writing paths.
 
 `npm run check:pi-update` performs an optional live, read-only comparison against Pi's latest stable GitHub Release.
 
@@ -320,9 +342,9 @@ Entirely voluntary. It unlocks nothing, gates nothing, and the tool stays free e
 
 ## Roadmap
 
-- Stable maintenance: security fixes, confirmed correctness defects, and Pi or Codex compatibility updates
+- Stable maintenance: security fixes, confirmed correctness defects, and Pi, Codex or Claude Code compatibility updates
 - Pi model discovery and managed LiteLLM supervision are existing features. No planned CSV/CC-Switch import, Codex model discovery, session browser, Skills, usage dashboard, or manager-owned traffic proxy
-- Broader all-in-one workflows belong in CC Switch; this project stays focused on Pi and Codex credentials, defaults, and native-file consistency
+- Broader all-in-one workflows belong in CC Switch; this project stays focused on Pi, Codex and Claude Code credentials, defaults, and native-file consistency
 
 See [design-qa.md](design-qa.md) for dated interaction and compatibility evidence. Screenshots in `qa/` are historical references, not a current acceptance baseline.
 

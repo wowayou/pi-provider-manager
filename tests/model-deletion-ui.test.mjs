@@ -280,7 +280,7 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
       cwd: projectRoot,
       env: {
         ...process.env,
-        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
         PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
         PI_PROVIDER_MANAGER_SERVE_UI: "1",
         PI_PROVIDER_MANAGER_PORT: String(appPort),
@@ -791,7 +791,7 @@ test("复制供应商 starts a fresh draft with the models and an empty credenti
       cwd: projectRoot,
       env: {
         ...process.env,
-        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
         PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
         PI_PROVIDER_MANAGER_SERVE_UI: "1",
         PI_PROVIDER_MANAGER_PORT: String(appPort),
@@ -929,7 +929,7 @@ test("production UI drives the Codex workspace", { timeout: 90_000 }, async () =
       cwd: projectRoot,
       env: {
         ...process.env,
-        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
         PI_PROVIDER_MANAGER_CODEX_DIR: codexDir,
         PI_PROVIDER_MANAGER_SERVE_UI: "1",
         PI_PROVIDER_MANAGER_PORT: String(appPort),
@@ -1211,7 +1211,7 @@ test("the form does not offer to reuse a bridge key that cannot be used", { time
       cwd: projectRoot,
       env: {
         ...process.env,
-        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
         PI_PROVIDER_MANAGER_CODEX_DIR: codexDir,
         PI_PROVIDER_MANAGER_SERVE_UI: "1",
         PI_PROVIDER_MANAGER_PORT: String(appPort),
@@ -1325,7 +1325,7 @@ test("production UI drives the prompt library for both agents", { timeout: 90_00
       cwd: projectRoot,
       env: {
         ...process.env,
-        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
         PI_PROVIDER_MANAGER_CODEX_DIR: codexDir,
         PI_PROVIDER_MANAGER_SERVE_UI: "1",
         PI_PROVIDER_MANAGER_PORT: String(appPort),
@@ -1634,7 +1634,7 @@ test("every piece of text meets WCAG AA contrast in both themes", { timeout: 90_
       cwd: projectRoot,
       env: {
         ...process.env,
-        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
         PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
         PI_PROVIDER_MANAGER_SERVE_UI: "1",
         PI_PROVIDER_MANAGER_PORT: String(appPort),
@@ -2038,7 +2038,7 @@ test("every control is big enough to hit", { timeout: 60_000 }, async () => {
       cwd: projectRoot,
       env: {
         ...process.env,
-        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
         PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
         PI_PROVIDER_MANAGER_SERVE_UI: "1",
         PI_PROVIDER_MANAGER_PORT: String(appPort),
@@ -2232,7 +2232,7 @@ test("the compatibility card says when the checkout has moved ahead of the proce
       cwd: projectDir,
       env: {
         ...process.env,
-        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
         PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
         PI_PROVIDER_MANAGER_SERVE_UI: "1",
         PI_PROVIDER_MANAGER_PORT: String(appPort),
@@ -2404,7 +2404,7 @@ test("the credentials step says when saving would replace another provider", { t
       cwd: projectRoot,
       env: {
         ...process.env,
-        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
         PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
         PI_PROVIDER_MANAGER_SERVE_UI: "1",
         PI_PROVIDER_MANAGER_PORT: String(appPort),
@@ -2562,7 +2562,7 @@ test("leaving an edited prompt goes through the toast, not the first click", { t
       cwd: projectRoot,
       env: {
         ...process.env,
-        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
         PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
         PI_PROVIDER_MANAGER_SERVE_UI: "1",
         PI_PROVIDER_MANAGER_PORT: String(appPort),
@@ -2714,7 +2714,7 @@ test("production UI keeps new-draft User-Agent intent and locates invalid whites
       cwd: projectRoot,
       env: {
         ...process.env,
-        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
         PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
         PI_PROVIDER_MANAGER_SERVE_UI: "1",
         PI_PROVIDER_MANAGER_PORT: String(appPort),
@@ -2831,7 +2831,7 @@ test("production UI edits Anthropic Beta and preserves unrelated draft edits", {
   const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
   let server; let chrome; let cdp; let serverOutput = "";
   try {
-    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
     server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
     await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
     chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
@@ -2929,7 +2929,7 @@ test("production UI imports the models a gateway lists, and explains a gateway i
     gateway = spawn(process.execPath, [path.join(projectRoot, "tests", "fixtures", "fake-chat-gateway.mjs"), String(gatewayPort), "dummy-browser-test-key"], { stdio: ["ignore", "ignore", "pipe"] });
     gateway.stderr.on("data", (chunk) => { gatewayOutput += chunk; });
     await waitForUrl(`http://127.0.0.1:${gatewayPort}/v1/models`);
-    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
     server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
     await waitForUrl(`http://127.0.0.1:${appPort}/api/state`);
     chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profileDir}`, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
@@ -3053,7 +3053,7 @@ test("the sidebar row menu deletes a provider without opening it first", { timeo
       cwd: projectRoot,
       env: {
         ...process.env,
-        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
         PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
         PI_PROVIDER_MANAGER_SERVE_UI: "1",
         PI_PROVIDER_MANAGER_PORT: String(appPort),
@@ -3125,7 +3125,7 @@ test("selection mode bulk-deletes providers from the sidebar", { timeout: 60_000
       cwd: projectRoot,
       env: {
         ...process.env,
-        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
         PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
         PI_PROVIDER_MANAGER_SERVE_UI: "1",
         PI_PROVIDER_MANAGER_PORT: String(appPort),
@@ -3186,7 +3186,7 @@ test("the shared leave guard warns before dropping an edited draft", { timeout: 
   const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
   let server; let chrome; let cdp; let serverOutput = "";
   try {
-    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
     server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
     await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
     chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
@@ -3273,7 +3273,7 @@ test("the first Pi provider can only be saved as default", { timeout: 90_000 }, 
   const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
   let server; let chrome; let cdp; let serverOutput = "";
   try {
-    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
     server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
     await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
     chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
@@ -3317,7 +3317,7 @@ test("a saved bridged Codex provider gets its bridge control on the success scre
   const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
   let server; let chrome; let cdp; let serverOutput = "";
   try {
-    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: codexDir, PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: codexDir, PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
     server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
     await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
     chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
@@ -3373,7 +3373,7 @@ test("editing a saved provider jumps steps, focuses invalid fields, and moves th
   const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
   let server; let chrome; let cdp; let serverOutput = "";
   try {
-    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
     server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
     await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
     chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
@@ -3469,7 +3469,7 @@ test("a long model catalogue filters for display only and adds protocol override
   const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
   let server; let chrome; let cdp; let serverOutput = "";
   try {
-    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
     server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
     await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
     chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
@@ -3535,7 +3535,7 @@ test("the toast stack keeps an undo alive and pauses on hover", { timeout: 90_00
   const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
   let server; let chrome; let cdp; let serverOutput = "";
   try {
-    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
     server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
     await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
     chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
@@ -3597,7 +3597,7 @@ test("initial navigation waits for configuration, including after a failed read"
   const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
   let server; let chrome; let cdp;
   try {
-    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: codexDir, PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: "ignore" });
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: codexDir, PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: "ignore" });
     await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
     chrome = spawn(findChrome(), ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: "ignore" });
     await waitForUrl("http://127.0.0.1:" + debugPort + "/json/version", 30_000);
@@ -3618,7 +3618,7 @@ test("initial navigation waits for configuration, including after a failed read"
     });
     const navigation = ".target-switch button, .add-provider, .nav-settings, .nav-prompts";
     const assertNavigationLocked = async () => {
-      assert.deepEqual(await cdp.evaluate(`Array.from(document.querySelectorAll('${navigation}'), (button) => button.disabled)`), [true, true, true, true, true]);
+      assert.deepEqual(await cdp.evaluate(`Array.from(document.querySelectorAll('${navigation}'), (button) => button.disabled)`), [true, true, true, true, true, true]);
       // Native clicks and the target radio group's arrow keys must both be inert.
       await cdp.evaluate(`(() => {
         document.querySelectorAll('${navigation}').forEach((button) => button.click());
@@ -3679,7 +3679,7 @@ test("the Codex delete dialog keeps a blocked delete focusable and explains it",
   const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
   let server; let chrome; let cdp; let serverOutput = "";
   try {
-    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: codexDir, PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: codexDir, PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
     server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
     await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
     chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
@@ -3726,7 +3726,7 @@ test("the Codex settings screen carries the shared manager card", { timeout: 90_
   const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
   let server; let chrome; let cdp; let serverOutput = "";
   try {
-    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: codexDir, PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: codexDir, PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
     server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
     await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
     chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
@@ -3768,7 +3768,7 @@ test("CJK text renders at 12px or larger in both themes", { timeout: 90_000 }, a
   const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
   let server; let chrome; let cdp; let serverOutput = "";
   try {
-    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
     server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
     await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
     chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
@@ -3817,7 +3817,7 @@ test("the Codex context-window field is bounded and the API key can be revealed"
   const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
   let server; let chrome; let cdp; let serverOutput = "";
   try {
-    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: codexDir, PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: codexDir, PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
     server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
     await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
     chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
@@ -3911,7 +3911,7 @@ async function withRenameBrowser(run, { demo = false } = {}) {
     await waitForUrl(`http://127.0.0.1:${gatewayPort}/v1/models`);
     server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
       cwd: projectRoot,
-      env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) },
+      env: { ...process.env, PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) },
       stdio: ["ignore", "pipe", "pipe"],
     });
     server.stdout.on("data", (chunk) => { serverOutput += chunk; });
@@ -4127,7 +4127,7 @@ test('production UI seeds model capacities consistently across all add paths', {
 
   try {
     server = spawn(process.execPath, [path.join(projectRoot, 'server.mjs')], {
-      cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir,
+      cwd: projectRoot, env: { ...process.env, PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
         PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
         PI_PROVIDER_MANAGER_SERVE_UI: '1', PI_PROVIDER_MANAGER_PORT: String(appPort) },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -4236,5 +4236,166 @@ test('production UI seeds model capacities consistently across all add paths', {
     gateway.closeAllConnections(); await new Promise(resolve => gateway.close(resolve));
     fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+// Claude's third target uses the shipped page and real writes, including the
+// same draft-leave and revision boundaries as the existing two targets.
+test("Claude Code production workflow: create, rename, duplicate, switch, delete, settings, prompt and conflict", { timeout: 120000 }, async () => {
+  requireFreshBuiltUi();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-claude-ui-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-claude-browser-"));
+  const claudeDir = path.join(agentDir, "claude");
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server, chrome, cdp;
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_CLAUDE_DIR: claudeDir, PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: "ignore" });
+    await waitForUrl(`http://127.0.0.1:${appPort}/api/state`);
+    chrome = spawn(findChrome(), ["--headless", "--no-sandbox", "--disable-gpu", `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profileDir}`, "about:blank"], { detached: process.platform !== "win32", stdio: "ignore" });
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`);
+    const page = await fetch(`http://127.0.0.1:${debugPort}/json/new?about:blank`, { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(page.webSocketDebuggerUrl);
+    await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    await cdp.send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
+    const click = async (selector, text) => {
+      const expr = `[...document.querySelectorAll(${JSON.stringify(selector)})].find(el => el.textContent.trim() === ${JSON.stringify(text)})`;
+      await cdp.waitFor(expr + " && !(" + expr + ").disabled"); await cdp.evaluate(expr + ".click()");
+    };
+    const fill = async (selector, value) => {
+      await cdp.waitFor(`document.querySelector(${JSON.stringify(selector)})`);
+      await cdp.evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : el.tagName === 'SELECT' ? HTMLSelectElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, ${JSON.stringify(value)}); el.dispatchEvent(new Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); })()`);
+    };
+    const stored = () => JSON.parse(fs.readFileSync(path.join(claudeDir, "settings.json"), "utf8"));
+    await cdp.waitFor("document.querySelector('.target-switch button:not(:disabled)')");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 900, deviceScaleFactor: 1, mobile: false });
+    await click(".target-switch button", "Claude Code");
+    await cdp.waitFor("document.querySelector('.workspace h1')?.textContent === '连接 Claude Code 网关'");
+    await click(".wizard-footer button", "下一步");
+    await fill('[name="providerId"]', "ui-router");
+    await fill('[name="name"]', "UI Router");
+    await fill('[name="baseUrl"]', "https://ui-router.example");
+    await fill('.key-input input', "dummy-browser-claude-key");
+    await click(".wizard-footer button", "下一步");
+    await click(".advanced-panel summary", "模型别名映射（按网关需要填写）");
+    await fill('[name="sonnet"]', "relay-sonnet");
+    assert.equal(await cdp.evaluate("document.documentElement.scrollWidth <= innerWidth"), true, "new-provider footer fits a narrow window");
+    await click(".wizard-footer button", "保存并设为全局默认");
+    await cdp.waitFor("document.querySelector('.success-page h1')?.textContent === '已设为 Claude Code 全局默认'");
+    assert.equal(stored().env.ANTHROPIC_AUTH_TOKEN, "dummy-browser-claude-key");
+    assert.equal(stored().env.ANTHROPIC_DEFAULT_SONNET_MODEL, "relay-sonnet");
+    assert.equal(await cdp.evaluate("document.querySelector('.provider-badge').textContent"), "全局默认");
+    // Two launch modes, chosen per copy and never stored: pinned by default,
+    // follow names this manager's non-default config directory for plain claude.
+    const launchCommand = () => cdp.evaluate("document.querySelector('.claude-launch-card .command-row code').textContent");
+    assert.match(await launchCommand(), /'--provider' 'ui-router'$/);
+    assert.ok(!(await launchCommand()).includes("dummy-browser-claude-key"), "no credential in the command");
+    await cdp.evaluate("document.querySelector('.claude-launch-card input[value=follow]').click()");
+    await cdp.waitFor("document.querySelector('.claude-launch-card .command-row code').textContent.endsWith(' claude')");
+    assert.equal(await launchCommand(), "CLAUDE_CONFIG_DIR='" + claudeDir.replaceAll("'", "'\\''") + "' claude");
+    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.claude-launch-card .compat-note.is-warning'))"), false, "no warning when this provider is the global default");
+    assert.equal(await cdp.evaluate("document.querySelector('.claude-launch-card legend').textContent"), "启动方式");
+    await click(".success-actions button", "返回配置");
+    await fill('[name="model"]', "unsaved-model");
+    await click(".target-switch button", "Pi");
+    assert.equal(await cdp.evaluate("document.querySelector('.target-switch [aria-checked=true]').textContent"), "Claude Code");
+    await click(".toast-action", "放弃修改并离开");
+    await click(".target-switch button", "Claude Code");
+    assert.equal(await cdp.evaluate('document.querySelector("[name=model]").value'), "unsaved-model", "target round trip retains Claude draft");
+    await fill('[name="model"]', "sonnet");
+    await cdp.evaluate("document.querySelectorAll('.step')[1].click()");
+    await fill('[name="providerId"]', "");
+    assert.equal(await cdp.evaluate("document.querySelector('.key-input input') === null"), true, "clearing the target ID retains the source credential");
+    await fill('[name="providerId"]', "Bad ID");
+    assert.equal(await cdp.evaluate('document.querySelector("[name=providerId]").getAttribute("aria-invalid")'), "true");
+    await click(".wizard-footer button", "下一步");
+    assert.equal(await cdp.evaluate('document.activeElement.name'), "providerId");
+    await fill('[name="providerId"]', "ui-renamed");
+    await click(".wizard-footer button", "下一步");
+    await click(".wizard-footer button", "保存更改");
+    await cdp.waitFor("document.querySelector('.success-page')");
+    assert.equal(stored().env.ANTHROPIC_AUTH_TOKEN, "dummy-browser-claude-key");
+    assert.equal(JSON.parse(fs.readFileSync(path.join(claudeDir, "pi-provider-manager-store.json"))).providers["ui-router"], undefined);
+    await click(".success-actions button", "返回配置");
+    await click(".gateway-actions button", "复制供应商");
+    await cdp.waitFor("document.querySelector('.key-input input')");
+    assert.equal(await cdp.evaluate("document.querySelector('.key-input input').value"), "");
+    assert.equal(await cdp.evaluate('document.querySelector("[name=providerId]").value'), "ui-renamed-copy");
+    await fill('.key-input input', "dummy-browser-copy-key");
+    await click(".wizard-footer button", "下一步");
+    await click(".wizard-footer button", "保存供应商");
+    await cdp.waitFor("document.querySelector('.success-page h1')?.textContent === '供应商已保存'");
+    assert.equal(stored().env.ANTHROPIC_AUTH_TOKEN, "dummy-browser-claude-key");
+    await cdp.evaluate("document.querySelector('.claude-launch-card input[value=follow]').click()");
+    await cdp.waitFor("document.querySelector('.claude-launch-card .compat-note.is-warning')?.textContent.includes('ui-renamed')");
+    await cdp.evaluate("document.querySelector('.claude-launch-card input[value=pin]').click()");
+    await cdp.waitFor("document.querySelector('.claude-launch-card .command-row code').textContent.endsWith(\"'--provider' 'ui-renamed-copy'\")");
+    await click(".success-page button", "设为全局默认");
+    await cdp.waitFor("document.querySelector('.success-page h1')?.textContent === '已设为 Claude Code 全局默认'");
+    assert.equal(stored().env.ANTHROPIC_AUTH_TOKEN, "dummy-browser-copy-key");
+    await click(".success-actions button", "返回配置");
+    await click(".gateway-actions button", "删除供应商");
+    await cdp.waitFor("document.querySelector('[role=dialog]')");
+    await cdp.waitFor("document.activeElement?.textContent === '取消'");
+    assert.equal(await cdp.evaluate("document.activeElement.textContent"), "取消");
+    await click(".modal-actions button", "确认删除");
+    await cdp.waitFor("!document.querySelector('[role=dialog]') && document.querySelectorAll('.provider-item').length === 1");
+    assert.equal(stored().env.ANTHROPIC_AUTH_TOKEN, "dummy-browser-claude-key");
+    await click(".nav-settings", "设置与兼容性");
+    await fill('.settings-card input', "简体中文");
+    await click(".wizard-footer button", "保存设置");
+    await cdp.waitFor("document.querySelector('.wizard-footer .primary-button').disabled");
+    await cdp.waitFor("document.querySelector('.footer-note')?.textContent === '与已读取的设置一致'");
+    assert.equal(stored().language, "简体中文");
+    await click(".nav-prompts", "提示词");
+    await fill('.prompt-editor input', "Claude 日常规则");
+    await fill('.prompt-editor textarea', "用简体中文回复。\n");
+    await click(".nav-settings", "设置与兼容性");
+    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.prompt-editor'))"), true, "prompt edit is protected by the shared leave guard");
+    await cdp.evaluate("document.querySelector('.toast-close').click()");
+    await click(".prompt-editor button", "保存并写入文件");
+    await cdp.waitFor("document.querySelector('.prompt-item')");
+    assert.equal(fs.readFileSync(path.join(claudeDir, "CLAUDE.md"), "utf8"), "用简体中文回复。\n");
+    await cdp.evaluate("document.querySelector('.provider-select').click()");
+    await cdp.waitFor('document.querySelector("[name=model]")');
+    await fill('[name="model"]', "conflicting-model");
+    const external = stored(); external.language = "External edit";
+    fs.writeFileSync(path.join(claudeDir, "settings.json"), JSON.stringify(external));
+    await click(".wizard-footer button", "保存更改");
+    await cdp.waitFor("document.querySelector('.error-banner .banner-reload')");
+    assert.equal(stored().model, "sonnet");
+    assert.equal(stored().language, "External edit");
+    await fill('[name="model"]', "");
+    await click(".wizard-footer button", "保存更改");
+    await cdp.waitFor("document.querySelector('.error-banner') && !document.querySelector('.error-banner .banner-reload')");
+    await cdp.send("Page.reload");
+    await cdp.waitFor("document.querySelector('.target-switch button:not(:disabled)')");
+    await click(".target-switch button", "Claude Code");
+    await cdp.waitFor('document.querySelector("[name=model]")?.value === "sonnet"');
+    for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+      await cdp.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+      await cdp.evaluate(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
+      assert.equal(await cdp.evaluate("document.documentElement.scrollWidth <= innerWidth"), true, "Claude page fits " + theme + " " + width);
+      assert.equal(await cdp.evaluate("[...document.querySelectorAll('.target-switch button')].every(el => el.getBoundingClientRect().width > 0)"), true);
+      if (process.env.PPM_CLAUDE_SCREENSHOT_DIR) {
+        fs.mkdirSync(process.env.PPM_CLAUDE_SCREENSHOT_DIR, { recursive: true });
+        const image = await cdp.send("Page.captureScreenshot", { format: "png" });
+        fs.writeFileSync(path.join(process.env.PPM_CLAUDE_SCREENSHOT_DIR, `claude-${theme}-${width}.png`), Buffer.from(image.data, "base64"));
+      }
+    }
+    const nativeBeforeDemo = fs.readFileSync(path.join(claudeDir, "settings.json"));
+    await cdp.send("Page.navigate", { url: `http://127.0.0.1:${appPort}/?demo=1` });
+    await cdp.waitFor("document.querySelector('.target-switch button:not(:disabled)')");
+    await cdp.evaluate("window.__claudeWrites = []; const original = window.fetch; window.fetch = (...args) => { if (args[1]?.method === 'POST') window.__claudeWrites.push(args[0]); return original(...args); }");
+    await click(".target-switch button", "Claude Code");
+    await cdp.waitFor('document.querySelector("[name=model]")');
+    await fill('[name="model"]', "demo-model");
+    await click(".wizard-footer button", "保存更改");
+    await cdp.waitFor("document.querySelector('.success-page')");
+    assert.deepEqual(await cdp.evaluate("window.__claudeWrites"), [], "demo save never posts a configuration write");
+    assert.deepEqual(fs.readFileSync(path.join(claudeDir, "settings.json")), nativeBeforeDemo);
+    assert.deepEqual(cdp.errors, []);
+  } finally {
+    cdp?.close(); await stopProcess(chrome, true); await stopProcess(server);
+    fs.rmSync(agentDir, { recursive: true, force: true }); fs.rmSync(profileDir, { recursive: true, force: true });
   }
 });

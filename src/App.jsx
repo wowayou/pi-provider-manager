@@ -45,6 +45,7 @@ import { defaultDiscoveryPath } from "../lib/model-discovery.mjs";
 import { CONSERVATIVE, recommendedDefaults, seedModelLimits } from "./model-catalog.mjs";
 import { USER_AGENT_PRESETS } from "./user-agent-presets.mjs";
 import { PromptsScreen } from "./prompts-view.jsx";
+import { useClaude, ClaudeWizard, ClaudeSuccess, ClaudeSettings, ClaudeDeleteDialog } from "./claude-view.jsx";
 import { ManagerCard } from "./manager-card.jsx";
 import { BulkModal, ConfigEditor, ErrorBanner, PasswordInput, Spinner, createRadioKeyHandler, readApiResponse, titleFromId, useDialog, useScrollEdges, validateJson, formatJson, formatTokens, parseTokens, isValidTokens } from "./ui-kit.jsx";
 import {
@@ -244,7 +245,12 @@ function demoSlot(id, file, note, documents, activeId) {
 
 const DEMO_STATE = {
   agentDir: "~/.pi/agent",
+  claude: {
+    available: true, dir: "~/.claude", dirSource: "default-home", revision: "", activeProviderId: "claude-gateway", blockers: [], settings: {}, launcher: { node: "node", script: "/path/to/pi-provider-manager/bin/claude-with-provider.mjs", dir: "~/.claude", shell: "posix" }, credentialProviders: ["claude-gateway"],
+    providers: [{ id: "claude-gateway", name: "Claude 网关", baseUrl: "https://gateway.example.com", authType: "token", model: "sonnet", aliases: {}, credentialConfigured: true, isActive: true, adopted: false }],
+  },
   prompts: {
+    claude: { dir: "~/.claude", revision: "", limits: DEMO_PROMPT_LIMITS, slots: [{ ...demoSlot("claude", "CLAUDE.md", "用户级全局指令，与项目指令一起读取。", [], ""), path: "~/.claude/CLAUDE.md" }] },
     pi: {
       dir: "~/.pi/agent",
       revision: "",
@@ -404,11 +410,17 @@ function Stepper({ step, onStep, allowJump }) {
 const TARGET_OPTIONS = [
   { value: "pi", label: "Pi" },
   { value: "codex", label: "Codex" },
+  { value: "claude", label: "Claude Code" },
 ];
 
 // One list component for both targets. Each target maps its own provider shape
 // onto the same row vocabulary so the navigation stays identical.
 function sidebarProviders(state, target) {
+  if (target === "claude") return (state.claude?.providers || []).map((provider) => ({
+    id: provider.id, name: provider.name, keywords: [provider.id, provider.name, provider.baseUrl, provider.model].join(" "),
+    subtitle: "Anthropic Messages", ready: provider.credentialConfigured, readyLabel: "凭据已配置", notReadyLabel: "未配置凭据",
+    badge: provider.isActive ? "全局默认" : "", icon: Asterisk, source: provider,
+  }));
   if (target === "codex") {
     return (state.codex?.providers || []).map((provider) => ({
       id: provider.id,
@@ -599,7 +611,7 @@ function Sidebar({ state, target, loading, loadFailed, onTarget, onReload, onSel
         <Plus size={22} weight="bold" />添加供应商
       </button>
       <p className="sidebar-label">
-        {isCodex ? "Codex 供应商" : "我的供应商 / API 网关"}
+        {target === "claude" ? "Claude Code 供应商" : isCodex ? "Codex 供应商" : "我的供应商 / API 网关"}
         {providers.length > 0 && <span className="count-pill">{providers.length}</span>}
         {canBulkDelete && providers.length > 0 && !selectMode && (
           <button type="button" className="select-toggle" onClick={onEnterSelect}>选择</button>
@@ -701,7 +713,7 @@ function Sidebar({ state, target, loading, loadFailed, onTarget, onReload, onSel
         <Info size={22} weight="duotone" />
         <div>
           <strong>新手提示</strong>
-          <span>{isCodex ? "Codex 只保留一个生效供应商，切换只影响新开的会话。" : "一个 API 网关可以添加多个不同厂商的模型。"}</span>
+          <span>{target === "claude" ? "Claude Code 使用一个用户级网关，启动后用 /status 确认实际配置。" : isCodex ? "Codex 只保留一个生效供应商，切换只影响新开的会话。" : "一个 API 网关可以添加多个不同厂商的模型。"}</span>
         </div>
         <button type="button" className="tip-dismiss" onClick={dismissTip} aria-label="不再显示新手提示"><X size={15} weight="bold" /></button>
       </div>
@@ -1948,6 +1960,8 @@ export function App() {
   }, [showToast]);
   useEffect(() => () => { for (const entry of toastTimers.current.values()) clearTimeout(entry.timeout); }, []);
 
+  const claudeFlow = useClaude({ state, setState, setView, setError, setConflict, setSaving, reportRequestError, showToast, demoMode });
+
   // Loading a draft from saved data (or creating a fresh blank/duplicate) sets
   // both the form and its baseline, so the draft reads as unedited until the
   // user changes something. User edits use the plain setters.
@@ -1961,7 +1975,7 @@ export function App() {
   const currentDirty = view === "settings" || view === "prompts"
     ? screenDirty
     : view === "wizard"
-      ? (target === "codex" ? codexDirty : piDirty)
+      ? (target === "claude" ? claudeFlow.dirty : target === "codex" ? codexDirty : piDirty)
       : false;
   // The shared leave guard: an unedited draft leaves at once; an edited one asks
   // first, and only proceeds through the toast's action — the same rule the
@@ -1974,11 +1988,11 @@ export function App() {
   // the browser's native leave confirmation, covering a tab close or a reload
   // (including the 409 banner's reload) that the in-app guard cannot intercept.
   useEffect(() => {
-    if (!(piDirty || codexDirty || screenDirty)) return undefined;
+    if (!(piDirty || codexDirty || claudeFlow.dirty || screenDirty)) return undefined;
     const handler = (event) => { event.preventDefault(); event.returnValue = ""; };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [piDirty, codexDirty, screenDirty]);
+  }, [piDirty, codexDirty, claudeFlow.dirty, screenDirty]);
   const firstViewRender = useRef(true);
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -1989,6 +2003,9 @@ export function App() {
       // the gateway summary, an invalid-field save) has already placed focus on
       // a control inside the workspace, in which case that intent wins.
       if (firstViewRender.current) { firstViewRender.current = false; return; }
+      // A dialog can open between a view change and this animation frame. Its
+      // focus trap owns focus now; do not move Cancel back into the workspace.
+      if (document.querySelector('[role="dialog"]')) return;
       const active = document.activeElement;
       const alreadyPlaced = active && active !== document.body && active.closest(".workspace");
       if (alreadyPlaced) return;
@@ -1996,7 +2013,7 @@ export function App() {
       if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [view, step, target, codexStep]);
+  }, [view, step, target, codexStep, claudeFlow.step]);
 
   useEffect(() => {
     if (demoMode) return;
@@ -2555,6 +2572,7 @@ export function App() {
     setError("");
     setSaveResult(null);
     setCodexSaveResult(null);
+    if (next === "claude") claudeFlow.enter();
     if (next === "codex") {
       // Switching targets never discards a draft: an edited Codex draft is left
       // exactly as it is so it survives a round trip to Pi and back. Only when
@@ -3064,17 +3082,17 @@ export function App() {
         loadFailed={Boolean(loadError)}
         onReload={() => guardLeave(() => window.location.reload())}
         onTarget={(next) => guardLeave(() => switchTarget(next))}
-        selectedId={target === "codex" ? codexSelectedId : selectedId}
-        onSelect={(provider) => guardLeave(() => (target === "codex" ? selectCodexProvider : selectProvider)(provider))}
-        onAdd={() => guardLeave(target === "codex" ? startNewCodex : startNew)}
+        selectedId={target === "claude" ? claudeFlow.selectedId : target === "codex" ? codexSelectedId : selectedId}
+        onSelect={(provider) => guardLeave(() => (target === "claude" ? claudeFlow.select : target === "codex" ? selectCodexProvider : selectProvider)(provider))}
+        onAdd={() => guardLeave(target === "claude" ? claudeFlow.startNew : target === "codex" ? startNewCodex : startNew)}
         onSettings={() => guardLeave(() => { setView("settings"); setError(""); })}
         onPrompts={() => guardLeave(() => { setView("prompts"); setError(""); })}
         activeView={view}
         theme={theme}
         onTheme={setTheme}
-        onDuplicate={(id) => guardLeave(() => (target === "codex" ? duplicateCodexProviderById : duplicateProviderById)(id))}
-        onDelete={target === "codex" ? (id) => { setDeleteProviderError(""); setCodexDeleteTargetId(id); } : openDeleteProvider}
-        canBulkDelete
+        onDuplicate={(id) => guardLeave(() => (target === "claude" ? claudeFlow.duplicate : target === "codex" ? duplicateCodexProviderById : duplicateProviderById)(id))}
+        onDelete={target === "claude" ? (id) => guardLeave(() => claudeFlow.openDelete(id)) : target === "codex" ? (id) => { setDeleteProviderError(""); setCodexDeleteTargetId(id); } : openDeleteProvider}
+        canBulkDelete={target !== "claude"}
         selectMode={selectMode}
         selectedForDelete={selectedForDelete}
         onEnterSelect={() => { setSelectMode(true); setSelectedForDelete(new Set()); }}
@@ -3101,6 +3119,7 @@ export function App() {
           </div>
         ) : view === "prompts" ? (
           <PromptsScreen
+            key={target}
             target={target}
             state={state}
             saving={saving}
@@ -3113,6 +3132,11 @@ export function App() {
             onBack={() => guardLeave(() => { setView("wizard"); setError(""); })}
             onDirtyChange={setScreenDirty}
           />
+        ) : target === "claude" ? (
+          claudeFlow.claude.available === false ? <ErrorBanner message={"读取 Claude Code 配置失败：" + claudeFlow.claude.error} />
+          : view === "settings" ? <ClaudeSettings flow={claudeFlow} state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} />
+          : view === "success" && claudeFlow.result ? <ClaudeSuccess flow={claudeFlow} saving={saving} error={error} conflict={conflict} onCopy={copyCommand} />
+          : <ClaudeWizard flow={{ ...claudeFlow, duplicate: (id) => guardLeave(() => claudeFlow.duplicate(id)), openDelete: (id) => guardLeave(() => claudeFlow.openDelete(id)) }} saving={saving} error={error} conflict={conflict} onCopy={copyCommand} />
         ) : target === "codex" ? (
           codex.available === false ? (
             <div className="error-banner is-standalone" role="alert">
@@ -3151,6 +3175,7 @@ export function App() {
           )
         ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={goToStep} allowJump={state.providers.some((provider) => provider.id === form.providerId.trim())} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} identity={piIdentity} apiFocusRequest={apiFocusRequest} credentialFocus={credentialFocus} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} onDiscover={discoverModels} onEditProtocol={() => goToStep(1)} onEditGateway={editGatewayAddress} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} hasProviders={state.providers.length > 0} dirty={piDirty} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} modelHints={state.modelHints?.[piIdentity.ownerId]} userAgentFocusRequest={userAgentFocusRequest} betaFocusRequest={betaFocusRequest} />}</>}
       </section>
+      {claudeFlow.deleteId && claudeFlow.provider(claudeFlow.deleteId) && <ClaudeDeleteDialog flow={claudeFlow} saving={saving} conflict={conflict} />}
       {codexDeleteTargetId && codexProvider(codexDeleteTargetId) && (
         <CodexDeleteDialog
           provider={codexProvider(codexDeleteTargetId)}

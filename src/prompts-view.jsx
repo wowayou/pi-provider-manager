@@ -68,10 +68,10 @@ export function PromptsScreen({ target, state, saving, error, conflict, onSave, 
       <section className="settings-page">
         <div className="settings-scroll">
           <div className="settings-title">
-            <div><p>{target === "codex" ? "Codex" : "Pi"} 全局提示词</p><h1>提示词</h1></div>
+            <div><p>{target === "claude" ? "Claude Code" : target === "codex" ? "Codex" : "Pi"} 全局提示词</p><h1>提示词</h1></div>
             <button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={18} />返回</button>
           </div>
-          <p className="list-empty">这个目标没有可管理的提示词文件。</p>
+          <ErrorBanner message={library.error} conflict={conflict} /><p className="list-empty">这个目标没有可管理的提示词文件。</p>
         </div>
       </section>
     );
@@ -148,7 +148,7 @@ export function PromptsScreen({ target, state, saving, error, conflict, onSave, 
       <div className="settings-scroll">
         <div className="settings-title">
           <div>
-            <p>{target === "codex" ? "Codex" : "Pi"} 全局提示词</p>
+            <p>{target === "claude" ? "Claude Code" : target === "codex" ? "Codex" : "Pi"} 全局提示词</p>
             <h1>提示词</h1>
             <span>每个文件同时只有一份内容生效，其余存在本管理器里。</span>
           </div>

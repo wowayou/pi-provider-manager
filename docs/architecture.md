@@ -2,11 +2,11 @@
 
 ## Product boundary
 
-Pi Provider Manager is a local editor for the native provider, model, credential, runtime-default, and global-instruction configuration of two coding agents: Pi and the Codex CLI. Each agent remains the runtime, and its own config files remain the source of truth.
+Pi Provider Manager is a local editor for the native provider, model, credential, runtime-default, and global-instruction configuration of three coding agents: Pi, the Codex CLI and Claude Code. Each agent remains the runtime, and its own config files remain the source of truth.
 
 The project does not:
 
-- proxy model traffic or sit between either agent and its inference endpoint
+- proxy model traffic or sit between an agent and its inference endpoint
 - replace Pi's model selector, session state, or runtime
 - copy Pi source code or depend on a Pi package at runtime
 - fetch remote model catalogs automatically; Pi discovery runs only on an explicit user request, and Codex discovery is out of scope
@@ -18,7 +18,7 @@ The project does not:
 - **Model**: a provider-scoped model ID. Pi selects it at runtime as `provider/model`; thinking level remains a separate setting or command suffix.
 - **API / wire protocol**: one of Pi's supported protocol identifiers, currently `openai-responses`, `openai-completions`, `anthropic-messages`, or `google-generative-ai`. A provider sets the default and a model may override it.
 - **Provider request headers**: optional headers on the Pi provider, including a literal `User-Agent` compatibility override. The manager distinguishes absent, literal, and external/dynamic values; it only edits the literal value explicitly requested by the user, and model-level User-Agent or extension header values remain outside the browser response. The editable model-level `anthropic-beta` literal is a separate explicit exception; external/dynamic values are not returned.
-- **Target**: which agent a screen is editing, `pi` or `codex`. The two share the shell — sidebar, three-step wizard, settings screen — and nothing else; they have separate files, separate revisions, and separate vocabulary. Each marks its live selection on the provider row in that shared sidebar: Codex its active provider (生效中), Pi `settings.json`'s `defaultProvider` (默认).
+- **Target**: which agent a screen is editing, `pi`, `codex` or `claude`. All three share the shell — sidebar, three-step wizard, settings screen — and nothing else; they have separate files, separate revisions, and separate vocabulary. Each marks its live selection on the provider row in that shared sidebar: Codex its active provider (生效中), Pi `settings.json`'s `defaultProvider` (默认), and Claude Code's user-level gateway (全局默认, independent of dedicated terminal launches).
 - **Owned provider table**: the single `[model_providers.<id>]` in Codex's `config.toml` that this manager writes, `custom` by default. Codex's other provider tables belong to the user and are preserved byte for byte. The manager may inspect them to report a missing required `name`, but never writes or deletes them.
 - **Provider store**: `pi-provider-manager-store.json`, this manager's own file inside the Codex directory. It holds every Codex provider's definition and key. See "The Codex exception" below for why it exists.
 - **Bridge**: a LiteLLM proxy that translates Codex's Responses requests into an upstream that exposes only `/v1/chat/completions`. The manager writes its config, points the Codex provider at it, and starts and stops the process; the user installs LiteLLM. The manager never carries model traffic itself.
@@ -35,7 +35,11 @@ flowchart LR
   Server -->|read/write| Settings[settings.json]
   Server -->|read/write| CodexToml[Codex config.toml]
   Server -->|read/write| CodexAuth[Codex auth.json]
-  Server -->|read/write| CodexStore[provider store]
+  Server -->|read/write| CodexStore[Codex provider store]
+  Server -->|read/write| ClaudeSettings[Claude settings and provider store]
+  Launcher[Claude terminal launcher] -->|read| ClaudeSettings
+  Launcher -->|private settings snapshot| Claude[Installed Claude Code]
+  Claude -->|direct model requests| ClaudeGateway[Selected gateway]
   Server -.->|read-only version command| Pi[Installed Pi CLI]
   Server -.->|read-only version command| Codex[Installed Codex CLI]
   Server -->|config, start/stop, loopback probe| Bridge[Local LiteLLM bridge]
@@ -53,15 +57,16 @@ There are three deliberately separate execution paths:
 2. Vite development runs the same writable `server.mjs` API beside the Vite UI, with a local proxy between them. Use separate temporary `PI_CODING_AGENT_DIR` and `PI_PROVIDER_MANAGER_CODEX_DIR` directories; this path is useful for development but is not sufficient evidence for production headers or static serving.
 3. The Sites artifact is a static preview/handoff package. Its Worker only serves assets and an HTML fallback; it has no access to local Pi files and is not a hosted replacement for the local product.
 
-Only `server.mjs` writes Pi or Codex configuration, in the first two paths. The manager also fetches catalog metadata, checks or downloads its own updates on request, and supervises a local LiteLLM process where process ownership can be proven. No inference traffic passes through the manager for either agent. Demo mode and the Sites artifact never write local agent configuration. The Pi update monitor is repository maintenance automation, not a fourth product runtime.
+Only `server.mjs` writes saved Pi, Codex or Claude configuration, in the first two paths. Claude's dedicated terminal launcher additionally writes an ephemeral per-run gateway snapshot. The manager also fetches catalog metadata, checks or downloads its own updates on request, and supervises a local LiteLLM process where process ownership can be proven. No inference traffic passes through the manager for any agent. Demo mode and the Sites artifact never write local agent configuration. The Pi update monitor is repository maintenance automation, not a fourth product runtime.
 
 ## Component map
 
 | Path | Responsibility | Explicitly does not own |
 | --- | --- | --- |
 | `src/` | React workflow, validation feedback, demo fixture, theme, and save handoff | filesystem access, stored credentials, provider traffic |
-| `lib/` | dependency-free server modules shipped as source: atomic writes, the shared managed-file guard, TOML document model, Codex config, LiteLLM bridge, prompt library, Pi and Codex version detection, model discovery, this project's own update lookup and upgrade | local HTTP routing, UI state |
+| `lib/` | dependency-free server modules shipped as source: atomic writes, the shared managed-file guard, TOML document model, Codex and Claude config, LiteLLM bridge, prompt library, Pi and Codex version detection, model discovery, this project's own update lookup and upgrade | local HTTP routing, UI state |
 | `server.mjs` | loopback API, config validation, revision checks, atomic writes, rollback, static production serving, user-requested catalog discovery, replacing itself on restart | inference requests, model execution, scheduled update monitoring |
+| `bin/claude-with-provider.mjs` | launches installed Claude with a private per-run gateway snapshot; terminal IO and cleanup | model traffic, global-default writes, permissions policy |
 | `bin/pi-provider-manager-ui` | WSL/local process discovery, port selection, detached launch, browser opening | configuration schema or UI state |
 | `scripts/dev.mjs` | paired Vite and API development processes | production verification |
 | `worker/index.js` | static asset and app-route fallback for Sites packaging | `/api` implementation or Pi config access |
@@ -77,6 +82,10 @@ Only `server.mjs` writes Pi or Codex configuration, in the first two paths. The 
 | `models.json` | read/write | edits providers, models, protocol selection, provider-level request headers, and known compatibility fields while preserving unknown fields; the supported literal `anthropic-beta` model header is editable; other model headers and unrecognised fields stay on disk and do not enter browser state |
 | `settings.json` | read/write | edits `defaultProvider`, `defaultModel`, `defaultThinkingLevel`, `hideThinkingBlock`, and `transport`; preserves other keys |
 | `models-store.json` | none | intentionally never read or written |
+| `$CLAUDE_CONFIG_DIR/settings.json` | read/write | Claude user gateway env, default model and reply preferences; other keys preserved |
+| `$CLAUDE_CONFIG_DIR/pi-provider-manager-store.json` | read/write | private gateway definitions and credentials, separate Claude revision |
+| `$CLAUDE_CONFIG_DIR/CLAUDE.md` | read/write | the selected global instruction document |
+| `$CLAUDE_CONFIG_DIR/pi-provider-manager-runs/session-*/settings.json` | temporary | immutable gateway snapshot for one terminal; outside configuration revisions, cleaned on launcher exit |
 | `$CODEX_HOME/config.toml` | read/write | the owned `[model_providers.<id>]` and the top-level `model`, `model_provider`, `model_reasoning_effort`, `plan_mode_reasoning_effort`, `model_verbosity`, `model_context_window`; every other key, comment, and hand-written provider table is preserved byte for byte. Also removes `[profiles.*]` tables recorded as generated by 0.2.0/0.2.1, which current Codex rejects |
 | `~/.pi/agent/AGENTS.md`, `SYSTEM.md`, `APPEND_SYSTEM.md` | read/write | whole-file: each holds the one prompt document currently active. Alternatives live in `pi-provider-manager-prompts.json` |
 | `$CODEX_HOME/AGENTS.md` | read/write | same, for Codex |
@@ -94,9 +103,25 @@ The bridge's runtime record is outside that configuration transaction and revisi
 The wizard keeps source identity separate from the editable target ID. Source identity determines existing credentials throughout typing, including an empty intermediate ID, and is used for Pi discovery and Codex bridge controls before saving. Target occupancy never turns a saved-provider rename into an overwrite: the wizard marks the ID invalid and refuses progression or saving, and the server independently refuses conflicting or stale writes. New and duplicated drafts have no stored source and retain the existing overwrite warning and save behavior.
 
 
+### Claude Code and dedicated terminal launches
+
+Claude has one user-level gateway, with alternatives in its private store. Native
+settings win on read; adoption never writes. The two files have a separate
+revision. Atomic replacement and rollback protect global-default writes;
+renaming retains source credentials and refuses occupied provider/auth IDs.
+The generic prompt library serves `CLAUDE.md` under another revision.
+
+A dedicated command reads the selected saved provider without changing the
+user-level default, then creates a private `--settings` snapshot for one Claude
+process. It explicitly owns both auth slots and known model aliases; it does not
+copy permission rules, hooks or plugins. Higher managed policy still applies.
+The wrapper retains terminal IO, cleans up on exit, and carries no model traffic.
+Snapshot lifetime, forced-exit cleanup and the exact ownership contract are in
+[Claude Code support](claude-code.md).
+
 ### The Codex exception to "the config file is the source of truth"
 
-For Pi provider, credential, and runtime settings, the three native JSON files are the whole truth. The optional prompt library stores alternatives separately for both agents. Codex provider configuration cannot live entirely in its native files:
+For Pi provider, credential, and runtime settings, the three native JSON files are the whole truth. The optional prompt library stores alternatives separately for all agents. Codex provider configuration cannot live entirely in its native files:
 
 - Codex has exactly one credential slot (`auth.json` → `OPENAI_API_KEY`).
 - This project writes exactly one `[model_providers.<id>]` table, so `config.toml` describes only the provider currently in use — that is what makes the file match, line for line, the snippet a vendor publishes.
@@ -203,6 +228,7 @@ Do not create another live copy of the app version, validated agent versions, or
 | Update monitor | `npm run test:pi-update`; optionally `npm run check:pi-update` for a live read-only comparison |
 | Server or API | `npm run test:server` plus a production-shape request against `server.mjs` |
 | The update check or upgrade | `npm run test:server` (`tests/self-update.test.mjs` against injected commands and responses — no test reaches the network, for the same reason the product does not on startup) plus one manual `POST /api/update/check` against the real API |
+| Claude storage and terminal launcher | `npm run test:claude`, production `test:ui`, and `test:claude-real` with 0 skips for auth/model/prompt wire evidence and simultaneous terminal isolation |
 | The restart handover | `npm run test:server` covers both outcomes — a replacement that takes the port, and one that cannot start and has to hand it back — and `npm run test:ui` drives the button in a browser |
 | UI behavior or styling | production build, browser flow, console/page errors, responsive checks, and production-shape serving |
 | Sites packaging | `npm run build` and `npm run test:sites` |

@@ -27,8 +27,10 @@ export function prepareReleaseArtifacts() {
     // questions a first run raises.
     ["docs/usage.zh-CN.md", "docs/usage.zh-CN.md"],
     ["docs/model-capacities.md", "docs/model-capacities.md"],
+    ["docs/claude-code.md", "docs/claude-code.md"],
     ["bin/pi-provider-manager-ui", "bin/pi-provider-manager-ui"],
     ["bin/pi-provider-manager.ps1", "bin/pi-provider-manager.ps1"],
+    ["bin/claude-with-provider.mjs", "bin/claude-with-provider.mjs"],
     ["dist/client", "dist/client"],
   ];
 

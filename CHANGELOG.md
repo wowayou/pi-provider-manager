@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Claude Code is a third target.** The shared wizard manages static Anthropic Messages gateways, both credential modes, default models and alias mappings, renaming, duplication, guarded deletion, reply settings and global `CLAUDE.md`. Native settings win on read without writing; the provider store has a separate revision, atomic writes and rollback, and existing credentials never return to the browser. Pi/Codex baselines are unchanged.
+- **A dedicated Claude command for each terminal.** Save a provider without changing the global default, then launch it using a private per-run `--settings` snapshot. Multiple terminals retain their own gateways, credentials and models when the global default changes. The launcher carries no model traffic, preserves Claude's normal policy/permission system, and cleans up its snapshot on exit, on handled signals and when the terminal window closes. A forced kill leaves the snapshot until the next launch proves both recorded processes gone. [Scope and tradeoffs](docs/claude-code.md) explain cleanup and revocation.
+- **Pinned or follow-the-default, chosen per copy.** The command card offers 固定此供应商 (the launcher) or 跟随全局默认 (plain `claude`, which Claude Code itself hot-reloads from user settings). No setting is stored.
+- **Cross-gateway resume is documented as best effort.** Measured behavior, including the one failure mode (a relay's non-standard signature error), is in the Claude guide.
+- **Verification and packaging cover Claude.** Storage/API/launcher tests, production-browser flows, and real Claude against offline fake gateways cover the new target. The release includes the dependency-free launcher and guide; all test servers isolate the new configuration directory.
+
 ## 0.4.9 - 2026-09-28
 
 - **Pi model capacity suggestions, with unchanged compatibility baselines.** Pi `0.87.1` and Codex `0.154.0` remain the declared baselines. This release changes initial capacity suggestions and adds a manager-private cache; it does not migrate existing Pi or Codex configuration.

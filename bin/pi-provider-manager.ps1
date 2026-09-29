@@ -72,6 +72,16 @@ if ($env:PI_CODING_AGENT_DIR) {
 $litellmBin = $env:PI_PROVIDER_MANAGER_LITELLM
 if (-not $litellmBin) { $litellmBin = "" }
 
+$claudeDirSource = "default-home"
+if ($env:PI_PROVIDER_MANAGER_CLAUDE_DIR) {
+    $claudeDir = [System.IO.Path]::GetFullPath($env:PI_PROVIDER_MANAGER_CLAUDE_DIR)
+    $claudeDirSource = "PI_PROVIDER_MANAGER_CLAUDE_DIR"
+} elseif ($env:CLAUDE_CONFIG_DIR) {
+    $claudeDir = [System.IO.Path]::GetFullPath($env:CLAUDE_CONFIG_DIR)
+    $claudeDirSource = "CLAUDE_CONFIG_DIR"
+} else {
+    $claudeDir = Join-Path $HOME ".claude"
+}
 $codexDirSource = "default-home"
 if ($env:PI_PROVIDER_MANAGER_CODEX_DIR) {
     $codexDir = [System.IO.Path]::GetFullPath($env:PI_PROVIDER_MANAGER_CODEX_DIR)
@@ -214,6 +224,8 @@ if (-not $reused) {
         PI_PROVIDER_MANAGER_SERVE_UI = "1"
         PI_PROVIDER_MANAGER_AGENT_DIR_SOURCE = $agentDirSource
         PI_CODING_AGENT_DIR = $agentDir
+        PI_PROVIDER_MANAGER_CLAUDE_DIR = $claudeDir
+        PI_PROVIDER_MANAGER_CLAUDE_DIR_SOURCE = $claudeDirSource
         PI_PROVIDER_MANAGER_CODEX_DIR = $codexDir
         PI_PROVIDER_MANAGER_CODEX_DIR_SOURCE = $codexDirSource
         PI_PROVIDER_MANAGER_LITELLM = $litellmBin
@@ -260,6 +272,7 @@ if ($reused) {
     Write-Output "  (reused the instance already running on this port$suffix)"
     Write-Output "  Pi config:    $([string](Read-Field $running 'agentDir'))"
     Write-Output "  Codex config: $([string](Read-Field (Read-Field $running 'codex') 'dir'))"
+    Write-Output "  Claude config: $([string](Read-Field (Read-Field $running 'claude') 'dir'))"
     Write-Output "  Restart it to pick up an upgrade: the version and directories above are the ones it started with."
     if ($runningPid) {
         Write-Output "    Stop-Process -Id $runningPid; & '$PSCommandPath'"
@@ -272,6 +285,7 @@ if ($reused) {
 } else {
     Write-Output "  Pi config:    $agentDir"
     Write-Output "  Codex config: $codexDir"
+    Write-Output "  Claude config: $claudeDir"
 }
 # Only worth a line when it is set: an empty value means "find litellm on PATH".
 if ($litellmBin) { Write-Output "  LiteLLM:      $litellmBin" }
