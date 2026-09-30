@@ -36,6 +36,13 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## Post-Merge Verification on a Second Linux Machine — 2026-09-30
+
+- Scope: `main` at `684155b` (PR #138), rerun on a second Linux machine after merge, so the Claude Code baseline also covers `2.1.285` (the version CI's Windows job pins) and not only `2.1.284`. No product code changed.
+- Verification on Node `24.18.0`: `npm ci`, then build, then each suite run detached with `setsid`. Results: server 95, Codex 75, Claude 34 (32 pass, 2 Windows-only skips), prompts 12, Sites 4, Pi update 8, release 1, launchers 8 (7 pass, 1 skip because this machine has no Windows PowerShell), production browser 34, real Codex `0.149.0` 5, real Claude Code `2.1.285` 10. Total: 282 tests, 0 failures, 5 skips.
+- Real Claude Code `2.1.285` ran 10 of 10 with 0 skips, including the three interactive pty cases (`/exit`, Ctrl+C, terminal close) that CI's Windows job skips. Real Codex `0.149.0` also passed the LiteLLM bridge case, which found LiteLLM through `uvx`.
+- Not verified here: real Pi skipped both cases (`pi is not installed`). Pi evidence remains the 2026-09-29 run against `0.87.1`. Compatibility baselines were not advanced.
+
 ## Claude Code Target and Per-Terminal Provider — 2026-09-29
 
 - Scope (unreleased): Claude Code as a third target (static Anthropic Messages gateways, Bearer/API-key auth, default model and aliases, rename, duplicate, guarded delete, reply settings, global `CLAUDE.md`), plus a dedicated per-terminal command that starts Claude with a private per-run `--settings` snapshot without switching the global default.
