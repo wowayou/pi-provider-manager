@@ -25,6 +25,8 @@ in [AGENTS.md](AGENTS.md), and verification requirements in
 | Global prompt files | `npm run test:prompts` |
 | Real Codex config, advertised commands, credential and bridge wire paths | `npm run test:codex-real`; Codex and LiteLLM must be available, with 0 skips |
 | Real Pi model/header behavior | `npm run test:pi-real`; installed Pi against an isolated loopback gateway, with 0 skips |
+| Claude Code storage, API boundaries and per-terminal launcher | `npm run test:claude` |
+| Real Claude credentials, aliases, `CLAUDE.md` and parallel terminals | `npm run test:claude-real`; installed Claude Code against loopback fake gateways, with 0 skips |
 | Sites, releases, launchers | `test:sites`, `test:release`, `test:launcher`; Windows execution is covered by CI |
 | All local suites | `npm test`; inspect complete totals and skipped count |
 
@@ -33,6 +35,14 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 `?demo=1` supplement these checks; they do not prove the production headers or API.
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
+
+## Claude Code Target and Per-Terminal Provider — 2026-09-29
+
+- Scope (unreleased): Claude Code as a third target (static Anthropic Messages gateways, Bearer/API-key auth, default model and aliases, rename, duplicate, guarded delete, reply settings, global `CLAUDE.md`), plus a dedicated per-terminal command that starts Claude with a private per-run `--settings` snapshot without switching the global default.
+- Launch modes and launcher hardening: the command card offers 固定此供应商 (pinned per-run snapshot) and 跟随全局默认 (plain `claude`, which Claude Code hot-reloads from user `settings.json`; measured ~3 s after a rewrite, not within 500 ms). The launcher now handles SIGHUP (terminal close), does not re-forward a terminal Ctrl+C, force-stops a client ignoring the hangup after 10 s, records launcher/Claude PIDs, and the next launch sweeps sessions whose recorded processes are provably gone. It refuses a symlinked or foreign-owned runtime directory. The manager also sweeps provably stale sessions at startup (never creating the directory, never following a symlink). On Windows the launcher runs the npm package's native `bin/claude.exe` directly instead of handing it to `node`.
+- Verification on Node `24.18.0`, each suite run detached with `setsid`: build passed; server 95, Codex 75, Claude 34 (32 pass, 2 Windows-only skips run by the CI Windows job), prompts 12, Sites 4, Pi update 8, release 1, launchers 8, production browser 34, real Codex `0.158.0` 5, real Pi `0.87.1` 2, real Claude Code `2.1.284` 10 — 288 tests, 0 failures. Suites were run individually, not as one `npm test` invocation.
+- The real-Claude cases use fake credentials and loopback gateways only: both auth modes reach the wire, aliases resolve, `CLAUDE.md` is sent, two pinned clients keep their gateways across a global switch, a follow-mode client switches gateway/credential/alias, three cross-gateway resume cases (different model: continues; same model + standard signature error: retries and continues; non-standard error: fails), and interactive pty sessions through the launcher (`/exit`, Ctrl+C, terminal close) leave no snapshot. CI's Windows job installs Claude Code `2.1.285` and runs the real cases, allowing only the three pty skips. Not covered: closing a real Windows console window around a real Claude (the SIGHUP handler is exercised in-process on every platform), and real third-party relays' resume behaviour.
+- Compatibility baselines (`piValidatedVersion`, `codexValidatedVersion`) were not advanced.
 
 ## v0.4.9 Release Acceptance — 2026-09-28
 

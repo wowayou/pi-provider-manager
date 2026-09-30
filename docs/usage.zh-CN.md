@@ -3,12 +3,14 @@
 面向使用者，不是面向维护者。设计取舍与兼容性策略见
 [`docs/architecture.md`](architecture.md) 和 [`docs/compatibility.md`](compatibility.md)。
 
-这个程序做的事只有一件：**安全地编辑 Pi 和 Codex 自己的配置文件**。它不是运行时，
-不代理模型流量，关掉它之后两个 agent 照常工作。
+这个程序做的事只有一件：**安全地编辑 Pi、Codex 和 Claude Code 自己的配置文件**。它不是运行时，
+不代理模型流量，关掉它之后三个 agent 照常工作。
 
 > 全文里的中文界面文字都是程序里的原文，可以直接用来在界面上定位。
 
 ## 目录
+
+- [Claude Code：每个终端一个供应商](#claude-code每个终端一个供应商)
 
 - [一、装好并跑起来](#一装好并跑起来)
 - [二、它会读写哪些文件](#二它会读写哪些文件)
@@ -23,6 +25,39 @@
 - [十一、故障排查：按屏幕上的原话查](#十一故障排查按屏幕上的原话查)
 - [十二、升级与卸载](#十二升级与卸载)
 - [十三、安全边界](#十三安全边界)
+
+## Claude Code：每个终端一个供应商
+
+在侧栏选择 **Claude Code**，点 **添加供应商**，三步完成：选择令牌认证或密钥认证，
+填写供应商 ID、名称、地址和凭据，再填写默认模型及需要的别名映射。
+
+- 点 **保存供应商**：保存后在“在终端中启动”卡片里选择启动方式并复制命令，在项目目录运行。
+  - **固定此供应商**（默认）：不同终端运行不同供应商的命令，就可以同时使用多家网关，
+    切换全局默认不影响已启动的会话。
+  - **跟随全局默认**：就是直接运行 `claude`。Claude Code 会监听用户级 `settings.json`，
+    运行中的会话在全局默认切换后约 3 秒、从下一条请求起改用新网关（热切换）。
+- 点 **保存并设为全局默认**：还会更新用户级 `settings.json`，影响直接运行 `claude`
+  时的默认网关。侧栏的 **全局默认** 指这个设置，不代表只有这家能运行。
+- 修改供应商或切换全局默认不会改动专属命令已经启动的会话；新窗口使用最新保存值。
+  启动后用 `/status` 核对网关，用 `/model` 选择模型。
+
+**优点**是并行使用、互不切换；**代价**是要使用专属命令，每个会话有一个临时私有配置
+文件和启动器进程。`/exit`、Ctrl+C、直接关闭终端窗口都会清理临时文件；强制杀进程
+（`kill -9`、任务管理器）或崩溃留下的文件，会在下次运行专属命令或启动管理器时、确认对应进程都已退出后
+自动清理。删除供应商不会撤销已运行会话的凭据，立即撤销请关闭会话或在网关侧吊销密钥。
+
+跨供应商恢复会话（resume）属于尽力而为：新网关模型 ID 不同时，Claude Code 会丢弃旧的
+思考签名继续；模型 ID 相同且新网关返回标准的签名错误时，它会自动去掉思考块重试；
+只有新网关返回不规范的错误（如仅 `400 Bad request`）时才会失败，这时请新开对话或换一个
+模型 ID 再恢复。
+
+设置页可编辑回复语言、默认思考强度、扩展思考；未设置保持未写入。部分新模型忽略
+用户级默认强度，请用 Claude Code 的 `/effort` 为模型设置。提示词页管理用户级
+`CLAUDE.md`。权限、钩子、插件、项目指令保留原有规则，组织策略仍优先。
+
+目录优先级是 `PI_PROVIDER_MANAGER_CLAUDE_DIR` → `CLAUDE_CONFIG_DIR` → `~/.claude`。
+Windows 默认 `%USERPROFILE%\.claude`，复制的命令用于 PowerShell。更多文件边界、
+认证说明与验证方式见 [Claude Code 支持](claude-code.md)。
 
 ## 一、装好并跑起来
 
@@ -85,15 +120,16 @@ WSL checkout 的那一条。`pwsh -ExecutionPolicy Bypass -File ...` 也能跑�
 
 ### 启动之后
 
-启动器会打印三行关键信息：
+启动器会打印服务地址和三个配置目录：
 
 ```
 Pi Provider Manager is ready: http://127.0.0.1:43127/
   Pi config:    /home/you/.pi/agent
   Codex config: /home/you/.codex
+  Claude config: /home/you/.claude
 ```
 
-两个目录一定会打印出来，因为 `CODEX_HOME=""` 这种"看着像设了其实等于默认值"的失误，只有在
+三个目录一定会打印出来，因为 `CODEX_HOME=""` 这种"看着像设了其实等于默认值"的失误，只有在
 写任何东西之前看到路径才发现得了。
 
 端口在 `43127-43146` 里自动选，专用段是为了避开 Vite 常用的 `4173` 上残留的 Service
@@ -408,7 +444,7 @@ pipx install 'litellm[proxy]'
 
 ## 八、全局提示词
 
-两个 agent 的全局提示词都落在管理器已经在管的目录里，所以一套界面同时服务两边。每个文件同时只有
+三个 agent 的全局提示词都落在各自配置目录里，所以一套界面同时服务它们。每个文件同时只有
 一份内容生效，其余存在管理器自己的库里 —— 和未生效的供应商同一套做法。
 
 | Agent | 文件 | 作用 |
@@ -417,6 +453,7 @@ pipx install 'litellm[proxy]'
 | Pi | `~/.pi/agent/SYSTEM.md` | **整体替换**默认系统提示。写错会影响 Pi 的全部行为 |
 | Pi | `~/.pi/agent/APPEND_SYSTEM.md` | 追加在默认系统提示之后，不替换它 |
 | Codex | `$CODEX_HOME/AGENTS.md` | 与项目的 `AGENTS.md` 拼接 |
+| Claude Code | `$CLAUDE_CONFIG_DIR/CLAUDE.md` | 用户级指令，与项目指令一起读取 |
 
 已有内容与库内提示词不匹配时会被**接管**，只在读路径上呈现，打开页面不写盘。未匹配的零字节
 文件不接管；空白字符仍算内容，已保存的空提示词仍可与文件匹配。删除当前正在文件里的那一份时
@@ -460,6 +497,8 @@ Codex 那边不认识的键、注释、你手写的其它供应商表也逐字�
 | 变量 | 默认 | 用途 |
 |---|---|---|
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi 的配置目录 |
+| `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code 用户配置目录 |
+| `PI_PROVIDER_MANAGER_CLAUDE_DIR` | `CLAUDE_CONFIG_DIR` | 管理器与专属启动命令的 Claude 目录覆盖 |
 | `CODEX_HOME` | `~/.codex` | Codex 配置目录，沿用 Codex 自己的优先级 |
 | `PI_PROVIDER_MANAGER_CODEX_DIR` | `CODEX_HOME` 的值 | 只对本管理器生效的 Codex 目录覆盖 |
 | `PI_PROVIDER_MANAGER_LITELLM` | 自动查找常见 venv 路径，再回落 `PATH` | 桥用哪个 litellm 可执行文件 |
@@ -472,11 +511,11 @@ Codex 那边不认识的键、注释、你手写的其它供应商表也逐字�
 
 ```bash
 cp -r ~/.pi/agent /tmp/pi-try && cp -r ~/.codex /tmp/codex-try
-PI_CODING_AGENT_DIR=/tmp/pi-try CODEX_HOME=/tmp/codex-try \
+PI_CODING_AGENT_DIR=/tmp/pi-try CODEX_HOME=/tmp/codex-try PI_PROVIDER_MANAGER_CLAUDE_DIR=/tmp/claude-try \
   ~/.pi/agent/bin/pi-provider-manager-ui
 ```
 
-启动器会把这两个目录打印出来，照着确认一遍再动手。
+启动器会把这三个目录打印出来，照着确认一遍再动手。
 
 监听地址固定 `127.0.0.1`，不会自动开放到局域网或公网。
 
@@ -563,7 +602,7 @@ rm -f ~/.pi/agent/bin/pi-provider-manager-ui   # 转发脚本，删掉无副作�
 rm -rf ~/pi-provider-manager-ui                # 仓库
 ```
 
-**你的配置不会跟着消失** —— `~/.pi/agent` 和 `~/.codex` 是 Pi 和 Codex 自己的文件，本程序只是
+**你的配置不会跟着消失** —— `~/.pi/agent`、`~/.codex` 和 `~/.claude` 是三个 agent 自己的文件，本程序只是
 编辑过它们。想连管理器自己的供应商库一起清掉，再删
 `~/.codex/pi-provider-manager-*`（`store.json` / `litellm.yaml` / `bridge.json` /
 `bridge.log`）—— 注意 store 里存着未生效供应商的 key，删了就找不回来。

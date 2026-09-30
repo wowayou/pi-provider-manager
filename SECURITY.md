@@ -2,7 +2,7 @@
 
 ## Scope
 
-Pi Provider Manager handles local API credentials and edits Pi and Codex configuration files. Security reports involving credential disclosure, unsafe network exposure, path traversal, cross-origin writes, or config corruption are high priority.
+Pi Provider Manager handles local API credentials and edits Pi, Codex and Claude Code configuration files. Security reports involving credential disclosure, unsafe network exposure, path traversal, cross-origin writes, or config corruption are high priority.
 
 The browser is not trusted merely because the API listens on localhost: any page a user visits can attempt requests to loopback, and DNS rebinding can make an attacker-controlled hostname resolve there. `server.mjs` is therefore an authorization boundary as well as a local file editor.
 
@@ -12,6 +12,7 @@ The browser is not trusted merely because the API listens on localhost: any page
 - Every API request requires `127.0.0.1`, `localhost`, or `[::1]` in `Host`, on the actual service port, to block DNS rebinding.
 - Every write requires `Content-Type: application/json`. A foreign page cannot send that as a CORS simple request, and the server does not enable CORS or answer preflight.
 - Existing API keys are never returned by API responses.
+- Claude terminal commands contain a provider ID and paths, never a key. The launcher writes a private per-run settings snapshot into a runtime directory it refuses to use if it is a symlink or owned by another account, removes it on exit, handled signals and terminal hangup, and leaves policy/permissions to Claude. A forced kill leaves the snapshot until a later launch or manager start finds both recorded processes gone; a PID it cannot prove gone keeps the file rather than risk removing a live session's. Removing a provider does not revoke credentials already held by running processes.
 - The model-discovery endpoint sends a credential only to a URL that passes the same validation as a save (HTTPS unless loopback), does not follow redirects, bounds the response, and returns only model IDs and display names. Its listing path is caller-supplied and therefore resolved against the gateway's baseUrl and refused unless it lands on the same origin, so no path can redirect a stored key to another host, port, or scheme.
 - Request bodies are capped at 1 MB, and provider IDs, credential migration sources, URLs, protocols, models, and settings are validated before use.
 - Config writes use private permissions where supported.
@@ -33,12 +34,12 @@ Do not include any of the following in a public issue:
 - private Base URLs containing account identifiers
 - screenshots that show credentials
 
-Use fake credentials and separate temporary `PI_CODING_AGENT_DIR` and `PI_PROVIDER_MANAGER_CODEX_DIR` directories for reproductions; the state endpoint reads both targets.
+Use fake credentials and separate temporary `PI_CODING_AGENT_DIR`, `PI_PROVIDER_MANAGER_CODEX_DIR` and `PI_PROVIDER_MANAGER_CLAUDE_DIR` directories for reproductions; the state endpoint reads all three targets.
 
 ## Out of scope
 
 - Upstream provider outages or rate limits
-- Pi or Codex runtime defects unrelated to files written by this manager
+- Pi, Codex or Claude Code runtime defects unrelated to files written by this manager
 - Processes or users that already have permission to read the same agent config directory
 - A compromised local operating-system account or browser
 - Risks caused by intentionally binding a modified fork to a public interface

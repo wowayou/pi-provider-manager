@@ -17,6 +17,8 @@ import {
   writeJsonAtomic,
 } from "./lib/atomic-files.mjs";
 import { createCodexConfig } from "./lib/codex-config.mjs";
+import { createClaudeConfig } from "./lib/claude-config.mjs";
+import { sweepExistingRuns } from "./lib/claude-runs.mjs";
 import { builtUiProblem } from "./lib/built-ui.mjs";
 import { createBridgeRunner } from "./lib/litellm-bridge.mjs";
 import { createPromptLibrary } from "./lib/prompt-library.mjs";
@@ -171,18 +173,32 @@ const CODEX_DIR_SOURCE = process.env.PI_PROVIDER_MANAGER_CODEX_DIR_SOURCE || (
     : process.env.CODEX_HOME ? "CODEX_HOME" : "default-home"
 );
 const REVISION_KEY = crypto.randomBytes(32);
-// Pi and Codex carry separate revisions on purpose: editing one must not
+// Each target carries a separate revision: editing one must not
 // invalidate an in-flight draft for the other.
 const codex = createCodexConfig({ dir: CODEX_DIR, dirSource: CODEX_DIR_SOURCE, revisionKey: REVISION_KEY });
+const CLAUDE_DIR = path.resolve(process.env.PI_PROVIDER_MANAGER_CLAUDE_DIR || process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"));
+const CLAUDE_DIR_SOURCE = process.env.PI_PROVIDER_MANAGER_CLAUDE_DIR_SOURCE || (process.env.PI_PROVIDER_MANAGER_CLAUDE_DIR ? "PI_PROVIDER_MANAGER_CLAUDE_DIR" : process.env.CLAUDE_CONFIG_DIR ? "CLAUDE_CONFIG_DIR" : "default-home");
+const claude = createClaudeConfig({ dir: CLAUDE_DIR, dirSource: CLAUDE_DIR_SOURCE, revisionKey: REVISION_KEY });
+// A forced kill leaves a per-run credential snapshot behind until the next
+// dedicated launch; starting the manager removes those whose recorded processes
+// are provably gone. Only the manager's own runtime directory, never native
+// Claude files, never on a page load, and never able to break a start.
+try { sweepExistingRuns(CLAUDE_DIR); } catch { /* the next launch retries */ }
 const bridge = createBridgeRunner({ dir: CODEX_DIR });
 
-// Both agents read their global instructions from the directory this manager
-// already owns, so one module serves both — each only declares which files it
+// Each agent reads global instructions from its configuration directory, so
+// one module serves all targets — each only declares which files it
 // reads and what each one does. Verified against Pi's own README and, for
 // Codex, by finding the text of $CODEX_HOME/AGENTS.md in `codex debug
 // prompt-input`. These carry their own revisions, separate again from provider
 // edits: rewriting a prompt must not invalidate a provider draft.
 const prompts = {
+  claude: createPromptLibrary({
+    dir: CLAUDE_DIR,
+    revisionKey: REVISION_KEY,
+    subject: "Claude Code 提示词",
+    slots: [{ id: "claude", file: "CLAUDE.md", label: "CLAUDE.md", note: "用户级全局指令，与项目指令一起读取；重新启动 Claude Code 后确认。" }],
+  }),
   pi: createPromptLibrary({
     dir: AGENT_DIR,
     revisionKey: REVISION_KEY,
@@ -205,8 +221,27 @@ const prompts = {
 
 function promptLibrary(payload) {
   const library = prompts[String(payload.target || "")];
-  if (!library) throw new Error("未知的目标（应为 pi 或 codex）。");
+  if (!library) throw new Error("未知的目标（应为 pi、codex 或 claude）。");
+  if (payload.target === "claude") checkClaudeDirectory();
   return library;
+}
+
+function checkClaudeDirectory() {
+  if ([AGENT_DIR, CODEX_DIR].includes(CLAUDE_DIR)) throw new Error("Claude Code 配置目录必须与 Pi、Codex 分开，避免覆盖同名文件。");
+}
+
+function claudeState() {
+  try {
+    checkClaudeDirectory();
+    return { available: true, ...claude.publicState(), launcher: { node: process.execPath, script: fileURLToPath(new URL("./bin/claude-with-provider.mjs", import.meta.url)), dir: CLAUDE_DIR, shell: process.platform === "win32" ? "powershell" : "posix" } };
+  } catch (error) {
+    return { available: false, error: error.message, dir: CLAUDE_DIR, dirSource: CLAUDE_DIR_SOURCE, providers: [], settings: {}, revision: "" };
+  }
+}
+
+function claudePromptsState() {
+  try { checkClaudeDirectory(); return prompts.claude.publicState(); }
+  catch { return { slots: [], error: "无法读取 Claude Code 提示词，请检查配置目录及提示词库文件。" }; }
 }
 
 // Keeps LiteLLM's config file in step with the store after any write that
@@ -789,11 +824,12 @@ function publicState() {
     // last saved for it on that provider rather than the family guess.
     modelHints: publicModelHints(MODEL_HINTS_PATH),
     codex: codexState(),
+    claude: claudeState(),
     // Empty unless a restart was asked for and did not take. The page that asked
     // is the one that needs to hear about it.
     restartError,
     update: updateState,
-    prompts: { pi: prompts.pi.publicState(), codex: prompts.codex.publicState() },
+    prompts: { pi: prompts.pi.publicState(), codex: prompts.codex.publicState(), claude: claudePromptsState() },
     compatibility: {
       appVersion: APP_VERSION,
       pendingAppVersion: readPendingAppVersion(),
@@ -1570,6 +1606,21 @@ const server = http.createServer(async (request, response) => {
       saveSettings(await readBody(request));
       sendJson(response, 200, { ok: true, state: publicState() });
       return;
+    }
+    if (request.method === "POST" && request.url.startsWith("/api/claude/")) {
+      const actions = new Map([
+        ["/api/claude/providers", claude.saveProvider],
+        ["/api/claude/providers/delete", claude.deleteProvider],
+        ["/api/claude/activate", claude.activate],
+        ["/api/claude/settings", claude.saveSettings],
+      ]);
+      const action = actions.get(request.url);
+      if (action) {
+        checkClaudeDirectory();
+        const result = action(await readBody(request));
+        sendJson(response, 200, { ok: true, result, state: publicState() });
+        return;
+      }
     }
     if (request.method === "POST" && request.url === "/api/codex/providers") {
       const saved = codex.saveProvider(await readBody(request));

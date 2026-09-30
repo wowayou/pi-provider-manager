@@ -15,15 +15,19 @@ test("release staging contains runnable launchers and no local Pi data", () => {
     "server.mjs",
     "lib/atomic-files.mjs",
     "lib/codex-config.mjs",
+    "lib/claude-config.mjs",
+    "lib/claude-runs.mjs",
     "lib/toml-document.mjs",
     "lib/validation.mjs",
     "lib/model-hints.mjs",
     "dist/client/index.html",
     "bin/pi-provider-manager-ui",
     "bin/pi-provider-manager.ps1",
+    "bin/claude-with-provider.mjs",
     "INSTALL.md",
     "docs/usage.zh-CN.md",
     "docs/model-capacities.md",
+    "docs/claude-code.md",
   ]) {
     assert.equal(fs.existsSync(path.join(stageDir, entry)), true, `${entry} must be packaged`);
   }

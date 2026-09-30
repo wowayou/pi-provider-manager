@@ -1247,3 +1247,27 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
 @media (max-width: 900px) {
   .prompt-layout { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Claude Code uses the shared shell; only its compact auth and alias groups differ. */
+.claude-wizard .credential-options { display: flex; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-4); }
+.claude-wizard .radio-card { flex-direction: row; align-items: center; gap: var(--space-2); cursor: pointer; }
+.claude-wizard .radio-card small { display: block; margin-top: var(--space-1); }
+.claude-wizard .gateway-summary { margin-bottom: var(--space-6); }
+.claude-wizard .gateway-summary > div { min-width: 0; }
+.claude-wizard .gateway-summary button.mono { max-width: 100%; overflow-wrap: anywhere; height: auto; min-height: 32px; text-align: left; }
+.claude-wizard .advanced-panel > p, .claude-wizard .advanced-panel > .form-grid { margin: var(--space-4); }
+.target-switch button { white-space: nowrap; }
+
+.claude-launch-card { margin-block: var(--space-6); }
+.claude-launch-card h2 { margin-top: 0; font-size: 18px; }
+.claude-launch-card p { color: var(--muted); font-size: 13px; line-height: 1.7; }
+.claude-launch-card .command-row { min-width: 0; }
+.claude-launch-card .launch-mode { border: 0; margin: var(--space-4) 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-3); min-width: 0; }
+.claude-launch-card .launch-mode legend { padding: 0; margin-bottom: var(--space-2); font-size: 13px; font-weight: 700; }
+.claude-launch-card .radio-card { flex: 1 1 240px; flex-direction: row; align-items: flex-start; gap: var(--space-2); cursor: pointer; }
+.claude-launch-card .radio-card small { display: block; margin-top: var(--space-1); color: var(--muted); }
+.claude-settings .settings-card + .settings-card { margin-top: var(--space-5); }
+.claude-settings .form-grid { margin-top: var(--space-4); }
+.claude-settings .form-grid label + label { margin-top: 0; }
+
+.claude-wizard .footer-actions { flex-wrap: wrap; max-width: 100%; }

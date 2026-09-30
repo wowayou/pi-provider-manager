@@ -21,7 +21,7 @@
     "install:launcher": "node scripts/install-launcher.mjs",
     "server": "node server.mjs",
     "check:pi-update": "node scripts/check-pi-update.mjs",
-    "test": "npm run build && npm run test:server && npm run test:codex && npm run test:prompts && npm run test:sites && npm run test:pi-update && npm run test:release && npm run test:launcher && npm run test:ui && npm run test:codex-real && npm run test:pi-real",
+    "test": "npm run build && npm run test:server && npm run test:codex && npm run test:claude && npm run test:prompts && npm run test:sites && npm run test:pi-update && npm run test:release && npm run test:launcher && npm run test:ui && npm run test:codex-real && npm run test:pi-real && npm run test:claude-real",
     "test:server": "node --test tests/server.test.mjs tests/model-draft.test.mjs tests/model-catalog.test.mjs tests/model-hints.test.mjs tests/pi-anthropic-beta.test.mjs tests/model-discovery.test.mjs tests/pi-user-agent.test.mjs tests/version-detect.test.mjs tests/self-update.test.mjs",
     "test:codex": "node --test tests/toml-document.test.mjs tests/litellm-bridge.test.mjs tests/codex-server.test.mjs tests/codex-shared.test.mjs",
     "test:prompts": "node --test tests/prompt-library.test.mjs",
@@ -36,7 +36,9 @@
     "package:linux": "node scripts/prepare-release-artifacts.mjs && tar -czf artifacts/pi-provider-manager-v${npm_package_version}-linux-wsl.tar.gz -C artifacts pi-provider-manager-v${npm_package_version}",
     "package:release": "npm run build && npm run package:linux",
     "preview": "vite preview",
-    "test:sites": "node --test tests/sites-worker.test.mjs"
+    "test:sites": "node --test tests/sites-worker.test.mjs",
+    "test:claude": "node --test tests/claude-config.test.mjs tests/claude-server.test.mjs tests/claude-launcher.test.mjs",
+    "test:claude-real": "node --test tests/claude-real-binary.test.mjs"
   },
   "engines": {
     "node": ">=18"

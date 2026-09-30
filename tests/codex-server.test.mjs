@@ -63,7 +63,7 @@ async function withServer(configToml, run) {
     cwd: projectRoot,
     env: {
       ...env,
-      PI_CODING_AGENT_DIR: agentDir,
+      PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
       PI_PROVIDER_MANAGER_CODEX_DIR: codexDir,
       PI_PROVIDER_MANAGER_API_PORT: String(port),
     },

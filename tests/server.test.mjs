@@ -140,7 +140,7 @@ test("a failed capacity-cache write cannot fail a committed provider save", asyn
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
     cwd: projectRoot,
-    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: path.join(agentDir, "codex"), PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    env: serverEnv({ PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: path.join(agentDir, "codex"), PI_PROVIDER_MANAGER_API_PORT: String(port) }),
     stdio: ["ignore", "pipe", "pipe"],
   });
   try {
@@ -207,7 +207,7 @@ test("writes router-style providers without exposing credentials", async () => {
   const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
     cwd: projectRoot,
     env: serverEnv({
-      PI_CODING_AGENT_DIR: agentDir,
+      PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
       PI_PROVIDER_MANAGER_API_PORT: String(port),
       PI_PROVIDER_MANAGER_SERVE_UI: "1",
     }),
@@ -341,7 +341,7 @@ test("handles model Anthropic Beta through the real HTTP boundary", async () => 
   fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify(models));
   fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "anthropic-router", defaultModel: "claude-one" }));
   fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({ "anthropic-router": { type: "api_key", key: "beta-key-hidden" }, "openai-router": { type: "api_key", key: "openai-key" } }));
-  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_CODEX_DIR: path.join(agentDir, "codex") }), stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: serverEnv({ PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_CODEX_DIR: path.join(agentDir, "codex") }), stdio: ["ignore", "pipe", "pipe"] });
   try {
     await waitForServer(`${baseUrl}/api/state`);
     const initialResponse = await fetch(`${baseUrl}/api/state`);
@@ -429,7 +429,7 @@ test("renaming a provider moves its models, credential, and settings references 
   const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
     cwd: projectRoot,
     env: serverEnv({
-      PI_CODING_AGENT_DIR: agentDir,
+      PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
       PI_PROVIDER_MANAGER_API_PORT: String(port),
       PI_PROVIDER_MANAGER_CODEX_DIR: path.join(agentDir, "codex"),
     }),
@@ -526,7 +526,7 @@ test("discovers a gateway's models with the credential a save would use, and nev
   }));
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
-  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port), PI_PROVIDER_MANAGER_CODEX_DIR: path.join(agentDir, "codex") }), stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: serverEnv({ PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port), PI_PROVIDER_MANAGER_CODEX_DIR: path.join(agentDir, "codex") }), stdio: ["ignore", "pipe", "pipe"] });
   const discover = async (body) => {
     const response = await fetch(`${baseUrl}/api/providers/discover-models`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     return { status: response.status, text: await response.text() };
@@ -674,7 +674,7 @@ test("keeps provider UA three-state semantics and never exposes model headers", 
   const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
     cwd: projectRoot,
     env: serverEnv({
-      PI_CODING_AGENT_DIR: agentDir,
+      PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
       PI_PROVIDER_MANAGER_CODEX_DIR: path.join(agentDir, "codex"),
       PI_PROVIDER_MANAGER_API_PORT: String(port),
     }),
@@ -767,7 +767,7 @@ test("rejects stale writes after another process changes Pi configuration", asyn
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
     cwd: projectRoot,
-    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    env: serverEnv({ PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
     stdio: ["ignore", "pipe", "pipe"],
   });
   const provider = {
@@ -869,7 +869,7 @@ test("refuses to drop the model settings.json points at unless a new default is 
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
     cwd: projectRoot,
-    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    env: serverEnv({ PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -1000,7 +1000,7 @@ test("deletes providers transactionally and can retain credentials", async () =>
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
     cwd: projectRoot,
-    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    env: serverEnv({ PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
     stdio: ["ignore", "pipe", "pipe"],
   });
   const submit = (body) => postJson(baseUrl, "/api/providers/delete", body);
@@ -1131,7 +1131,7 @@ test("bulk-deletes providers transactionally under one revision", async () => {
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
     cwd: projectRoot,
-    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    env: serverEnv({ PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
     stdio: ["ignore", "pipe", "pipe"],
   });
   const submit = (body, revision) => postJson(baseUrl, "/api/providers/delete-bulk", body, revision);
@@ -1214,7 +1214,7 @@ test("rejects cross-origin and rebound requests, and bogus credential sources", 
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
     cwd: projectRoot,
-    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    env: serverEnv({ PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
     stdio: ["ignore", "pipe", "pipe"],
   });
   const provider = {
@@ -1298,7 +1298,7 @@ test("reports which settings keys exist and allows the theme bootstrap through C
   const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
     cwd: projectRoot,
     env: serverEnv({
-      PI_CODING_AGENT_DIR: agentDir,
+      PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
       PI_PROVIDER_MANAGER_API_PORT: String(port),
       PI_PROVIDER_MANAGER_SERVE_UI: "1",
     }),
@@ -1382,7 +1382,7 @@ test("reports a checkout that has moved ahead of the running process", async () 
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [path.join(projectDir, "server.mjs")], {
     cwd: projectDir,
-    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    env: serverEnv({ PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -1428,7 +1428,7 @@ test("a restart hands the port to a manager started from the files on disk", asy
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [path.join(projectDir, "server.mjs")], {
     cwd: projectDir,
-    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    env: serverEnv({ PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
     // No pipes. This is how the launcher's WSL branch starts the manager, and it is
     // the configuration that exposes a handoff depending on the event loop: with a
     // pipe on stdout the handle keeps the loop alive and the settle window runs by
@@ -1504,7 +1504,7 @@ test("a manager that dies on startup says why in its own log", async () => {
   const holder = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
     cwd: projectRoot,
     env: serverEnv({
-      PI_CODING_AGENT_DIR: agentDir,
+      PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
       PI_PROVIDER_MANAGER_PORT: String(port),
       PI_PROVIDER_MANAGER_LOG: holderLog,
     }),
@@ -1521,7 +1521,7 @@ test("a manager that dies on startup says why in its own log", async () => {
     const crash = spawnSync(process.execPath, [path.join(projectRoot, "server.mjs")], {
       cwd: projectRoot,
       env: serverEnv({
-        PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
         PI_PROVIDER_MANAGER_PORT: String(port),
         PI_PROVIDER_MANAGER_LOG: crashLog,
       }),
@@ -1557,7 +1557,7 @@ test("a replacement that answers and then dies is taken back", async () => {
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [serverPath], {
     cwd: projectDir,
-    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_PORT: String(port) }),
+    env: serverEnv({ PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_PORT: String(port) }),
     // Console-less, like the launcher: the settle window has to run with nothing
     // else holding the event loop, which is the only configuration where the
     // reclaim this test asserts actually happens.
@@ -1642,7 +1642,7 @@ test("a manager whose output reader goes away keeps serving", async () => {
   const child = spawn(process.execPath, [serverPath], {
     cwd: projectDir,
     env: serverEnv({
-      PI_CODING_AGENT_DIR: agentDir,
+      PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
       PI_PROVIDER_MANAGER_PORT: String(port),
       PI_PROVIDER_MANAGER_LOG: logPath,
     }),
@@ -1703,7 +1703,7 @@ test("a replacement that cannot start leaves the old manager serving, and says w
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [serverPath], {
     cwd: projectDir,
-    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    env: serverEnv({ PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -1758,7 +1758,7 @@ test("updating refuses in order: unchecked, then unapplicable", async () => {
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
     cwd: projectRoot,
-    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    env: serverEnv({ PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_API_PORT: String(port) }),
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -1824,7 +1824,7 @@ test("a bundle older than its sources blocks the restart, and says which", async
   const child = spawn(process.execPath, [path.join(projectDir, "server.mjs")], {
     cwd: projectDir,
     env: serverEnv({
-      PI_CODING_AGENT_DIR: agentDir,
+      PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
       PI_PROVIDER_MANAGER_PORT: String(port),
       PI_PROVIDER_MANAGER_SERVE_UI: "1",
     }),

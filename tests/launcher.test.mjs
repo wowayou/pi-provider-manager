@@ -111,7 +111,7 @@ test("starts, then says so rather than pretending to restart", { skip: process.p
   const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-launch-codex-"));
   const port = await freePort();
   const env = {
-    PI_CODING_AGENT_DIR: agentDir,
+    PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
     PI_PROVIDER_MANAGER_CODEX_DIR: codexDir,
     PI_PROVIDER_MANAGER_PORT: String(port),
   };
@@ -169,7 +169,7 @@ test("a reused instance is described by itself, not by this shell", { skip: proc
 
   try {
     assert.equal(run({
-      PI_CODING_AGENT_DIR: runningPi,
+      PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(runningPi, "claude"), PI_CODING_AGENT_DIR: runningPi,
       PI_PROVIDER_MANAGER_CODEX_DIR: runningCodex,
       PI_PROVIDER_MANAGER_PORT: String(port),
     }).status, 0);
@@ -177,13 +177,14 @@ test("a reused instance is described by itself, not by this shell", { skip: proc
     // Same port, different directories: what gets printed must describe the
     // instance holding the port, not what this invocation would have used.
     const reused = run({
-      PI_CODING_AGENT_DIR: otherPi,
+      PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(otherPi, "claude"), PI_CODING_AGENT_DIR: otherPi,
       PI_PROVIDER_MANAGER_CODEX_DIR: otherCodex,
       PI_PROVIDER_MANAGER_PORT: String(port),
     });
     assert.equal(reused.status, 0, reused.stderr);
     assert.match(reused.stdout, new RegExp(`Pi config:\\s+${runningPi}`));
     assert.match(reused.stdout, new RegExp(`Codex config:\\s+${runningCodex}`));
+    assert.match(reused.stdout, new RegExp(`Claude config:\\s+${path.join(runningPi, "claude")}`));
     assert.equal(reused.stdout.includes(otherPi), false, "this shell's directories are not the running instance's");
     assert.equal(reused.stdout.includes(otherCodex), false);
   } finally {
@@ -363,7 +364,7 @@ test("the PowerShell launcher describes a reused instance too", { skip: windowsP
     cwd: projectRoot,
     env: {
       ...process.env,
-      PI_CODING_AGENT_DIR: agentDir,
+      PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
       PI_PROVIDER_MANAGER_CODEX_DIR: codexDir,
       PI_PROVIDER_MANAGER_PORT: String(port),
       PI_PROVIDER_MANAGER_SERVE_UI: "1",
