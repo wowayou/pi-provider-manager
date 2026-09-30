@@ -75,7 +75,7 @@ Claude files live under `CLAUDE_CONFIG_DIR` (default `~/.claude`): `settings.jso
 the private `pi-provider-manager-store.json`, `CLAUDE.md`, a private prompt library,
 and temporary `pi-provider-manager-runs/session-*/` snapshots. Normal exit,
 Ctrl+C and closing the terminal clean up the snapshot; after a forced kill, the
-next launch removes it once both recorded processes have exited. Organization
+next launch or manager start removes it once both recorded processes have exited. Organization
 policy retains priority. See [Claude Code support and
 tradeoffs](docs/claude-code.md) for the workflow, ownership and verification.
 

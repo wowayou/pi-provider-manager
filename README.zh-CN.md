@@ -74,7 +74,7 @@ Codex（`$CODEX_HOME`，缺省 `~/.codex`）：
 文件位于 `CLAUDE_CONFIG_DIR`（默认 `~/.claude`）：`settings.json`、私有
 `pi-provider-manager-store.json`、`CLAUDE.md`、提示词库，以及临时
 `pi-provider-manager-runs/session-*/` 快照。正常退出、Ctrl+C 和关闭终端都会清理
-快照；强制结束后，下次启动会在记录的两个进程都已退出时自动清理。组织策略仍有
+快照；强制结束后，下次运行专属命令或启动管理器时，会在记录的两个进程都已退出后自动清理。组织策略仍有
 更高优先级。完整工作流、利弊、
 文件边界和验证方式见 [Claude Code 支持](docs/claude-code.md)。
 

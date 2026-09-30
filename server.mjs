@@ -18,6 +18,7 @@ import {
 } from "./lib/atomic-files.mjs";
 import { createCodexConfig } from "./lib/codex-config.mjs";
 import { createClaudeConfig } from "./lib/claude-config.mjs";
+import { sweepExistingRuns } from "./lib/claude-runs.mjs";
 import { builtUiProblem } from "./lib/built-ui.mjs";
 import { createBridgeRunner } from "./lib/litellm-bridge.mjs";
 import { createPromptLibrary } from "./lib/prompt-library.mjs";
@@ -178,6 +179,11 @@ const codex = createCodexConfig({ dir: CODEX_DIR, dirSource: CODEX_DIR_SOURCE, r
 const CLAUDE_DIR = path.resolve(process.env.PI_PROVIDER_MANAGER_CLAUDE_DIR || process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"));
 const CLAUDE_DIR_SOURCE = process.env.PI_PROVIDER_MANAGER_CLAUDE_DIR_SOURCE || (process.env.PI_PROVIDER_MANAGER_CLAUDE_DIR ? "PI_PROVIDER_MANAGER_CLAUDE_DIR" : process.env.CLAUDE_CONFIG_DIR ? "CLAUDE_CONFIG_DIR" : "default-home");
 const claude = createClaudeConfig({ dir: CLAUDE_DIR, dirSource: CLAUDE_DIR_SOURCE, revisionKey: REVISION_KEY });
+// A forced kill leaves a per-run credential snapshot behind until the next
+// dedicated launch; starting the manager removes those whose recorded processes
+// are provably gone. Only the manager's own runtime directory, never native
+// Claude files, never on a page load, and never able to break a start.
+try { sweepExistingRuns(CLAUDE_DIR); } catch { /* the next launch retries */ }
 const bridge = createBridgeRunner({ dir: CODEX_DIR });
 
 // Each agent reads global instructions from its configuration directory, so

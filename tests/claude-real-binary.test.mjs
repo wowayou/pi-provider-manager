@@ -9,8 +9,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { withClaudeServer } from "./helpers/claude-server.mjs";
-let installed = "";
-try { installed = execFileSync("claude", ["--version"], { encoding: "utf8", timeout: 20000, shell: process.platform === "win32" }).trim(); } catch {}
+import { resolveClaudeCommand } from "../bin/claude-with-provider.mjs";
+// Resolve Claude the way the launcher does. On Windows that runs the native
+// executable without cmd.exe, which would mangle the empty and JSON arguments
+// below, and the probe cannot skip where the product itself would find Claude.
+let installed = "", claudeCommand = null;
+try { claudeCommand = resolveClaudeCommand("claude"); installed = execFileSync(claudeCommand.file, [...claudeCommand.args, "--version"], { encoding: "utf8", timeout: 20000 }).trim(); } catch {}
 
 for (const authType of ["token", "api-key"]) test("real Claude Code reads the saved " + authType + ", model alias and global instructions", { skip: installed ? false : "Claude Code is not installed", timeout: 120000 }, async (t) => {
   t.diagnostic(installed);
@@ -46,7 +50,7 @@ for (const authType of ["token", "api-key"]) test("real Claude Code reads the sa
       for (const key of Object.keys(env)) if (/^(ANTHROPIC_|CLAUDE_|CLAUDECODE$|CODEX_|PI_PROVIDER_MANAGER_)/.test(key)) delete env[key];
       const cwd = path.join(api.dir, "work"); fs.mkdirSync(cwd);
       Object.assign(env, { CLAUDE_CONFIG_DIR: api.claudeDir, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1", DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1" });
-      const child = spawn("claude", ["-p", "Reply PONG.", "--setting-sources", "user", "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--disable-slash-commands", "--no-session-persistence"], { cwd, env, shell: process.platform === "win32", stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(claudeCommand.file, [...claudeCommand.args, "-p", "Reply PONG.", "--setting-sources", "user", "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--disable-slash-commands", "--no-session-persistence"], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
       let output = ""; child.stdout.on("data", (chunk) => { output += chunk; }); child.stderr.on("data", (chunk) => { output += chunk; });
       const timer = setTimeout(() => child.kill("SIGKILL"), 90000);
       let code;
@@ -198,7 +202,7 @@ const cleanClaudeEnv = (extra) => {
 };
 const STREAM_ARGS = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--disable-slash-commands"];
 function streamClient(args, { cwd, env }) {
-  const child = spawn("claude", args, { cwd, env, shell: process.platform === "win32", stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn(claudeCommand.file, [...claudeCommand.args, ...args], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
   const client = { child, results: [], output: "", sessionId: "" };
   let buffer = "";
   child.stdout.on("data", (chunk) => {

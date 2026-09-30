@@ -77,6 +77,12 @@ test("Claude launcher resolves Windows native and npm entries without a command 
   fs.writeFileSync(path.join(packageDir, "package.json"), JSON.stringify({ bin: { claude: "cli.js" } }));
   fs.writeFileSync(path.join(packageDir, "cli.js"), "");
   assert.deepEqual(resolveClaudeCommand("claude", { Path: dir }, "win32"), { file: process.execPath, args: [path.join(packageDir, "cli.js")] });
+  // Since 2.1.283 the npm package's bin is its native bin/claude.exe: run it
+  // directly rather than handing an executable to node.
+  fs.mkdirSync(path.join(packageDir, "bin"));
+  fs.writeFileSync(path.join(packageDir, "bin", "claude.exe"), "native stub");
+  fs.writeFileSync(path.join(packageDir, "package.json"), JSON.stringify({ bin: { claude: "bin/claude.exe" } }));
+  assert.deepEqual(resolveClaudeCommand("claude", { Path: dir }, "win32"), { file: path.join(packageDir, "bin", "claude.exe"), args: [] });
   fs.writeFileSync(path.join(dir, "claude.exe"), "native stub");
   assert.deepEqual(resolveClaudeCommand("claude", { Path: dir }, "win32"), { file: path.join(dir, "claude.exe"), args: [] });
 });
@@ -274,5 +280,19 @@ await runClaude({ dir: ${JSON.stringify(dir)}, providerId: "one" }, { binary: ${
   assert.deepEqual(sessions(dir), [orphan], "no handler ran: the snapshot is still on disk");
   const quick = path.join(dir, "quick-claude.mjs"); fs.writeFileSync(quick, "process.exit(0);");
   assert.equal(await runClaude({ dir, providerId: "one" }, { binary: quick, stdio: "ignore" }), 0);
+  assert.deepEqual(sessions(dir), []);
+});
+
+// Windows reports closing the console window to Node as SIGHUP, and nothing
+// outside the process can send that, so emit it in-process: the same handler
+// runs on every platform (on Windows it becomes a forceful kill of Claude).
+test("a console close (SIGHUP) stops Claude and removes the snapshot on every platform", { timeout: 30000 }, async (t) => {
+  const { dir } = fixture(t);
+  const binary = path.join(dir, "hold-claude.mjs");
+  fs.writeFileSync(binary, "setInterval(() => {}, 1000);");
+  let file;
+  const code = await runClaude({ dir, providerId: "one" }, { binary, stdio: "ignore", interactive: true, onSpawn: (_child, settingsFile) => { file = settingsFile; setTimeout(() => process.emit("SIGHUP"), 200); } });
+  assert.notEqual(code, 0);
+  assert.equal(fs.existsSync(file), false);
   assert.deepEqual(sessions(dir), []);
 });

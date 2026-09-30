@@ -56,3 +56,36 @@ test("Claude invalid JSON disables only its target and never includes source tex
     assert.deepEqual(state.providers, []);
   });
 });
+
+// A forced kill leaves a credential snapshot behind. Starting the manager
+// removes the ones whose recorded processes are gone, keeps a live one, and
+// never follows a symlinked runtime directory.
+test("manager startup sweeps snapshots left by a forced kill and keeps live sessions", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const gone = spawnSync(process.execPath, ["-e", ""]).pid;
+  const session = (claudeDir, name, owner) => {
+    const runDir = path.join(claudeDir, "pi-provider-manager-runs", name);
+    fs.mkdirSync(runDir, { recursive: true });
+    fs.writeFileSync(path.join(runDir, "settings.json"), '{"env":{"ANTHROPIC_API_KEY":"dummy-orphan"}}');
+    fs.writeFileSync(path.join(runDir, "owner.json"), JSON.stringify(owner));
+  };
+  await withClaudeServer(async (api) => {
+    const runs = path.join(api.claudeDir, "pi-provider-manager-runs");
+    assert.deepEqual(fs.readdirSync(runs), ["session-live"]);
+  }, undefined, (claudeDir) => {
+    session(claudeDir, "session-orphan", { launcherPid: gone, claudePid: gone });
+    session(claudeDir, "session-live", { launcherPid: gone, claudePid: process.pid });
+  });
+});
+
+test("manager startup never follows a symlinked runtime directory", { skip: process.platform === "win32" ? "symlink creation needs privileges on Windows" : false }, async () => {
+  const os = await import("node:os");
+  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-claude-sweep-elsewhere-"));
+  try {
+    fs.mkdirSync(path.join(elsewhere, "session-bait"));
+    fs.writeFileSync(path.join(elsewhere, "session-bait", "owner.json"), JSON.stringify({ launcherPid: 999999999 }));
+    await withClaudeServer(async () => {
+      assert.deepEqual(fs.readdirSync(elsewhere), ["session-bait"]);
+    }, undefined, (claudeDir) => fs.symlinkSync(elsewhere, path.join(claudeDir, "pi-provider-manager-runs")));
+  } finally { fs.rmSync(elsewhere, { recursive: true, force: true }); }
+});

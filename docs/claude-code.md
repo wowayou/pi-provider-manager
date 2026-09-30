@@ -71,7 +71,8 @@ node /path/to/manager/bin/claude-with-provider.mjs --config-dir /path/to/claude-
 
 The UI quotes real paths for the local shell; Windows commands target PowerShell.
 The launcher accepts official native Claude installations and resolves an npm
-Windows shim to its JavaScript entry without a command shell. A second
+Windows shim to its package entry without a command shell: the native
+`bin/claude.exe` since 2.1.283, or the JavaScript entry of older packages. A second
 `--settings` argument is refused because it would undo the gateway selection.
 A launch command points to the manager installation and provider ID: moving the
 installation or renaming/deleting the provider requires copying a fresh command.
@@ -93,11 +94,14 @@ gateway if immediate revocation is required.
 - Claude reads `--settings` once at startup (measured): rewriting or deleting the
   snapshot does not change a running session.
 - Each session directory records the launcher and Claude process IDs. A forced
-  kill (`SIGKILL`, Task Manager, a crash) skips cleanup; the next launch removes
-  that directory once both recorded processes are provably gone. A directory
+  kill (`SIGKILL`, Task Manager, a crash) skips cleanup; the next dedicated
+  launch, or the next start of the manager, removes that directory once both
+  recorded processes are provably gone. A directory
   without a readable record is removed after 10 minutes. A reused process ID
-  can only delay removal, never remove a live session's file. A machine that
-  never launches again keeps the file until you delete it. On Windows, Node
+  can only delay removal, never remove a live session's file. Only a machine
+  that never starts the launcher or the manager again keeps the file until you
+  delete it. The manager's sweep never creates the directory and ignores one
+  that is a symlink or owned by another account. On Windows, Node
   places Claude in a kill-on-close job object, so force-ending the launcher
   also ends Claude; its snapshot is swept on the next launch (verified in CI).
 - The launcher refuses a runtime directory that is a symlink or owned by another
@@ -187,5 +191,7 @@ with fake credentials: both authentication modes, alias resolution, `CLAUDE.md`,
 two simultaneous pinned clients across a global switch, a follow-mode client
 switching, the three cross-gateway resume cases, and interactive pty sessions
 (`/exit`, Ctrl+C, terminal close) through the launcher. A skip means unverified.
-Not automated: the real Windows Claude binary and real third-party relays. Dated results belong in `design-qa.md`; Pi/Codex compatibility
+CI's Windows job installs Claude Code `2.1.285` and runs every real-binary case
+except the three pty ones (Windows has no POSIX pty). Not automated: real
+third-party relays and closing a real Windows console window. Dated results belong in `design-qa.md`; Pi/Codex compatibility
 baselines are unchanged.

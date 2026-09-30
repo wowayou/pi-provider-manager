@@ -6,11 +6,12 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-export async function withClaudeServer(run, settings) {
+export async function withClaudeServer(run, settings, prepare) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-claude-server-"));
   const claudeDir = path.join(dir, "claude"); fs.mkdirSync(claudeDir);
   const settingsPath = path.join(claudeDir, "settings.json");
   if (settings) fs.writeFileSync(settingsPath, JSON.stringify(settings));
+  prepare?.(claudeDir);
   const port = await new Promise((resolve) => { const probe = net.createServer(); probe.listen(0, "127.0.0.1", () => { const port = probe.address().port; probe.close(() => resolve(port)); }); });
   const url = "http://127.0.0.1:" + port;
   const env = { ...process.env };

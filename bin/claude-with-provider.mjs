@@ -8,13 +8,9 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createClaudeConfig } from "../lib/claude-config.mjs";
+import { OWNER, privateRuntimeDir, processGone, sweepStaleRuns } from "../lib/claude-runs.mjs";
 
-const RUNS = "pi-provider-manager-runs";
-const OWNER = "owner.json";
-// A session directory without a readable owner record is either being created
-// right now or was left by a launcher killed before writing one. Only age can
-// tell those apart, so the unowned ones are kept for this long.
-const UNOWNED_GRACE_MS = 10 * 60 * 1000;
+export { processGone, sweepStaleRuns };
 // After a hangup the session has no terminal left. Claude normally exits on the
 // forwarded SIGHUP; this bounds how long a client that ignores it keeps its key.
 const HANGUP_GRACE_MS = 10 * 1000;
@@ -52,59 +48,13 @@ export function resolveClaudeCommand(binary, env = process.env, platform = proce
     try {
       const manifest = JSON.parse(fs.readFileSync(path.join(packageDir, "package.json"), "utf8"));
       const entry = typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.claude;
-      if (entry && fs.existsSync(path.join(packageDir, entry))) return { file: process.execPath, args: [path.join(packageDir, entry)] };
+      const target = entry && path.join(packageDir, entry);
+      // Since 2.1.283 the npm package's bin is the native bin/claude.exe that
+      // its postinstall copies in; older packages point at a JavaScript entry.
+      if (target && fs.existsSync(target)) return /\.exe$/i.test(target) ? { file: target, args: [] } : { file: process.execPath, args: [target] };
     } catch { /* try the next native or npm entry */ }
   }
   throw new Error("无法找到可启动的 Claude Code。请确认此终端 PATH 中有官方原生或 npm 安装的 claude。");
-}
-
-// True only when the process provably no longer exists. EPERM means it exists
-// under another account; anything unexpected is treated as still running.
-export function processGone(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try { process.kill(pid, 0); return false; }
-  catch (error) { return error.code === "ESRCH"; }
-}
-
-// The snapshots inside carry a credential, so refuse a runtime directory that
-// is a symlink or belongs to another account rather than writing through it.
-function privateRuntimeDir(dir) {
-  const runtimeDir = path.join(dir, RUNS);
-  fs.mkdirSync(runtimeDir, { recursive: true, mode: 0o700 });
-  const stat = fs.lstatSync(runtimeDir);
-  if (!stat.isDirectory()) throw new Error(`${runtimeDir} 不是普通目录，已拒绝在其中写入凭据快照。`);
-  if (process.platform !== "win32") {
-    if (typeof process.getuid === "function" && stat.uid !== process.getuid()) throw new Error(`${runtimeDir} 属于其他用户，已拒绝在其中写入凭据快照。`);
-    if (stat.mode & 0o077) fs.chmodSync(runtimeDir, 0o700);
-  }
-  return runtimeDir;
-}
-
-// A forced kill of the launcher (SIGKILL, a crash, Task Manager) skips its own
-// cleanup. The next launch removes such a session only once both recorded
-// processes are provably gone. A reused process id keeps a directory alive
-// longer than needed, never the other way round.
-export function sweepStaleRuns(runtimeDir, now = Date.now()) {
-  const removed = [];
-  let entries;
-  try { entries = fs.readdirSync(runtimeDir, { withFileTypes: true }); } catch { return removed; }
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !entry.name.startsWith("session-")) continue;
-    const runDir = path.join(runtimeDir, entry.name);
-    let stale;
-    try {
-      const owner = JSON.parse(fs.readFileSync(path.join(runDir, OWNER), "utf8"));
-      // A launcher killed between spawning Claude and recording its id leaves
-      // no claudePid. Claude reads --settings once at startup (measured on
-      // 2.1.283), so removing that snapshot cannot redirect a running session.
-      stale = processGone(owner.launcherPid) && (owner.claudePid === undefined || processGone(owner.claudePid));
-    } catch {
-      try { stale = now - fs.statSync(runDir).mtimeMs > UNOWNED_GRACE_MS; } catch { stale = false; }
-    }
-    if (!stale) continue;
-    try { fs.rmSync(runDir, { recursive: true, force: true }); removed.push(entry.name); } catch { /* retried next launch */ }
-  }
-  return removed;
 }
 
 const warnToStderr = (message) => { try { process.stderr.write(message + "\n"); } catch { /* terminal gone */ } };
