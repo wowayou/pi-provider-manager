@@ -36,6 +36,19 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## Pi 0.99.1 Compatibility and v0.5.0 Release Acceptance — 2026-10-01
+
+- **Pi `0.87.1` → `0.99.1` (#139).** There are only two releases in this range: 0.99.0 and 0.99.1. I compared the changelog and the pinned `models.md`, `settings.md`, `providers.md`, `custom-provider.md` and `configuration.md` between those versions. None of these changed: the structure of `models.json`, `auth.json` or `settings.json`, API identifiers, thinking levels, and the settings keys the manager writes. New in 0.99: `theme` defaults to `system`; `fullscreenWheelScrollLines`, `codemode.*`, and `deviceId` (from Sign in with ChatGPT); `defaultTools` `+name`/`-name` entries; `extensions` `-builtin:` entries; `mcp.json`; and image/classifier model types, which exist only in the extension registration API. No code change was needed.
+- **Checklist steps 6–8, production server.** Ran `PI_PROVIDER_MANAGER_SERVE_UI=1` with temporary Pi/Codex/Claude directories. `settings.json` was seeded with every new key above, and `auth.json` with an OpenAI OAuth-shaped entry. A fake provider (HTTPS `.invalid` host, dummy key) was saved through the API. All 14 checks passed:
+  - Every new key survived unchanged, and the OAuth entry was untouched.
+  - `/api/state` listed the OAuth entry by ID only; the response carried no key.
+  - `PI_OFFLINE=1 pi --list-models` listed both saved models.
+  - The Pi run did not rewrite manager-written settings.
+  - `detectPiVersion()` reported `0.99.1`.
+- **Release candidate.** Node `24.18.0`, full `npm test` detached with `setsid`: 288 tests, 285 passed, 0 failed. The 3 skips are Windows-only: two Claude launcher cases and one PowerShell launcher case, all run by the CI Windows job. Real-binary suites: real Pi `0.99.1` 2/2, real Codex `0.149.0` 5/5 including the LiteLLM bridge, real Claude Code `2.1.285` 10/10 including the pty cases. Production browser: 34/34. `npm run package:linux` built an archive with no `node_modules`; run from an isolated directory, it served the page, saved a fake provider without returning its key, kept `auth.json` at `0600`, and real Pi listed the saved model.
+- **Test flake fixed during acceptance.** An earlier full run failed one pty case: the load average was 6–10, and Claude had not exited within the driver's fixed five-second wait. The driver now polls for up to 20 seconds. A/B under full load on 8 cores: old driver 1 of 3 passed, new driver 3 of 3. One earlier full run also skipped the Codex bridge case because the LiteLLM probe missed once under load. Two separate reruns and the final full run each passed it with 0 skips; no code change.
+- **Baselines.** `piValidatedVersion` raised to `0.99.1`. `codexValidatedVersion` unchanged at `0.154.0`.
+
 ## Post-Merge Verification on a Second Linux Machine — 2026-09-30
 
 - Scope: `main` at `684155b` (PR #138), rerun on a second Linux machine after merge, so the Claude Code baseline also covers `2.1.285` (the version CI's Windows job pins) and not only `2.1.284`. No product code changed.
