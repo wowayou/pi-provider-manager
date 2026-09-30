@@ -36,6 +36,12 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## Sidebar Add Button Height and Claude Code Copy — 2026-10-01
+
+- Cause: `.add-provider` could shrink inside the sidebar's flex column, so once the provider list overflowed it measured about 30px instead of 48px (demo's nine providers at 1440×900). It is now `flex: none`. The Claude Code tip no longer claims a single user-level gateway, and Claude settings label `default-home` as 自动识别 · 用户主目录 like Pi and Codex.
+- Regression: the target-size browser case now loads the nine-provider demo, requires the provider list to overflow, and asserts a 48px button. Against the unfixed stylesheet it failed with 30px.
+- Verification on Node `24.18.0`, detached with `setsid`: build passed; production browser 34/34 against `server.mjs` with `PI_PROVIDER_MANAGER_SERVE_UI=1`; `test:claude` 32 passed, 2 Windows-only skips. Sidebar children were measured at 900px and 640px heights; the tip's absence at 640px is the existing `max-height: 760px` rule.
+
 ## Pi 0.99.1 Compatibility and v0.5.0 Release Acceptance — 2026-10-01
 
 - **Pi `0.87.1` → `0.99.1` (#139).** There are only two releases in this range: 0.99.0 and 0.99.1. I compared the changelog and the pinned `models.md`, `settings.md`, `providers.md`, `custom-provider.md` and `configuration.md` between those versions. None of these changed: the structure of `models.json`, `auth.json` or `settings.json`, API identifiers, thinking levels, and the settings keys the manager writes. New in 0.99: `theme` defaults to `system`; `fullscreenWheelScrollLines`, `codemode.*`, and `deviceId` (from Sign in with ChatGPT); `defaultTools` `+name`/`-name` entries; `extensions` `-builtin:` entries; `mcp.json`; and image/classifier model types, which exist only in the extension registration API. No code change was needed.
