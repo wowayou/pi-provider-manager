@@ -316,16 +316,26 @@ def drain(seconds):
 def alive():
     try: return os.waitpid(pid, os.WNOHANG) == (0, 0)
     except ChildProcessError: return False
+# Exit is polled up to a deadline rather than checked after a fixed sleep: on a
+# loaded machine Claude can take longer than five seconds to shut down, and a
+# fixed sleep then reports a clean exit as a hung session.
+def exited_within(seconds, reading=True):
+    end = time.time() + seconds
+    while time.time() < end:
+        if not alive(): return True
+        if reading: drain(0.2)
+        else: time.sleep(0.2)
+    return not alive()
 drain(8)
 os.write(fd, b"INTERACTIVE_HELLO"); drain(1); os.write(fd, b"\r"); drain(8)
 if mode == "ctrlc":
     os.write(fd, b"\x03"); drain(3)
     print("alive-after-ctrlc", alive())
-    os.write(fd, b"/exit"); drain(1); os.write(fd, b"\r"); drain(5)
+    os.write(fd, b"/exit"); drain(1); os.write(fd, b"\r"); exited_within(20)
 elif mode == "exit":
-    os.write(fd, b"/exit"); drain(1); os.write(fd, b"\r"); drain(5)
+    os.write(fd, b"/exit"); drain(1); os.write(fd, b"\r"); exited_within(20)
 elif mode == "hangup":
-    os.close(fd); time.sleep(5)
+    os.close(fd); exited_within(20, reading=False)
 print("alive-at-end", alive())
 `;
 for (const mode of ["exit", "ctrlc", "hangup"]) test("interactive terminal via the launcher: " + mode + " keeps the gateway and removes the snapshot", { skip: !installed ? "Claude Code is not installed" : process.platform === "win32" || !python ? "needs a POSIX pty (python3)" : false, timeout: 90000 }, async (t) => {
