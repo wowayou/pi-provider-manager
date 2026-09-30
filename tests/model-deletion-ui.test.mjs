@@ -2180,6 +2180,22 @@ test("every control is big enough to hit", { timeout: 60_000 }, async () => {
     );
     assert.deepEqual(await cdp.evaluate(rowMeasurements).then((rows) => rows.map((row) => row.height)), [80, 80, 80]);
 
+    // The sidebar is a flex column, and 添加供应商 used to shrink to ~30px once
+    // the provider list overflowed. One fixture provider never overflows, so the
+    // demo's nine are used here: this is a layout check, not an API one.
+    await cdp.send("Page.navigate", { url: `http://127.0.0.1:${appPort}/?demo=1` });
+    await cdp.waitFor(`document.querySelectorAll('.provider-item').length >= 9`);
+    assert.deepEqual(
+      await cdp.evaluate(`(() => {
+        const list = document.querySelector('.provider-list');
+        return {
+          overflows: list.scrollHeight > list.clientHeight,
+          addHeight: Math.round(document.querySelector('.add-provider').getBoundingClientRect().height),
+        };
+      })()`),
+      { overflows: true, addHeight: 48 },
+    );
+
     assert.equal(cdp.errors.length, 0, JSON.stringify(cdp.errors));
   } catch (error) {
     error.message += `\nServer output:\n${serverOutput}\nChrome output:\n${chromeOutput}`;

@@ -713,7 +713,7 @@ function Sidebar({ state, target, loading, loadFailed, onTarget, onReload, onSel
         <Info size={22} weight="duotone" />
         <div>
           <strong>新手提示</strong>
-          <span>{target === "claude" ? "Claude Code 使用一个用户级网关，启动后用 /status 确认实际配置。" : isCodex ? "Codex 只保留一个生效供应商，切换只影响新开的会话。" : "一个 API 网关可以添加多个不同厂商的模型。"}</span>
+          <span>{target === "claude" ? "全局默认决定普通 claude 用哪个网关；复制供应商的专用命令，可让单个终端固定使用它。" : isCodex ? "Codex 只保留一个生效供应商，切换只影响新开的会话。" : "一个 API 网关可以添加多个不同厂商的模型。"}</span>
         </div>
         <button type="button" className="tip-dismiss" onClick={dismissTip} aria-label="不再显示新手提示"><X size={15} weight="bold" /></button>
       </div>
