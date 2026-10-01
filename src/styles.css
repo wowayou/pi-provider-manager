@@ -583,6 +583,7 @@ code { color: var(--ink); background: transparent; }
 /* Size classes sit beside a variant (primary/secondary/outline/danger) and own
    height, label size and weight. A toolbar button at 16px/700 outweighed the
    18px heading above it; the scale keeps buttons quieter than headings. */
+.button-sm { min-height: var(--button-sm); padding-inline: var(--space-3); font-size: var(--text-sm); font-weight: 600; }
 .button-md { min-height: var(--button-md); padding-inline: var(--space-4); font-size: var(--text-md); font-weight: 600; }
 
 /* ---------- forms ---------- */
@@ -868,14 +869,13 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .discover-empty { padding: 22px 12px; text-align: center; color: var(--muted); font-size: 13px; }
 .discover-modal .error-banner { margin-top: 16px; }
 .discover-bulk-actions { display: flex; gap: 6px; margin-right: auto; }
-.discover-bulk-actions button { min-height: 32px; padding-inline: 10px; font-size: 12px; }
 .discover-path { display: grid; gap: 5px; margin-top: 16px; }
 .discover-path > span { font-size: 12.5px; font-weight: 600; }
 .discover-path small { color: var(--muted); font-size: 12px; line-height: 1.5; }
 .discover-path small code { font-family: var(--mono); font-size: 11px; }
 .discover-path-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .discover-path-row input { flex: 1 1 260px; min-width: 0; }
-.discover-path-row button { flex: none; min-height: 36px; padding-inline: 11px; font-size: 12px; }
+.discover-path-row button { flex: none; }
 .delete-dialog-heading { display: flex; align-items: flex-start; gap: 14px; }
 .delete-dialog-icon { width: 46px; height: 46px; flex: none; border-radius: var(--radius-md); display: grid; place-items: center; background: var(--danger-bg); color: var(--danger-text); }
 .delete-dialog-heading h2 { margin: 0; font-size: 21px; }

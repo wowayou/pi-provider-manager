@@ -222,8 +222,8 @@ export function BulkModal({ text, ids, newIds, onText, onClose, onImport }) {
                 ? `识别到 ${ids.length} 个模型 ID`
                 : `识别到 ${ids.length} 个，其中 ${ids.length - newIds.length} 个已在列表中`}
           </span>
-          <button type="button" className="secondary-button" onClick={onClose}>取消</button>
-          <button type="button" className="primary-button" disabled={newIds.length === 0} onClick={onImport}>{newIds.length > 0 ? `导入 ${newIds.length} 个模型` : "导入模型"}</button>
+          <button type="button" className="secondary-button button-md" onClick={onClose}>取消</button>
+          <button type="button" className="primary-button button-md" disabled={newIds.length === 0} onClick={onImport}>{newIds.length > 0 ? `导入 ${newIds.length} 个模型` : "导入模型"}</button>
         </div>
         <p className="modal-shortcut"><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd> 直接导入，<kbd>Esc</kbd> 关闭</p>
       </section>
