@@ -627,10 +627,11 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     await cdp.evaluate(`localStorage.setItem('ppm-theme', 'dark')`);
     await cdp.send("Page.reload");
     await cdp.waitFor(`document.documentElement.dataset.theme === 'dark' && document.querySelectorAll('.model-row').length === 3`);
-    // Entering step 3 schedules the app's scroll-to-top for the next animation
-    // frame. Scrolling before that frame runs gets undone, which left the delete
-    // control below the viewport in about one run in four, on main as well. Let the
-    // frame pass, then scroll and confirm the position held.
+    // Entering step 3 used to schedule the app's scroll-to-top for the next
+    // animation frame, and a scroll made before that frame was undone — the delete
+    // control ended up below the viewport in about one run in four. The reset now
+    // runs at commit; letting two frames pass and checking the scroll held keeps
+    // this case from depending on that ordering again.
     await cdp.evaluate(`(async () => {
       const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       await frame();
@@ -3162,6 +3163,9 @@ test("selection mode bulk-deletes providers from the sidebar", { timeout: 60_000
     await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
     const target = await fetch(`http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(`http://127.0.0.1:${appPort}`)}`, { method: "PUT" }).then((response) => response.json());
     cdp = await CdpClient.connect(target.webSocketDebuggerUrl); await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    // 1024px leaves the sidebar's bar about 215px, the narrowest it gets before
+    // the sidebar turns into a rail.
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1024, height: 768, deviceScaleFactor: 1, mobile: false });
     await cdp.send("Page.navigate", { url: `http://127.0.0.1:${appPort}` });
     await cdp.waitFor("document.querySelectorAll('.provider-item').length === 2");
 
@@ -3172,6 +3176,19 @@ test("selection mode bulk-deletes providers from the sidebar", { timeout: 60_000
     // Check single-router (not Pi's default) by clicking its row.
     await cdp.evaluate(`[...document.querySelectorAll('.provider-select')].find((node) => node.title.includes('single-router')).click()`);
     await cdp.waitFor("document.querySelector('.bulk-action-count').textContent === '已选 1 个'");
+    // Every label in the bar renders on one line. A single row used to crush
+    // 已选 1 个 to one character per line at this width.
+    assert.deepEqual(await cdp.evaluate(`(() => {
+      const wrapped = [];
+      const walker = document.createTreeWalker(document.querySelector('.bulk-action-bar'), NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!node.textContent.trim()) continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        if (range.getClientRects().length > 1) wrapped.push(node.textContent);
+      }
+      return wrapped;
+    })()`), []);
 
     await cdp.evaluate("[...document.querySelectorAll('.bulk-action-bar button')].find((node) => node.textContent.includes('删除')).click()");
     await cdp.waitFor("document.querySelector('.provider-delete-dialog')");

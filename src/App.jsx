@@ -301,7 +301,9 @@ const DEMO_STATE = {
       id: "any-claude",
       name: "Any Claude",
       api: "anthropic-messages",
-      baseUrl: "https://api.any-claude.com/v1",
+      // An Anthropic base URL stops before /v1: Pi appends /v1/messages, and
+      // discovery /v1/models, so a /v1 here showed /v1/v1/models in the demo.
+      baseUrl: "https://api.any-claude.com",
       credentialConfigured: true,
       isDefault: true,
       models: [
@@ -697,8 +699,10 @@ function Sidebar({ state, target, loading, loadFailed, onTarget, onReload, onSel
               {allSelected ? "取消全选" : "全选"}
             </button>
             <span className="bulk-action-count" aria-live="polite">已选 {selectedForDelete.size} 个</span>
-            <button type="button" className="secondary-button button-sm" onClick={onExitSelect}>取消</button>
-            <button type="button" className="danger-button button-sm" disabled={selectedForDelete.size === 0} onClick={onBulkDelete}><Trash size={16} />删除{selectedForDelete.size > 0 ? ` (${selectedForDelete.size})` : "选中"}</button>
+            <div className="bulk-action-buttons">
+              <button type="button" className="secondary-button button-sm" onClick={onExitSelect}>取消</button>
+              <button type="button" className="danger-button button-sm" disabled={selectedForDelete.size === 0} onClick={onBulkDelete}><Trash size={16} />删除{selectedForDelete.size > 0 ? ` (${selectedForDelete.size})` : "选中"}</button>
+            </div>
           </div>
         );
       })()}

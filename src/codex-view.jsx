@@ -296,11 +296,11 @@ function BridgeControl({ codex, providerId, onStart, onStop, onNotify }) {
         </span>
         {running ? (
           <button type="button" className="secondary-button button-md" disabled={Boolean(busy)} onClick={() => run("stop", onStop)}>
-            {busy === "stop" ? <><Spinner size={16} />停止中…</> : <><Plugs size={18} />停止桥</>}
+            {busy === "stop" ? <><Spinner size={16} />停止中…</> : <><Plugs size={16} />停止桥</>}
           </button>
         ) : (
           <button type="button" className="outline-button button-md" disabled={Boolean(busy)} onClick={() => run("start", onStart)}>
-            {busy === "start" ? <><Spinner size={16} />启动中…</> : <><PlugsConnected size={18} />启动桥</>}
+            {busy === "start" ? <><Spinner size={16} />启动中…</> : <><PlugsConnected size={16} />启动桥</>}
           </button>
         )}
       </div>
