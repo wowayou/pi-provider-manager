@@ -36,6 +36,25 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## Type Scale for Text — 2026-10-01
+
+- Scope: every `font-size` in `src/styles.css`, plus the one `font` shorthand, now reads a `--text-*` token.
+  - Literals already on the scale (12/13/14/16/18/24px) were replaced one for one.
+  - Off-scale values went to the nearest step: 11 and 11.5px to 12px, 12.5px to 13px, 15px to 14px, 21px to 18px, and 28px to 24px.
+  - 13.5px sits exactly between two steps, so it was split by role: labels and list names went up to 14px (sidebar navigation, prompt names), prose notes went down to 13px (bridge notes).
+- Method: the same 25-screen element diff as the button slice, against the build that included #146, plus the seven dialogs.
+  - Only the intended elements changed. In order of visibility: the success-page title (28 to 24px), dialog titles and the sidebar app name (21 to 18px), sidebar provider names (15 to 14px), sidebar navigation (13.5 to 14px).
+  - Also: config-editor text and gutter, notes, and prompt status went from 12.5 to 13px.
+  - Line heights set in px stayed put, so the editor gutter stays aligned with its text.
+  - No element went below 12px.
+- Regression guard: `tests/style-tokens.test.mjs` fails on a px font size outside the scale. Reintroducing one `13px` literal made it fail; it passes on the migrated stylesheet.
+- Flaky case found and fixed: the first full production-browser run failed one case, `production UI protects persisted model deletion paths`, at its 420px `removeTopmost` check.
+  - A probe showed `step-scroll` back at `scrollTop` 0, with the delete control at y 1001 in a 900px viewport.
+  - Cause: entering step 3 schedules the app's scroll-to-top for the next animation frame. The case scrolled before that frame ran, so its scroll was undone.
+  - It is a race in the test, not a regression. The same probe on a `main` build failed 2 of 8 runs.
+  - Fix: the case now waits two frames before scrolling and asserts the position held. 8 of 8 runs passed, then the full suite.
+- Verification on Node `24.18.0`, detached with `setsid`: build passed; `test:server` 99/99; production browser 34/34, including contrast and 12px CJK in both themes.
+
 ## Type and Button Scale, Remaining Buttons — 2026-10-01
 
 - Scope: every action button not covered by #144 and #145, except Claude's provider summary (item 2 of `docs/plans/ui-consistency.md`). The owner told the remaining slices to proceed without a stop between them.

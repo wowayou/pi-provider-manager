@@ -7,7 +7,8 @@ layout grid. Delete an item from this file once it ships, or the whole file once
 
 Handled separately from this plan: the sidebar add-button height and the Claude tip and path-source label
 (#142), and the stylesheet token check with the `.model-filter` token fix (the pull request that added this
-file).
+file). Item 1, the type and button scale, shipped in #144–#146 and the pull request that
+removed it from this file; its rules are in `AGENTS.md`.
 
 ## How to verify any item here
 
@@ -19,24 +20,6 @@ Owner feedback asks for visual experiments small enough to compare one change at
 2. Attach the pairs to the pull request and wait for owner approval before the next item.
 3. Run `npm run build`, `npm run test:server` (which includes the token check), and `npm run test:ui`. The
    contrast, target-size and 12px CJK browser cases must still pass.
-
-## 1. Type and button scale (visual; start with one surface)
-
-Evidence, measured on the production build: 12 distinct `font-size` values in `src/styles.css` (11, 12,
-12.5, 13, 13.5, 14, 15, 16, 18, 21, 24, 28) and 16 distinct button size combinations. The model-table
-toolbar buttons (获取模型, 批量添加, 全部用安全值) are 16px/700, heavier than the 18px section heading
-above them and far above the 13px body.
-
-- Add `--text-xs/sm/md/lg/xl/2xl` (12/13/14/16/18/24) beside the spacing and radius tokens.
-- Add three button sizes (32/40/44px), weight 600.
-- **Buttons, shipped.** The model-table toolbar (#144), every dialog (#145), and then the rest of the
-  action buttons: unclassed variant buttons are the large size (44px, 16px/600); toolbars, dialogs and
-  actions inside a card or panel use `.button-md`; inline helpers use `.button-sm`. The owner told the
-  remaining slices to proceed without a stop between them (2026-10-01). Claude's provider-summary buttons
-  and the Pi/Codex 复制供应商/删除供应商 are left to item 2, which rebuilds that summary.
-- **Remaining: text outside buttons onto `--text-*`.** Literals already on the scale become tokens with no
-  visual change; the off-scale values (11, 11.5, 12.5, 13.5, 15, 21, 28) move to the nearest step.
-- Accept when every changed rule reads a scale token, and CJK text stays at 12px or above.
 
 ## 2. Claude Code summary, footer and settings parity (visual, converging on existing Pi/Codex look)
 
