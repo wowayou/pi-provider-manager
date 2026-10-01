@@ -13,6 +13,11 @@
   - Claude settings show 配置范围 as key–value rows (配置目录, 路径来源, 全局默认) with the save button in the settings footer.
   - 复制供应商 and 删除供应商 move onto the button scale in all three targets: 40px at 14px, and 32px at 13px at 600px and below. They were 36px at 16px/700, and only 删除供应商 shrank, to 34px, on narrow screens.
   - Pi and Codex screens were pixel-compared before and after the extraction.
+- **A saved provider can be saved from any wizard step.** Editing a saved provider in Pi, Codex or Claude Code now offers 保存更改 on steps 1 and 2 as well, next to 下一步 and disabled until something changes, so changing a Base URL no longer needs a trip to step 3.
+  - It is the same save as step 3's: every step's checks still run. A refusal that belongs to step 3, such as an over-long User-Agent, moves there and focuses the field.
+  - A 409 is reported on the step you saved from, with its 重新读取 action.
+  - New and duplicated drafts keep the three-step flow.
+  - The wizard's scroll-to-top on a step change now runs before, not after, the scroll that brings a refused field or the error banner into view; before, that scroll could be undone.
 - **Sidebar rows show a dot only when a provider needs a credential.** A green dot used to sit on every configured row, explained only to screen readers, and it shared the right side with the badge, which cut subtitles to "Anthro…".
   - Now only a row missing its credential shows the amber dot. Its meaning is in the dot's and the row's tooltip as well as its `aria-label`.
   - 默认 / 生效中 / 全局默认 sit beside the name, and subtitles show in full.

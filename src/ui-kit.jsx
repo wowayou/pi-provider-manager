@@ -3,7 +3,7 @@
 // importing each other.
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowsClockwise, CheckCircle, CircleNotch, Copy, Eye, EyeSlash, Key, ShieldCheck, Trash, WarningCircle, X } from "@phosphor-icons/react";
+import { ArrowLeft, ArrowRight, ArrowsClockwise, CheckCircle, CircleNotch, Copy, Eye, EyeSlash, Key, ShieldCheck, Trash, WarningCircle, X } from "@phosphor-icons/react";
 
 // Marks which edges of a scroll container have content beyond them, so the
 // list can fade there. A list that clips mid-row with no cue reads as a
@@ -71,6 +71,21 @@ export function WizardFooter({ onBack, backDisabled = false, note, children }) {
         {children}
       </div>
     </footer>
+  );
+}
+
+// Steps 1 and 2. A saved provider can also be saved from here (保存更改 beside
+// 下一步), so changing a Base URL does not take a trip to step 3; the save runs
+// every step's validation and lands on the step that refuses. A new draft only
+// moves forward, keeping the three-step flow for first-time setup.
+export function StepFooter({ onBack, onNext, onSave, dirty, saving }) {
+  return (
+    <WizardFooter onBack={onBack} backDisabled={saving} note={onSave ? (dirty ? "有未保存的修改" : "没有改动") : undefined}>
+      <div className="footer-actions">
+        {onSave && <button type="button" className="outline-button" disabled={saving || !dirty} onClick={onSave}>{saving ? <><Spinner />正在保存…</> : "保存更改"}</button>}
+        <button type="button" className="primary-button" disabled={saving} onClick={onNext}>下一步<ArrowRight size={19} /></button>
+      </div>
+    </WizardFooter>
   );
 }
 

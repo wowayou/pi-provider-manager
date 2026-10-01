@@ -36,6 +36,27 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## Save From Any Step — 2026-10-01
+
+- Scope: item 4, the last item of the UI consistency plan; the plan file is removed with this change, and its items are recorded in the entries below. The owner approved the behaviour change on 2026-10-01.
+  - Steps 1 and 2 show 保存更改 for a draft with a stored source (`identity.sourceId`), in Pi and Codex through a shared `StepFooter` and in Claude in its own footer.
+  - It calls the same save as step 3's 保存更改. Pi's default keeps `setDefault`; the live Codex provider stays live; Claude saves without activating.
+  - Pi's and Codex's step-3 checks now move to step 3 when they refuse: at least one model, a named default, an over-long User-Agent, model-ID identity. Before, they set an error with no step change. Claude already did this.
+  - Steps 1 and 2 render `ErrorBanner` with `conflict`.
+- **Scroll race found and fixed.** A refusal from step 2 landed on step 3 with the User-Agent field focused but scrolled off screen.
+  - Cause: the step-change scroll reset ran in an animation frame registered after the field's own focus-and-scroll, so it undid it.
+  - Fix: the reset now runs as a layout effect at commit. Heading focus stays in the frame, so a field that already holds focus keeps it.
+  - Mutation check: putting the reset back in the frame made the new browser case time out at its "field is on screen" assertion.
+- **New production-browser case** `a saved provider saves from steps 1 and 2; a new draft keeps the three-step flow`:
+  - A new draft shows no 保存更改 on steps 1 and 2.
+  - Pi step 2: 保存更改 is disabled with 没有改动 until a Base URL edit. The save writes the new `baseUrl` and keeps the models, Pi's default provider and model, and the stored key.
+  - Pi step 1: a protocol change plus an external `models.json` edit returns a 409 shown on step 1 with 重新读取, and the external edit survives.
+  - An over-long User-Agent saved from step 2 lands on step 3 with the field focused, on screen and `aria-invalid`, and nothing written.
+  - Codex: the adopted provider saves from step 2 with a new key and address, and `config.toml` keeps its comment and hand-written table.
+  - The Claude workflow case now also saves a new base URL from step 2 and checks `ANTHROPIC_BASE_URL`.
+- Element diff of 25 screens: only the step 1 and 2 footers changed. The first-run (new draft) screen is pixel-identical.
+- Verification on Node `24.18.0`, detached with `setsid`: build passed; `test:server` 99/99, `test:codex` 75/75, `test:claude` 32 passed with 2 Windows-only skips, production browser 35/35.
+
 ## Sidebar Status — 2026-10-01
 
 - Scope: item 3 of `docs/plans/ui-consistency.md`. The amber dot renders only when `provider.ready` is false. Its `aria-label` and `title` read 未配置凭据, and the row's tooltip appends it. The badge moved into a `provider-name-line` beside the name. The unused `readyLabel` strings went with the green dot.
