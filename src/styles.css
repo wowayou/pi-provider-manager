@@ -65,7 +65,8 @@
   /* spacing scale — a 4pt rhythm so every gap is a deliberate step rather than
      an arbitrary value. This is the Foundations layer: layout gaps, margins and
      padding come from here. Component dimensions (input/button heights, icon
-     boxes) and hairlines are not spacing and stay literal. */
+     boxes) and hairlines are not spacing; button heights have their own scale
+     below, the rest stay literal. */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -74,6 +75,22 @@
   --space-6: 24px;
   --space-7: 32px;
   --space-8: 40px;
+
+  /* type scale — six steps replacing twelve ad-hoc sizes. Rules move onto it
+     one surface at a time (docs/plans/ui-consistency.md), so a literal size
+     elsewhere is not yet migrated, not a seventh step. */
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 24px;
+
+  /* button heights: small, default, large. A size class such as .button-md
+     sets the height together with the label size and weight. */
+  --button-sm: 32px;
+  --button-md: 40px;
+  --button-lg: 44px;
 
   /* derived surfaces */
   --field: #ffffff;
@@ -563,6 +580,10 @@ code { color: var(--ink); background: transparent; }
 .danger-button { border: 1px solid var(--danger-solid); background: var(--danger-solid); color: var(--on-brand); }
 .danger-button:hover:not(:disabled) { border-color: var(--danger-solid-hover); background: var(--danger-solid-hover); }
 .danger-button:active:not(:disabled) { transform: translateY(1px); }
+/* Size classes sit beside a variant (primary/secondary/outline/danger) and own
+   height, label size and weight. A toolbar button at 16px/700 outweighed the
+   18px heading above it; the scale keeps buttons quieter than headings. */
+.button-md { min-height: var(--button-md); padding-inline: var(--space-4); font-size: var(--text-md); font-weight: 600; }
 
 /* ---------- forms ---------- */
 .form-step .step-scroll { padding-inline: 6px; }
@@ -1159,7 +1180,7 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
   .gateway-side { gap: 10px; }
   .delete-provider-button { min-height: 34px; }
   .models-actions { flex-wrap: nowrap; justify-content: flex-end; }
-  .models-actions > * { flex: 0 0 44px; width: 44px; padding-inline: 0; }
+  .models-actions > * { flex: 0 0 var(--button-md); width: var(--button-md); padding-inline: 0; }
   .models-actions .button-label { display: none; }
 }
 

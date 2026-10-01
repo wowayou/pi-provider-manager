@@ -734,8 +734,8 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
         <div className="models-header">
           <div><h2>模型列表<span className="count-pill">{namedModels}</span></h2><p>默认模型会写入 config.toml 的 <code className="mono">model</code>，其余模型留给 <code className="mono">codex -m</code>。</p></div>
           <div className="models-actions">
-            <button type="button" className="secondary-button compact-button" onClick={() => setShowBulk(true)} title="批量添加模型 ID" aria-label="批量添加"><ListPlus size={18} /><span className="button-label">批量添加</span></button>
-            <button type="button" className="outline-button compact-button" onClick={addModel} title="添加模型" aria-label="添加模型"><Plus size={19} /><span className="button-label">添加模型</span></button>
+            <button type="button" className="secondary-button button-md" onClick={() => setShowBulk(true)} title="批量添加模型 ID" aria-label="批量添加"><ListPlus size={16} /><span className="button-label">批量添加</span></button>
+            <button type="button" className="outline-button button-md" onClick={addModel} title="添加模型" aria-label="添加模型"><Plus size={16} /><span className="button-label">添加模型</span></button>
           </div>
         </div>
         <div className={`models-table ${scrolled ? "is-scrolled" : ""}`} onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 2)}>

@@ -36,6 +36,13 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## Type and Button Scale, First Slice: Model-Table Toolbar — 2026-10-01
+
+- Scope: item 1 of `docs/plans/ui-consistency.md`, limited to the model-table toolbar in Pi and Codex. The tokens `--text-*` and `--button-*` and the `.button-md` class were added. Nothing else reads them yet.
+- Measured on the production build, served by `server.mjs` with `PI_PROVIDER_MANAGER_SERVE_UI=1` and isolated Pi, Codex and Claude directories, light and dark: at 1440×900 the buttons were 44px tall at 16px/700 with 18–19px icons (Pi widths 154/122/122/123), and are now 40px at 14px/600 with 16px icons (142/114/114/114). At 390×844 the icon-only squares went from 44×44 to 40×40. The 18px/700 heading is unchanged. Before/after screenshots went to the owner for review; they are not committed.
+- In this Linux machine's headless Chrome screenshots the CJK labels render at the same visible weight at 700 and at 600; only the size and height change shows. The weight change was not checked against a font with a distinct semibold face (PingFang SC, Inter).
+- Verification on Node `24.18.0`, detached with `setsid`: build passed; `test:server` 98/98, including the stylesheet token check; production browser 34/34, including contrast, target size and 12px CJK in both themes.
+
 ## Sidebar Add Button Height and Claude Code Copy — 2026-10-01
 
 - Cause: `.add-provider` could shrink inside the sidebar's flex column, so once the provider list overflowed it measured about 30px instead of 48px (demo's nine providers at 1440×900). It is now `flex: none`. The Claude Code tip no longer claims a single user-level gateway, and Claude settings label `default-home` as 自动识别 · 用户主目录 like Pi and Codex.
