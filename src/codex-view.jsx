@@ -294,11 +294,11 @@ function BridgeControl({ codex, providerId, onStart, onStop, onNotify }) {
               : "本地桥未运行 —— Codex 现在发不出请求"}
         </span>
         {running ? (
-          <button type="button" className="secondary-button compact-button" disabled={Boolean(busy)} onClick={() => run("stop", onStop)}>
+          <button type="button" className="secondary-button button-md" disabled={Boolean(busy)} onClick={() => run("stop", onStop)}>
             {busy === "stop" ? <><Spinner size={16} />停止中…</> : <><Plugs size={18} />停止桥</>}
           </button>
         ) : (
-          <button type="button" className="outline-button compact-button" disabled={Boolean(busy)} onClick={() => run("start", onStart)}>
+          <button type="button" className="outline-button button-md" disabled={Boolean(busy)} onClick={() => run("start", onStart)}>
             {busy === "start" ? <><Spinner size={16} />启动中…</> : <><PlugsConnected size={18} />启动桥</>}
           </button>
         )}
@@ -383,8 +383,8 @@ function CodexCredentialsStep({ form, setForm, codex, selectedId, error, conflic
               placeholder={'model_provider = "custom"\nmodel = "gpt-5.6-sol"\n\n[model_providers.custom]\nname = "示例网关"\nbase_url = "https://api.example.com/v1"\nwire_api = "responses"\nrequires_openai_auth = true'}
             />
             <div className="modal-actions">
-              <button type="button" className="secondary-button" onClick={() => setShowSnippet(false)}>取消</button>
-              <button type="button" className="primary-button" disabled={!snippet.trim()} onClick={applySnippet}>填入表单</button>
+              <button type="button" className="secondary-button button-md" onClick={() => setShowSnippet(false)}>取消</button>
+              <button type="button" className="primary-button button-md" disabled={!snippet.trim()} onClick={applySnippet}>填入表单</button>
             </div>
           </div>
         )}
@@ -767,7 +767,7 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
             <div className="advanced-group json-group">
               <div className="advanced-group-heading"><h3>配置 JSON</h3><p>应用后仍需点保存，服务端会做完整校验。</p></div>
               {jsonDraft === null ? (
-                <button type="button" className="outline-button compact-button" onClick={openJsonEditor}><SlidersHorizontal size={16} />编辑原始配置</button>
+                <button type="button" className="outline-button button-sm" onClick={openJsonEditor}><SlidersHorizontal size={16} />编辑原始配置</button>
               ) : (
                 <>
                   <ConfigEditor
@@ -780,8 +780,8 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
                     ariaLabel="Codex 供应商配置 JSON"
                   />
                   <div className="json-editor-actions">
-                    <button type="button" className="secondary-button compact-button" onClick={() => setJsonDraft(null)}>取消</button>
-                    <button type="button" className="primary-button compact-button" onClick={applyJsonDraft}>应用到表单</button>
+                    <button type="button" className="secondary-button button-md" onClick={() => setJsonDraft(null)}>取消</button>
+                    <button type="button" className="primary-button button-md" onClick={applyJsonDraft}>应用到表单</button>
                   </div>
                   <p className="user-agent-disclaimer">在这里改模型 ID 等同于删掉旧模型、新增一个。</p>
                 </>
@@ -994,7 +994,7 @@ export function CodexSuccessScreen({ result, codex, onCopy, onReturn, onAdd, onS
         <div className="command-row">
           <code ref={commandRef}>{result.command}</code>
           <button type="button" className={`copy-button ${copied ? "is-copied" : ""}`} onClick={copy}>
-            {copied ? <><Check size={18} weight="bold" />已复制</> : <><Copy size={18} />复制</>}
+            {copied ? <><Check size={16} weight="bold" />已复制</> : <><Copy size={16} />复制</>}
           </button>
         </div>
         <ol>

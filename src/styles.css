@@ -423,7 +423,6 @@ code { color: var(--ink); background: transparent; }
 .bulk-select-all .provider-check { position: static; transform: none; }
 .bulk-select-all .provider-check.is-on { background: var(--orange); border-color: var(--orange); }
 .bulk-action-count { font-size: 12px; color: var(--ink-3); margin-left: auto; font-family: var(--mono); }
-.bulk-action-bar .compact-button { min-height: 34px; padding-inline: 12px; font-size: 12px; }
 
 .provider-search { position: relative; display: flex; align-items: center; margin: 0 2px 10px; }
 .provider-search svg { position: absolute; left: 11px; color: var(--ink-3); pointer-events: none; }
@@ -567,7 +566,7 @@ code { color: var(--ink); background: transparent; }
 .wizard-footer { flex: none; z-index: 4; margin-top: var(--space-4); padding: var(--space-4) 4px 4px; border-top: 1px solid var(--line); background: transparent; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .footer-actions { display: flex; gap: 10px; }
 .footer-end { display: flex; align-items: center; gap: 14px; }
-.primary-button, .secondary-button, .outline-button, .danger-button { white-space: nowrap; min-height: 44px; border-radius: var(--radius-md); display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 22px; font-weight: 700; transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease); }
+.primary-button, .secondary-button, .outline-button, .danger-button { white-space: nowrap; min-height: var(--button-lg); border-radius: var(--radius-md); display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 var(--space-5); font-size: var(--text-lg); font-weight: 600; transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease); }
 .primary-button { background: var(--orange-strong); color: var(--on-primary); border: 1px solid var(--orange-strong); box-shadow: 0 4px 12px rgba(0, 0, 0, .10); }
 .primary-button:hover:not(:disabled) { background: var(--orange-strong-hover); border-color: var(--orange-strong-hover); box-shadow: 0 6px 16px rgba(0, 0, 0, .14); }
 .primary-button:active:not(:disabled) { transform: translateY(1px); box-shadow: 0 2px 6px rgba(0, 0, 0, .12); }
@@ -582,7 +581,10 @@ code { color: var(--ink); background: transparent; }
 .danger-button:active:not(:disabled) { transform: translateY(1px); }
 /* Size classes sit beside a variant (primary/secondary/outline/danger) and own
    height, label size and weight. A toolbar button at 16px/700 outweighed the
-   18px heading above it; the scale keeps buttons quieter than headings. */
+   18px heading above it; the scale keeps buttons quieter than headings.
+   Unclassed variant buttons are the large size: page-level flow actions (wizard,
+   success and settings footers, page-header 返回). .button-md is for toolbars,
+   dialogs and actions inside a card or panel; .button-sm for inline helpers. */
 .button-sm { min-height: var(--button-sm); padding-inline: var(--space-3); font-size: var(--text-sm); font-weight: 600; }
 .button-md { min-height: var(--button-md); padding-inline: var(--space-4); font-size: var(--text-md); font-weight: 600; }
 
@@ -794,7 +796,6 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .advanced-external-note svg { flex: none; color: var(--warn-icon); margin-top: 1px; }
 .user-agent-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .user-agent-actions > span { color: var(--muted); font-size: 12px; }
-.user-agent-actions .compact-button { min-height: 36px; padding-inline: 11px; font-size: 12px; }
 .user-agent-disclaimer { margin: 0; color: var(--muted) !important; font-size: 12px !important; line-height: 1.5; }
 .beta-group { display: grid; gap: 12px; }
 .beta-model-field, .beta-value-field { grid-column: 1 / -1 !important; align-items: flex-start !important; max-width: 880px; }
@@ -802,7 +803,6 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .beta-value-field input { max-width: 880px; }
 .beta-value-field small { max-width: 720px; line-height: 1.5; }
 .beta-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.beta-actions .compact-button { min-height: 36px; padding-inline: 11px; font-size: 12px; }
 .protocol-group label { min-width: 0; }
 .model-warning { margin: 0 0 13px; border: 1px solid var(--warn-border); background: var(--warn-bg); color: var(--warn-text); border-radius: var(--radius-md); padding: 10px 12px; display: flex; gap: 9px; align-items: flex-start; font-size: 12px; line-height: 1.5; }
 .model-warning svg { color: var(--warn-icon); flex: none; margin-top: 1px; }
@@ -926,7 +926,7 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
 .command-row { margin-top: var(--space-4); border: 1px solid var(--line-strong); background: var(--field); border-radius: var(--radius-md); display: flex; align-items: center; padding: 8px 8px 8px 14px; gap: var(--space-3); transition: border-color var(--fast) var(--ease); }
 .command-row:hover { border-color: var(--border-hover); }
 .command-row code { flex: 1; overflow: auto; color: var(--command-text); font-size: 13px; white-space: nowrap; }
-.copy-button { border: 0; border-radius: var(--radius-sm); background: var(--orange-soft); color: var(--orange-dark); min-height: 34px; padding: 0 12px; display: flex; align-items: center; gap: 6px; font-weight: 700; flex: none; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
+.copy-button { border: 0; border-radius: var(--radius-sm); background: var(--orange-soft); color: var(--orange-dark); min-height: var(--button-sm); padding: 0 var(--space-3); display: flex; align-items: center; gap: 6px; font-size: var(--text-sm); font-weight: 600; flex: none; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
 .copy-button:hover { background: var(--orange-soft-hover); }
 .copy-button.is-copied { background: var(--green-soft); color: var(--green); }
 .next-step-card ol { margin: var(--space-4) 0 0 var(--space-5); padding: 0; color: var(--ink-2); font-size: 13px; line-height: 1.9; }
@@ -1257,7 +1257,7 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
 .prompt-danger label { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .prompt-danger select { flex: 1 1 160px; min-width: 0; }
 
-.prompt-delete { min-height: 36px; border: 1px solid var(--danger-border); border-radius: var(--radius-md); background: var(--danger-bg); color: var(--danger-text); padding: 0 12px; display: inline-flex; align-items: center; gap: 7px; font-weight: 700; transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease); }
+.prompt-delete { min-height: var(--button-md); border: 1px solid var(--danger-border); border-radius: var(--radius-md); background: var(--danger-bg); color: var(--danger-text); padding: 0 var(--space-4); display: inline-flex; align-items: center; gap: 7px; font-size: var(--text-md); font-weight: 600; transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease); }
 .prompt-delete:hover:not(:disabled), .prompt-delete.is-armed { border-color: var(--danger-solid); background: var(--danger-solid); color: var(--on-brand); }
 .prompt-delete:disabled { opacity: .5; }
 .prompt-delete[aria-disabled="true"] { border-style: dashed; }

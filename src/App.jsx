@@ -703,8 +703,8 @@ function Sidebar({ state, target, loading, loadFailed, onTarget, onReload, onSel
               {allSelected ? "取消全选" : "全选"}
             </button>
             <span className="bulk-action-count" aria-live="polite">已选 {selectedForDelete.size} 个</span>
-            <button type="button" className="secondary-button compact-button" onClick={onExitSelect}>取消</button>
-            <button type="button" className="danger-button compact-button" disabled={selectedForDelete.size === 0} onClick={onBulkDelete}><Trash size={16} />删除{selectedForDelete.size > 0 ? ` (${selectedForDelete.size})` : "选中"}</button>
+            <button type="button" className="secondary-button button-sm" onClick={onExitSelect}>取消</button>
+            <button type="button" className="danger-button button-sm" disabled={selectedForDelete.size === 0} onClick={onBulkDelete}><Trash size={16} />删除{selectedForDelete.size > 0 ? ` (${selectedForDelete.size})` : "选中"}</button>
           </div>
         );
       })()}
@@ -1305,8 +1305,8 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
               </label>
               <div className="user-agent-actions">
                 <span>快速填充：</span>
-                {USER_AGENT_PRESETS.map((preset) => <button key={preset.id} type="button" className="outline-button compact-button" onClick={() => fillUserAgent(preset.value)} title="仅作填写示例，不保证网关接受">{preset.label}</button>)}
-                <button type="button" className="secondary-button compact-button" onClick={clearUserAgent}>清除供应商 UA 覆盖</button>
+                {USER_AGENT_PRESETS.map((preset) => <button key={preset.id} type="button" className="outline-button button-sm" onClick={() => fillUserAgent(preset.value)} title="仅作填写示例，不保证网关接受">{preset.label}</button>)}
+                <button type="button" className="secondary-button button-sm" onClick={clearUserAgent}>清除供应商 UA 覆盖</button>
               </div>
               <p className="user-agent-disclaimer">四个值仅作填写示例，不保证网关接受；模板不会保存为单独的 preset。</p>
               {form.hasModelUserAgentOverride && <p className="compat-note"><Info size={17} weight="duotone" />检测到模型级 UA 覆盖，实际请求可能优先使用模型配置。</p>}
@@ -1317,7 +1317,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
               {betaModel && betaModel.anthropicBetaKind === "external" && <p className="advanced-external-note"><Info size={17} weight="duotone" />已有外部配置，原文不会回传到浏览器。清除后才会明确移除模型覆盖。</p>}
               {betaModel && !betaIsAnthropic && <p className="compat-note"><Info size={17} weight="duotone" />这个模型的有效协议不是 Anthropic Messages。Pi 仍会把这个请求头原样发出，但多数非 Anthropic 网关会忽略它。</p>}
               <label className="beta-value-field"><span>Beta token 列表</span><small id="anthropic-beta-help">逗号分隔的 ASCII token，例如 <code>context-1m-2025-08-07</code>。动态表达式不会执行。</small><input ref={betaInputRef} className="mono" value={betaModel?.anthropicBetaKind === "external" ? "" : betaModel?.anthropicBeta || ""} disabled={!betaModel} onChange={(event) => { const value = event.target.value; if (!betaModel) return; updateModel(betaModel.rowId, { ...betaModel, anthropicBeta: value, anthropicBetaKind: value ? "literal" : "none", anthropicBetaEdited: true }); }} placeholder="未设置模型 Beta 覆盖" aria-invalid={Boolean(betaError) || undefined} aria-describedby={betaError ? "anthropic-beta-help anthropic-beta-error" : "anthropic-beta-help"} spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />{betaError && <span id="anthropic-beta-error" className="field-error"><WarningCircle size={15} weight="fill" />{betaError}</span>}</label>
-              <div className="beta-actions"><button type="button" className="outline-button compact-button" disabled={!betaModel} onClick={() => { if (!betaModel) return; const before = betaModel; const nextValue = "context-1m-2025-08-07"; updateModel(betaModel.rowId, { ...betaModel, anthropicBeta: nextValue, anthropicBetaKind: "literal", anthropicBetaEdited: true }); onNotify("已填入网关旧版 1M 示例；保存后才会写入", "success", { label: "撤销", onAction: () => setForm((current) => ({ ...current, models: current.models.map((item) => item.rowId === before.rowId && item.anthropicBeta === nextValue ? { ...item, anthropicBeta: before.anthropicBeta, anthropicBetaKind: before.anthropicBetaKind, anthropicBetaEdited: before.anthropicBetaEdited } : item) })) }); }}>填入网关旧版 1M 示例</button><button type="button" className="secondary-button compact-button" disabled={!betaModel} onClick={() => { if (!betaModel) return; const before = betaModel; updateModel(betaModel.rowId, { ...betaModel, anthropicBeta: "", anthropicBetaKind: "none", anthropicBetaEdited: true }); onNotify("已清除模型 Beta 覆盖；保存后才会移除", "success", { label: "撤销", onAction: () => setForm((current) => ({ ...current, models: current.models.map((item) => item.rowId === before.rowId && item.anthropicBeta === "" ? { ...item, anthropicBeta: before.anthropicBeta, anthropicBetaKind: before.anthropicBetaKind, anthropicBetaEdited: before.anthropicBetaEdited } : item) })) }); }}>清除模型覆盖</button></div>
+              <div className="beta-actions"><button type="button" className="outline-button button-sm" disabled={!betaModel} onClick={() => { if (!betaModel) return; const before = betaModel; const nextValue = "context-1m-2025-08-07"; updateModel(betaModel.rowId, { ...betaModel, anthropicBeta: nextValue, anthropicBetaKind: "literal", anthropicBetaEdited: true }); onNotify("已填入网关旧版 1M 示例；保存后才会写入", "success", { label: "撤销", onAction: () => setForm((current) => ({ ...current, models: current.models.map((item) => item.rowId === before.rowId && item.anthropicBeta === nextValue ? { ...item, anthropicBeta: before.anthropicBeta, anthropicBetaKind: before.anthropicBetaKind, anthropicBetaEdited: before.anthropicBetaEdited } : item) })) }); }}>填入网关旧版 1M 示例</button><button type="button" className="secondary-button button-sm" disabled={!betaModel} onClick={() => { if (!betaModel) return; const before = betaModel; updateModel(betaModel.rowId, { ...betaModel, anthropicBeta: "", anthropicBetaKind: "none", anthropicBetaEdited: true }); onNotify("已清除模型 Beta 覆盖；保存后才会移除", "success", { label: "撤销", onAction: () => setForm((current) => ({ ...current, models: current.models.map((item) => item.rowId === before.rowId && item.anthropicBeta === "" ? { ...item, anthropicBeta: before.anthropicBeta, anthropicBetaKind: before.anthropicBetaKind, anthropicBetaEdited: before.anthropicBetaEdited } : item) })) }); }}>清除模型覆盖</button></div>
               <p className="user-agent-disclaimer">留空表示没有模型级覆盖；Pi 默认值或其他配置仍可能提供 Beta 请求头。</p>
             </div>
             <div className="advanced-group protocol-group">
@@ -1331,7 +1331,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
             <div className="advanced-group json-group">
               <div className="advanced-group-heading"><h3>配置 JSON（进阶）</h3><p>直接编辑该供应商的地址、协议与模型列表（不包含凭据）。应用后仍需点保存，服务端会做完整校验。</p></div>
               {jsonDraft === null ? (
-                <button type="button" className="outline-button compact-button" onClick={openJsonEditor}><SlidersHorizontal size={16} />编辑原始配置</button>
+                <button type="button" className="outline-button button-sm" onClick={openJsonEditor}><SlidersHorizontal size={16} />编辑原始配置</button>
               ) : (
                 <>
                   <ConfigEditor
@@ -1344,8 +1344,8 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
                     ariaLabel="供应商配置 JSON"
                   />
                   <div className="json-editor-actions">
-                    <button type="button" className="secondary-button compact-button" onClick={() => setJsonDraft(null)}>取消</button>
-                    <button type="button" className="primary-button compact-button" onClick={applyJsonDraft}>应用到表单</button>
+                    <button type="button" className="secondary-button button-md" onClick={() => setJsonDraft(null)}>取消</button>
+                    <button type="button" className="primary-button button-md" onClick={applyJsonDraft}>应用到表单</button>
                   </div>
                   <p className="user-agent-disclaimer">在这里改模型 ID 等同于删掉旧模型、新增一个：旧模型保存的兼容信息会一并丢失。</p>
                 </>
@@ -1747,7 +1747,7 @@ function SuccessScreen({ result, onCopy, onReturn, onAdd }) {
         <div className="command-row">
           <code ref={commandRef}>{result.command}</code>
           <button type="button" className={`copy-button ${copied ? "is-copied" : ""}`} onClick={copy}>
-            {copied ? <><Check size={18} weight="bold" />已复制</> : <><Copy size={18} />复制</>}
+            {copied ? <><Check size={16} weight="bold" />已复制</> : <><Copy size={16} />复制</>}
           </button>
         </div>
         <ol>
