@@ -382,8 +382,10 @@ code { color: var(--ink); background: transparent; }
 .brand-icon img { width: 42px; height: 42px; display: block; border-radius: 50%; }
 /* Not the solid brand fill: the primary CTA (保存并设为默认) keeps that. 添加
    供应商 is frequent chrome, so it is a soft tinted button — pale fill, brand
-   text, hairline — which reads as the add entry without a heavy colour block. */
-.add-provider { height: 48px; border: 1px solid var(--orange-hairline); border-radius: var(--radius-md); background: var(--orange-soft); color: var(--orange-dark); display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; font-size: 16px; transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), transform var(--fast) var(--ease); }
+   text, hairline — which reads as the add entry without a heavy colour block.
+   flex: none — the sidebar is a column whose provider list takes the slack; a
+   shrinkable button was squeezed to ~30px once the list overflowed. */
+.add-provider { flex: none; height: 48px; border: 1px solid var(--orange-hairline); border-radius: var(--radius-md); background: var(--orange-soft); color: var(--orange-dark); display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; font-size: 16px; transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), transform var(--fast) var(--ease); }
 .add-provider:hover { background: var(--orange-soft-hover); border-color: var(--orange-edge); }
 .add-provider:active { transform: translateY(1px); }
 

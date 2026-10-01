@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **添加供应商 keeps its height when the provider list is long.** The sidebar is a flex column, and the button shrank to about 30px once the list overflowed, while it stayed 48px with a short list. It no longer shrinks; a production-browser check measures it with the list overflowing.
+- **Claude Code copy matches per-terminal providers.** The sidebar tip no longer says Claude Code uses a single user-level gateway: the global default serves plain `claude`, and a provider's dedicated command pins one terminal to it. The settings screen shows 路径来源 as 自动识别 · 用户主目录 instead of the internal value `default-home`, matching Pi and Codex.
+
 ## 0.5.0 - 2026-09-30
 
 - **Validated against Pi `0.99.1` (baseline raised from `0.87.1`) and Codex `0.154.0` (unchanged).** Pi 0.99 changed none of the three managed files' structures, API identifiers, thinking levels or managed settings keys, so no code changed for it. New settings keys (`theme: "system"`, `fullscreenWheelScrollLines`, `defaultTools` `+name`/`-name` entries, `extensions` `-builtin:` entries, `codemode`, and `deviceId` from Sign in with ChatGPT) are preserved like any unknown key, and an OAuth `auth.json` entry stays untouched and never reaches the browser.
