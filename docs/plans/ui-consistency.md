@@ -7,9 +7,9 @@ layout grid. Delete an item from this file once it ships, or the whole file once
 
 Handled separately from this plan: the sidebar add-button height and the Claude tip and path-source label
 (#142), and the stylesheet token check with the `.model-filter` token fix (the pull request that added this
-file). Item 1, the type and button scale, shipped in #144–#147, and item 2, Claude Code summary,
-footer and settings parity, in the pull request that removed it from this file; their rules are in
-`AGENTS.md`.
+file). Item 1, the type and button scale, shipped in #144–#147; item 2, Claude Code summary, footer and
+settings parity, in #148; item 3, sidebar status, in the pull request that removed it from this file.
+Their rules are in `AGENTS.md`.
 
 ## How to verify any item here
 
@@ -21,17 +21,6 @@ Owner feedback asks for visual experiments small enough to compare one change at
 2. Attach the pairs to the pull request and wait for owner approval before the next item.
 3. Run `npm run build`, `npm run test:server` (which includes the token check), and `npm run test:ui`. The
    contrast, target-size and 12px CJK browser cases must still pass.
-
-## 3. Sidebar status (visual)
-
-Evidence: the row dot means "credential configured" (`provider.ready` in `src/App.jsx`) but is explained
-only by its `aria-label`. When a badge (默认, 生效中, 全局默认) is present, the protocol subtitle is cut
-to "Anthro…".
-
-- Show the dot only when something needs attention (no credential), with visible text in the row's
-  tooltip and the existing `aria-label`.
-- Move the badge onto the name line so the subtitle keeps its width.
-- Accept when a missing credential is still visible at a glance and row height stays unchanged.
 
 ## 4. Save from any step when editing (behaviour; needs owner decision first)
 

@@ -13,6 +13,10 @@
   - Claude settings show 配置范围 as key–value rows (配置目录, 路径来源, 全局默认) with the save button in the settings footer.
   - 复制供应商 and 删除供应商 move onto the button scale in all three targets: 40px at 14px, and 32px at 13px at 600px and below. They were 36px at 16px/700, and only 删除供应商 shrank, to 34px, on narrow screens.
   - Pi and Codex screens were pixel-compared before and after the extraction.
+- **Sidebar rows show a dot only when a provider needs a credential.** A green dot used to sit on every configured row, explained only to screen readers, and it shared the right side with the badge, which cut subtitles to "Anthro…".
+  - Now only a row missing its credential shows the amber dot. Its meaning is in the dot's and the row's tooltip as well as its `aria-label`.
+  - 默认 / 生效中 / 全局默认 sit beside the name, and subtitles show in full.
+  - Row height is unchanged: measured 62px at 1440px and 51px at 390px, with and without a badge.
 - **The model filter field gets its intended background.** `.model-filter` read an undefined `--surface` token, so the declaration was dropped and the field was transparent instead of using `--field` like every other input. A new stylesheet check (`tests/style-tokens.test.mjs`, part of `test:server`) fails on literal hex or named colours in rules, undefined tokens, and dark-only tokens.
 
 ## 0.5.0 - 2026-09-30
