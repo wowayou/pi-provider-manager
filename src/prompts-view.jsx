@@ -265,7 +265,7 @@ export function PromptsScreen({ target, state, saving, error, conflict, onSave, 
                   title={deleteBlocked ? "唯一且正在生效的一份不能删除；先新建一份" : undefined}
                   onClick={requestDelete}
                 >
-                  <Trash size={18} />{armedDelete === selectedId ? "确认删除" : "删除"}
+                  <Trash size={16} />{armedDelete === selectedId ? "确认删除" : "删除"}
                 </button>
               )}
               <span className={`prompt-status ${!isNew && !isLive && edited ? "is-warning" : ""}`}>
@@ -280,7 +280,7 @@ export function PromptsScreen({ target, state, saving, error, conflict, onSave, 
               {selected && !isNew && !isLive && (
                 <button
                   type="button"
-                  className="secondary-button"
+                  className="secondary-button button-md"
                   disabled={saving || edited}
                   title={edited ? "先保存修改再启用" : ""}
                   onClick={() => onActivate({ slot: slot.id, id: selected.id })}
@@ -290,7 +290,7 @@ export function PromptsScreen({ target, state, saving, error, conflict, onSave, 
               )}
               <button
                 type="button"
-                className="primary-button"
+                className="primary-button button-md"
                 disabled={saving || overLimit || !draft.name.trim() || (!edited && !isNew)}
                 onClick={() => onSave({
                   slot: slot.id,

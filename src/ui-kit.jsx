@@ -342,12 +342,12 @@ export function ConfigEditor({
         </span>
         <div className="config-editor-buttons">
           {validate && (
-            <button type="button" className="outline-button compact-button" onClick={doValidate} disabled={value.trim() === ""}>
+            <button type="button" className="outline-button button-sm" onClick={doValidate} disabled={value.trim() === ""}>
               <CheckCircle size={16} />校验
             </button>
           )}
           {format && (
-            <button type="button" className="outline-button compact-button" onClick={doFormat} disabled={invalid || value.trim() === ""}>
+            <button type="button" className="outline-button button-sm" onClick={doFormat} disabled={invalid || value.trim() === ""}>
               <ArrowsClockwise size={16} />自动格式化
             </button>
           )}

@@ -139,8 +139,8 @@ export function ManagerCard({ state, demoMode, edited }) {
       )}
       <div className="compat-update">
         <div className="compat-update-row">
-          <button type="button" className="secondary-button" disabled={Boolean(updateBusy) || demoMode} onClick={checkUpdate}>
-            {updateBusy === "checking" ? <><Spinner />正在检查…</> : <><CloudArrowDown size={18} />检查更新</>}
+          <button type="button" className="secondary-button button-md" disabled={Boolean(updateBusy) || demoMode} onClick={checkUpdate}>
+            {updateBusy === "checking" ? <><Spinner />正在检查…</> : <><CloudArrowDown size={16} />检查更新</>}
           </button>
           <span className="compat-restart-hint">
             {demoMode
@@ -155,7 +155,7 @@ export function ManagerCard({ state, demoMode, edited }) {
         {updateInfo.newer && updateInfo.install?.kind === "checkout" && (
           updateInfo.install.canApply ? (
             <div className="compat-update-row">
-              <button type="button" className="primary-button" disabled={Boolean(updateBusy)} onClick={applyUpdate}>
+              <button type="button" className="primary-button button-md" disabled={Boolean(updateBusy)} onClick={applyUpdate}>
                 {updateBusy === "applying" ? <><Spinner />正在更新…</> : <>拉取并构建 {updateInfo.latestVersion}</>}
               </button>
               <span className="compat-restart-hint">
@@ -173,7 +173,7 @@ export function ManagerCard({ state, demoMode, edited }) {
         )}
         {updateInfo.newer && updateInfo.install?.kind === "archive" && (
           <div className="compat-update-row">
-            <button type="button" className="primary-button" disabled={Boolean(updateBusy)} onClick={applyUpdate}>
+            <button type="button" className="primary-button button-md" disabled={Boolean(updateBusy)} onClick={applyUpdate}>
               {updateBusy === "applying" ? <><Spinner />正在下载…</> : <>下载 {updateInfo.latestVersion} 到相邻目录</>}
             </button>
             <span className="compat-restart-hint">
@@ -213,22 +213,22 @@ export function ManagerCard({ state, demoMode, edited }) {
         {restartPhase === "confirm" ? (
           <>
             <span className="compat-restart-hint is-warning">这个页面有未保存的修改，重启会丢弃它们。</span>
-            <button type="button" className="secondary-button" onClick={() => setRestartPhase("idle")}>取消</button>
-            <button type="button" className="primary-button" onClick={restartService}>确认重启</button>
+            <button type="button" className="secondary-button button-md" onClick={() => setRestartPhase("idle")}>取消</button>
+            <button type="button" className="primary-button button-md" onClick={restartService}>确认重启</button>
           </>
         ) : (
           <>
             <button
               type="button"
-              className={`restart-button ${pendingApp ? "primary-button" : "secondary-button"}`}
+              className={`restart-button button-md ${pendingApp ? "primary-button" : "secondary-button"}`}
               disabled={restartPhase === "working" || restartPhase === "done" || demoMode || Boolean(bundleProblem)}
               onClick={() => (edited ? setRestartPhase("confirm") : restartService())}
             >
               {restartPhase === "working"
                 ? <><Spinner />正在重启…</>
                 : restartPhase === "done"
-                  ? <><Check size={18} weight="bold" />已重启，正在刷新…</>
-                  : <><ArrowsClockwise size={18} />{pendingApp ? `重启以应用 ${pendingApp}` : "重启本地服务"}</>}
+                  ? <><Check size={16} weight="bold" />已重启，正在刷新…</>
+                  : <><ArrowsClockwise size={16} />{pendingApp ? `重启以应用 ${pendingApp}` : "重启本地服务"}</>}
             </button>
             <span className={`compat-restart-hint${bundleProblem ? " is-warning" : ""}`}>
               {bundleProblem

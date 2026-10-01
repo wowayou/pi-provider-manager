@@ -36,6 +36,21 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## Type and Button Scale, Remaining Buttons — 2026-10-01
+
+- Scope: every action button not covered by #144 and #145, except Claude's provider summary (item 2 of `docs/plans/ui-consistency.md`). The owner told the remaining slices to proceed without a stop between them.
+  - Unclassed variant buttons are now the large size, set by the base rule: 44px at 16px, weight 600 instead of 700, and inline padding 20px instead of 22px.
+  - `.button-md` covers the manager card, the prompt editor's 启用这一份 / 保存并写入文件 / 删除, the JSON and `config.toml` editors' 取消/应用, and the bridge pair.
+  - `.button-sm` covers the User-Agent and Beta helpers, 编辑原始配置, 校验/自动格式化, the sidebar bulk-action bar and the command copy button.
+  - The `.compact-button` overrides in the bulk bar, User-Agent and Beta rows were removed.
+- Method: production build served by `server.mjs` with `PI_PROVIDER_MANAGER_SERVE_UI=1` and isolated directories. 25 screens were captured: the three targets' wizard steps, the advanced panel, the JSON editor, the `config.toml` paste panel, settings, success, prompts, sidebar selection mode, and the first-run screen. Each was taken in light at 1440×900 and 390×844 and in dark at 1440×900, under `?demo=1` except first-run. Every visible element's computed font size and weight, and every button's size, were diffed before and after.
+- Result: only the intended buttons changed.
+  - Before, the same kind of button measured 34–44px at 12–16px depending on where it sat. The editors' 校验/自动格式化 went from 44px at 16px in the JSON editor (13px in the paste panel) to 32px at 13px everywhere.
+  - No text outside a button changed.
+  - One side effect: Claude's provider-summary base-URL button went from 15.04px to 16px, because the base rule now sets the size; item 2 replaces that button.
+  - Not captured: the bridge start/stop pair, which `?demo=1` does not render. The production-browser bridge case still renders 启动桥 on the success screen, but nothing measured the pair's new size.
+- Verification on Node `24.18.0`, detached with `setsid`: build passed; `test:server` 98/98; production browser 34/34.
+
 ## Type and Button Scale, Second Slice: Dialogs — 2026-10-01
 
 - Scope: every dialog's buttons. 获取模型, 批量添加模型, Pi delete and bulk delete, Codex delete and bulk delete, and Claude delete. `.button-sm` was added. The owner approved the first slice (#144) before this one started.

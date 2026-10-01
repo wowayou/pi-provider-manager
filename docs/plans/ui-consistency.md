@@ -29,17 +29,13 @@ above them and far above the 13px body.
 
 - Add `--text-xs/sm/md/lg/xl/2xl` (12/13/14/16/18/24) beside the spacing and radius tokens.
 - Add three button sizes (32/40/44px), weight 600.
-- **Slice 1, shipped and approved (#144):** the tokens above, `--button-sm/md/lg`, and a `.button-md` size
-  class (40px, 14px/600, 16px icons) on every model-table toolbar button in Pi and Codex. At 600px and below
-  the icon-only buttons are 40×40.
-- **Slice 2 (done, awaiting owner approval): dialogs.** Adds `.button-sm` (32px, 13px/600). Every dialog's
-  action row uses `.button-md`: 获取模型, 批量添加模型, and the Pi, Codex and Claude single and bulk provider
-  delete dialogs. The 获取模型 path retry is `.button-md`, and its 全选/清空 helpers are `.button-sm`.
-- Remaining groups, one per slice after approval: the wizard, success and settings footers (44px at
-  16px/700, candidates for a `.button-lg`); the step-3 advanced panel (User-Agent and Beta helpers at
-  36px/12px beside 编辑原始配置 at 44px/16px), the JSON and Codex `config.toml` editors; the sidebar
-  bulk-action bar (34px/12px); the Codex bridge start/stop pair; the success screen's copy button. The
-  provider summary's 复制供应商/删除供应商 belong to item 2. Then text outside buttons onto `--text-*`.
+- **Buttons, shipped.** The model-table toolbar (#144), every dialog (#145), and then the rest of the
+  action buttons: unclassed variant buttons are the large size (44px, 16px/600); toolbars, dialogs and
+  actions inside a card or panel use `.button-md`; inline helpers use `.button-sm`. The owner told the
+  remaining slices to proceed without a stop between them (2026-10-01). Claude's provider-summary buttons
+  and the Pi/Codex 复制供应商/删除供应商 are left to item 2, which rebuilds that summary.
+- **Remaining: text outside buttons onto `--text-*`.** Literals already on the scale become tokens with no
+  visual change; the off-scale values (11, 11.5, 12.5, 13.5, 15, 21, 28) move to the nearest step.
 - Accept when every changed rule reads a scale token, and CJK text stays at 12px or above.
 
 ## 2. Claude Code summary, footer and settings parity (visual, converging on existing Pi/Codex look)
