@@ -47,7 +47,7 @@ import { USER_AGENT_PRESETS } from "./user-agent-presets.mjs";
 import { PromptsScreen } from "./prompts-view.jsx";
 import { useClaude, ClaudeWizard, ClaudeSuccess, ClaudeSettings, ClaudeDeleteDialog } from "./claude-view.jsx";
 import { ManagerCard } from "./manager-card.jsx";
-import { BulkModal, ConfigEditor, ErrorBanner, PasswordInput, Spinner, createRadioKeyHandler, readApiResponse, titleFromId, useDialog, useScrollEdges, validateJson, formatJson, formatTokens, parseTokens, isValidTokens } from "./ui-kit.jsx";
+import { BulkModal, ConfigEditor, ErrorBanner, KeyValueList, PasswordInput, ProviderSummary, Spinner, WizardFooter, createRadioKeyHandler, readApiResponse, titleFromId, useDialog, useScrollEdges, validateJson, formatJson, formatTokens, parseTokens, isValidTokens } from "./ui-kit.jsx";
 import {
   CodexDeleteDialog,
   CodexProviderBulkDeleteDialog,
@@ -1245,23 +1245,16 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
         <div className="section-heading">
           <div><h1>确认并选择可用模型</h1><p>一个 API 网关可以添加多个不同厂商的模型，并指定 Pi 默认使用哪个。</p></div>
         </div>
-        <div className="gateway-summary">
-          <span className="summary-icon"><ProviderIcon api={form.api} size={34} /></span>
-          <div><strong>{titleFromId(form.providerId || "new-provider")}</strong>{isExistingProvider ? <button type="button" className="protocol-badge protocol-badge-button" onClick={onEditProtocol} title="回到第一步改协议">{currentApi.title}</button> : <span className="protocol-badge">{currentApi.title}</span>}{isExistingProvider ? <p>API 地址　<button type="button" className="gateway-address-button mono" onClick={onEditGateway} title={form.baseUrl || undefined}>{form.baseUrl || "尚未填写"}</button></p> : <p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p>}</div>
-          <div className="gateway-side">
-            <div className="saved-credential"><ShieldCheck size={29} weight="duotone" /><span><strong>{form.credentialMode === "keep" ? "凭据已安全保存" : "凭据将在保存时写入"}</strong><small>{form.credentialMode === "keep" ? "浏览器无法读取旧 key" : "当前草稿尚未写入 Pi 配置"}</small></span></div>
-            {isExistingProvider && (
-              <button type="button" className="duplicate-provider-button" onClick={onDuplicate} title="以当前配置为模板新建：模型与兼容设置照搬，凭据需要另填">
-                <Copy size={18} />复制供应商
-              </button>
-            )}
-            {canDeleteProvider && (
-              <button type="button" className="delete-provider-button" onClick={() => onDeleteProvider()}>
-                <Trash size={18} />删除供应商
-              </button>
-            )}
-          </div>
-        </div>
+        <ProviderSummary
+          icon={<ProviderIcon api={form.api} size={34} />}
+          name={titleFromId(form.providerId || "new-provider")}
+          badge={isExistingProvider ? <button type="button" className="protocol-badge protocol-badge-button" onClick={onEditProtocol} title="回到第一步改协议">{currentApi.title}</button> : <span className="protocol-badge">{currentApi.title}</span>}
+          address={isExistingProvider ? <p>API 地址　<button type="button" className="gateway-address-button mono" onClick={onEditGateway} title={form.baseUrl || undefined}>{form.baseUrl || "尚未填写"}</button></p> : <p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p>}
+          credential={form.credentialMode === "keep" ? { title: "凭据已安全保存", detail: "浏览器无法读取旧 key" } : { title: "凭据将在保存时写入", detail: "当前草稿尚未写入 Pi 配置" }}
+          onDuplicate={isExistingProvider ? onDuplicate : undefined}
+          duplicateTitle="以当前配置为模板新建：模型与兼容设置照搬，凭据需要另填"
+          onDelete={canDeleteProvider ? onDeleteProvider : undefined}
+        />
         <div className="models-header">
           <div><h2>模型列表<span className="count-pill">{showModelFilter && modelFilterText ? `匹配 ${visibleModels.length} / 共 ${form.models.length}` : namedModels}</span></h2><p>Pi 以 provider/model 选择模型，thinking level 是独立设置。</p>{showModelFilter && <input className="model-filter mono" type="search" value={modelFilter} onChange={(event) => setModelFilter(event.target.value)} placeholder="筛选模型 ID" aria-label="筛选模型 ID" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />}</div>
           <div className="models-actions">
@@ -1355,12 +1348,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
         </details>
         <ErrorBanner message={error} conflict={conflict} />
       </div>
-      <footer className="wizard-footer">
-        <button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={19} />上一步</button>
-        <div className="footer-end">
-          {isExistingProvider && (
-            <span className="dirty-note" aria-live="polite">{dirty ? "有未保存的修改" : "没有改动"}</span>
-          )}
+      <WizardFooter onBack={onBack} note={isExistingProvider ? (dirty ? "有未保存的修改" : "没有改动") : undefined}>
           {isExistingProvider ? (
             isCurrentDefault ? (
               // Already Pi's default: one button, still setDefault:true so the
@@ -1384,8 +1372,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
             // the default is the only sensible action.
             <button type="button" className="primary-button" disabled={saving} onClick={() => onSave(true)}>{saving ? <><Spinner />正在保存…</> : "保存并设为默认"}</button>
           )}
-        </div>
-      </footer>
+      </WizardFooter>
       {showBulk && <BulkModal text={bulkText} ids={bulkIds} newIds={newBulkIds} onText={setBulkText} onClose={() => setShowBulk(false)} onImport={importModels} />}
       {showDiscover && <DiscoverModal baseUrl={form.baseUrl.trim()} defaultPath={defaultDiscoveryPath(form.api)} existingIds={existingIds} onDiscover={onDiscover} onClose={() => setShowDiscover(false)} onImport={importDiscovered} />}
     </section>
@@ -1821,7 +1808,13 @@ function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBa
           </section>
           <section className="settings-card compatibility-card">
             <h2>兼容状态</h2>
-            <dl><div><dt>Pi 版本</dt><dd className="mono">{state.compatibility?.piVersion || "unknown"}</dd></div><div><dt>已验证兼容</dt><dd className="mono">Pi {state.compatibility?.validatedPiVersion || "unknown"}</dd></div><div><dt>配置策略</dt><dd>保留未知字段</dd></div><div><dt>配置目录</dt><dd className="mono" title={state.agentDir}>{state.agentDir}</dd></div><div><dt>路径来源</dt><dd>{state.compatibility?.configDirSource === "PI_CODING_AGENT_DIR" ? "PI_CODING_AGENT_DIR" : "自动识别 · 用户主目录"}</dd></div></dl>
+            <KeyValueList rows={[
+              { label: "Pi 版本", value: state.compatibility?.piVersion || "unknown", mono: true },
+              { label: "已验证兼容", value: `Pi ${state.compatibility?.validatedPiVersion || "unknown"}`, mono: true },
+              { label: "配置策略", value: "保留未知字段" },
+              { label: "配置目录", value: state.agentDir, mono: true, title: state.agentDir },
+              { label: "路径来源", value: state.compatibility?.configDirSource === "PI_CODING_AGENT_DIR" ? "PI_CODING_AGENT_DIR" : "自动识别 · 用户主目录" },
+            ]} />
             {piVersionDiffers && (
               <p className="compat-note is-warning">
                 <WarningCircle size={20} weight="fill" />

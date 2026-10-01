@@ -32,7 +32,7 @@ import { providerDraftIdentity } from "./model-draft.mjs";
 import { TomlDocument } from "../lib/toml-document.mjs";
 import { isLoopbackHostname } from "../lib/validation.mjs";
 import { ManagerCard } from "./manager-card.jsx";
-import { BulkModal, ConfigEditor, ErrorBanner, PasswordInput, Spinner, createRadioKeyHandler, formatJson, isValidTokens, parseTokens, titleFromId, useDialog, validateJson } from "./ui-kit.jsx";
+import { BulkModal, ConfigEditor, ErrorBanner, KeyValueList, PasswordInput, ProviderSummary, Spinner, WizardFooter, createRadioKeyHandler, formatJson, isValidTokens, parseTokens, titleFromId, useDialog, validateJson } from "./ui-kit.jsx";
 
 
 const UPSTREAM_OPTIONS = [
@@ -689,48 +689,39 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
         <div className="section-heading">
           <div><h1>确认模型与推理强度</h1><p>默认模型会写进 <code>config.toml</code>；其余模型用 <code>codex -m &lt;model&gt;</code> 开会话时指定。</p></div>
         </div>
-        <div className="gateway-summary">
-          <span className="summary-icon">{isBridge || isLocalAddress(form.baseUrl) ? <Plugs size={34} weight="duotone" /> : <PlugsConnected size={34} weight="duotone" />}</span>
-          <div>
-            <strong>{form.name || titleFromId(form.providerId || "new-provider")}</strong>
-            <span className="protocol-badge">{isBridge ? "托管桥" : isLocalAddress(form.baseUrl) ? "本机地址" : "Responses 直连"}</span>
-            {isBridge
-              ? <p title={form.bridgeUpstreamUrl || undefined}>上游地址　<code>{form.bridgeUpstreamUrl || "尚未填写"}</code></p>
-              : <p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p>}
-            {/* Adoption is derived on the read path, so say it out loud rather
-                than letting an entry appear from nowhere. */}
-            {adopted && <p className="adopted-note"><Info size={17} weight="duotone" />已从现有 config.toml 接管，保存后才会记入本管理器。</p>}
-            {codexProviderOf(codex, form)?.bridge && !codex.bridge?.running && (
-              <p className="adopted-note is-warning">
-                <WarningCircle size={17} weight="fill" />
-                本地桥没有运行，Codex 现在发不出请求。
-                {codex.bridge?.supervisable === false
-                  ? "本平台需要你自己启动它，命令在「填写凭据」那一步。"
-                  : "回到「填写凭据」那一步启动它。"}
-              </p>
-            )}
-          </div>
-          <div className="gateway-side">
-            <div className="saved-credential">
-              <ShieldCheck size={29} weight="duotone" />
-              <span>
-                <strong>{isBridge ? "上游 key 交给本地桥" : !form.requiresAuth ? "无需凭据" : form.credentialMode === "keep" ? "凭据已安全保存" : "凭据将在保存时写入"}</strong>
-                <small>{isBridge ? "不写入 Codex 的配置" : !form.requiresAuth ? "Codex 不会带 Authorization" : form.credentialMode === "keep" ? "浏览器无法读取旧 key" : "当前草稿尚未写入 Codex 配置"}</small>
-              </span>
-            </div>
-            {/* Gated on the same fact the handler checks — this form's ID names a
-                saved provider — not on the selection. Renaming a draft's ID to a
-                fresh one used to leave the button standing and clicking it did
-                nothing, because `duplicateCodexProvider` bails on exactly that
-                mismatch. Pi has always gated it this way. */}
-            {canDuplicateProvider && (
-              <button type="button" className="duplicate-provider-button" onClick={onDuplicate} title="以当前配置为模板新建：模型与推理强度照搬，凭据需要另填"><Copy size={18} />复制供应商</button>
-            )}
-            {canDeleteProvider && (
-              <button type="button" className="delete-provider-button" onClick={onDeleteProvider}><Trash size={18} />删除供应商</button>
-            )}
-          </div>
-        </div>
+        <ProviderSummary
+          icon={isBridge || isLocalAddress(form.baseUrl) ? <Plugs size={34} weight="duotone" /> : <PlugsConnected size={34} weight="duotone" />}
+          name={form.name || titleFromId(form.providerId || "new-provider")}
+          badge={<span className="protocol-badge">{isBridge ? "托管桥" : isLocalAddress(form.baseUrl) ? "本机地址" : "Responses 直连"}</span>}
+          address={isBridge
+            ? <p title={form.bridgeUpstreamUrl || undefined}>上游地址　<code>{form.bridgeUpstreamUrl || "尚未填写"}</code></p>
+            : <p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p>}
+          credential={{
+            title: isBridge ? "上游 key 交给本地桥" : !form.requiresAuth ? "无需凭据" : form.credentialMode === "keep" ? "凭据已安全保存" : "凭据将在保存时写入",
+            detail: isBridge ? "不写入 Codex 的配置" : !form.requiresAuth ? "Codex 不会带 Authorization" : form.credentialMode === "keep" ? "浏览器无法读取旧 key" : "当前草稿尚未写入 Codex 配置",
+          }}
+          // Gated on the same fact the handler checks — this form's ID names a
+          // saved provider — not on the selection. Renaming a draft's ID to a
+          // fresh one used to leave the button standing and clicking it did
+          // nothing, because `duplicateCodexProvider` bails on exactly that
+          // mismatch. Pi has always gated it this way.
+          onDuplicate={canDuplicateProvider ? onDuplicate : undefined}
+          duplicateTitle="以当前配置为模板新建：模型与推理强度照搬，凭据需要另填"
+          onDelete={canDeleteProvider ? onDeleteProvider : undefined}
+        >
+          {/* Adoption is derived on the read path, so say it out loud rather
+              than letting an entry appear from nowhere. */}
+          {adopted && <p className="adopted-note"><Info size={17} weight="duotone" />已从现有 config.toml 接管，保存后才会记入本管理器。</p>}
+          {codexProviderOf(codex, form)?.bridge && !codex.bridge?.running && (
+            <p className="adopted-note is-warning">
+              <WarningCircle size={17} weight="fill" />
+              本地桥没有运行，Codex 现在发不出请求。
+              {codex.bridge?.supervisable === false
+                ? "本平台需要你自己启动它，命令在「填写凭据」那一步。"
+                : "回到「填写凭据」那一步启动它。"}
+            </p>
+          )}
+        </ProviderSummary>
         <div className="models-header">
           <div><h2>模型列表<span className="count-pill">{namedModels}</span></h2><p>默认模型会写入 config.toml 的 <code className="mono">model</code>，其余模型留给 <code className="mono">codex -m</code>。</p></div>
           <div className="models-actions">
@@ -791,8 +782,7 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
         </details>
         <ErrorBanner message={error} conflict={conflict} />
       </div>
-      <footer className="wizard-footer">
-        <button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={19} />上一步</button>
+      <WizardFooter onBack={onBack}>
         {isActive ? (
           <button type="button" className="primary-button" disabled={saving} onClick={() => onSave(true)}>{saving ? <><Spinner />正在保存…</> : "保存更改"}</button>
         ) : (
@@ -801,7 +791,7 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
             <button type="button" className="primary-button" disabled={saving} onClick={() => onSave(true)}>{saving ? <><Spinner />正在保存…</> : "保存并设为当前生效"}</button>
           </div>
         )}
-      </footer>
+      </WizardFooter>
       {showBulk && <BulkModal text={bulkText} ids={bulkIds} newIds={newBulkIds} onText={setBulkText} onClose={() => setShowBulk(false)} onImport={importModels} />}
     </section>
   );
@@ -1106,14 +1096,14 @@ export function CodexSettingsScreen({ state, saving, error, conflict, demoMode, 
           </section>
           <section className="settings-card compatibility-card">
             <h2>兼容状态</h2>
-            <dl>
-              <div><dt>Codex 版本</dt><dd className="mono">{installed || "unknown"}</dd></div>
-              <div><dt>已验证兼容</dt><dd className="mono">Codex {validated || "unknown"}</dd></div>
-              <div><dt>接口协议</dt><dd className="mono">wire_api = "responses"</dd></div>
-              <div><dt>供应商表名</dt><dd className="mono">model_providers.{draft.ownedProviderId}</dd></div>
-              <div><dt>配置目录</dt><dd className="mono" title={codex.dir}>{codex.dir}</dd></div>
-              <div><dt>路径来源</dt><dd>{codex.dirSource === "PI_PROVIDER_MANAGER_CODEX_DIR" ? "PI_PROVIDER_MANAGER_CODEX_DIR" : codex.dirSource === "CODEX_HOME" ? "CODEX_HOME" : "自动识别 · 用户主目录"}</dd></div>
-            </dl>
+            <KeyValueList rows={[
+              { label: "Codex 版本", value: installed || "unknown", mono: true },
+              { label: "已验证兼容", value: `Codex ${validated || "unknown"}`, mono: true },
+              { label: "接口协议", value: 'wire_api = "responses"', mono: true },
+              { label: "供应商表名", value: `model_providers.${draft.ownedProviderId}`, mono: true },
+              { label: "配置目录", value: codex.dir, mono: true, title: codex.dir },
+              { label: "路径来源", value: codex.dirSource === "PI_PROVIDER_MANAGER_CODEX_DIR" ? "PI_PROVIDER_MANAGER_CODEX_DIR" : codex.dirSource === "CODEX_HOME" ? "CODEX_HOME" : "自动识别 · 用户主目录" },
+            ]} />
             {versionDiffers && (
               <p className="compat-note is-warning">
                 <WarningCircle size={20} weight="fill" />

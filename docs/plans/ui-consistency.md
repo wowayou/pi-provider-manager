@@ -7,8 +7,9 @@ layout grid. Delete an item from this file once it ships, or the whole file once
 
 Handled separately from this plan: the sidebar add-button height and the Claude tip and path-source label
 (#142), and the stylesheet token check with the `.model-filter` token fix (the pull request that added this
-file). Item 1, the type and button scale, shipped in #144–#146 and the pull request that
-removed it from this file; its rules are in `AGENTS.md`.
+file). Item 1, the type and button scale, shipped in #144–#147, and item 2, Claude Code summary,
+footer and settings parity, in the pull request that removed it from this file; their rules are in
+`AGENTS.md`.
 
 ## How to verify any item here
 
@@ -20,19 +21,6 @@ Owner feedback asks for visual experiments small enough to compare one change at
 2. Attach the pairs to the pull request and wait for owner approval before the next item.
 3. Run `npm run build`, `npm run test:server` (which includes the token check), and `npm run test:ui`. The
    contrast, target-size and 12px CJK browser cases must still pass.
-
-## 2. Claude Code summary, footer and settings parity (visual, converging on existing Pi/Codex look)
-
-Evidence: in `src/claude-view.jsx` the provider summary has no icon or credential status, the base URL is a
-button styled like an input, and 删除供应商 is a solid `danger-button` where Pi/Codex use an outlined one.
-The footer note is 16px and centered or left-aligned instead of the small grey note beside the primary
-action. Claude settings list 配置范围 as paragraphs where Pi and Codex use a `<dl>` key–value card.
-
-- Extract the Pi/Codex provider summary, wizard footer and key–value list into `ui-kit.jsx`, and have
-  Claude use them. Pi and Codex output should stay pixel-identical, so compare their screenshots too.
-- Solid `danger-button` stays only on confirm-delete dialogs.
-- Accept when Claude's step 3 and settings match Pi/Codex anatomy, and the Claude production workflow
-  browser case still passes.
 
 ## 3. Sidebar status (visual)
 
