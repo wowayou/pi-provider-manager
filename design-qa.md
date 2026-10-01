@@ -36,6 +36,17 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## Sidebar Status — 2026-10-01
+
+- Scope: item 3 of `docs/plans/ui-consistency.md`. The amber dot renders only when `provider.ready` is false. Its `aria-label` and `title` read 未配置凭据, and the row's tooltip appends it. The badge moved into a `provider-name-line` beside the name. The unused `readyLabel` strings went with the green dot.
+- Before, a badge in the trailing column truncated subtitles: Claude's "Anthropic Messages" showed as "Anthropic Mes…" and Codex's "2 个模型 · Responses" as "Respo…". Both now render in full.
+- Row height:
+  - The first version grew badged rows from 62 to 63px at 1440px and from 51 to 57px at 390px.
+  - Measured cause: the badge's CJK label sets a 17px line where the Latin name sets 15px (13px text) or 16px (14px text).
+  - Fix: on the name line the badge drops its vertical padding and takes a −1px block margin.
+  - Re-measured: badged and plain rows are both 62px at 1440px and 51px at 390px. The 25-screen element diff reports no height change on any row.
+- Verification on Node `24.18.0`, detached with `setsid`: build passed; `test:server` 99/99; production browser 34/34. The cases that read `.provider-badge` per row, or find a renamed row by a `title` ending in its ID, still pass. Those rows have credentials, so their titles are unchanged.
+
 ## Claude Code Summary, Footer and Settings Parity — 2026-10-01
 
 - Scope: item 2 of `docs/plans/ui-consistency.md`. `ProviderSummary`, `WizardFooter` and `KeyValueList` were added to `ui-kit.jsx`.

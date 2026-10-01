@@ -418,7 +418,7 @@ const TARGET_OPTIONS = [
 function sidebarProviders(state, target) {
   if (target === "claude") return (state.claude?.providers || []).map((provider) => ({
     id: provider.id, name: provider.name, keywords: [provider.id, provider.name, provider.baseUrl, provider.model].join(" "),
-    subtitle: "Anthropic Messages", ready: provider.credentialConfigured, readyLabel: "凭据已配置", notReadyLabel: "未配置凭据",
+    subtitle: "Anthropic Messages", ready: provider.credentialConfigured, notReadyLabel: "未配置凭据",
     badge: provider.isActive ? "全局默认" : "", icon: Asterisk, source: provider,
   }));
   if (target === "codex") {
@@ -430,11 +430,9 @@ function sidebarProviders(state, target) {
       // stated. A merely loopback address is a weaker fact and says so; neither
       // is the guess the old `upstream` field used to make.
       subtitle: `${provider.models.length} 个模型 · ${provider.bridge ? "托管桥" : isLocalAddress(provider.baseUrl) ? "本机地址" : "Responses"}`,
+      // A provider that declares it needs no credential has nothing to fix, so
+      // it counts as ready and carries no dot, the same as one with a key.
       ready: provider.credentialConfigured || provider.requiresAuth === false,
-      // A provider that declares it needs no credential is not "configured";
-      // the tick means ready either way, but saying "凭据已配置" would claim a key
-      // exists where none was ever asked for.
-      readyLabel: provider.requiresAuth === false ? "无需凭据" : "凭据已配置",
       notReadyLabel: "未配置凭据",
       badge: provider.isActive ? "生效中" : "",
       icon: provider.bridge || isLocalAddress(provider.baseUrl) ? Plugs : PlugsConnected,
@@ -449,7 +447,6 @@ function sidebarProviders(state, target) {
     keywords: `${provider.id} ${provider.name || ""} ${provider.baseUrl} ${apiMeta(provider.api).short}`,
     subtitle: `${provider.models.length} 个模型 · ${apiMeta(provider.api).short}`,
     ready: provider.credentialConfigured,
-    readyLabel: "凭据已配置",
     notReadyLabel: "未配置凭据",
     // Which provider Pi will actually use is the same question Codex answers in
     // its sidebar, so it is answered in the same place. Read from settings rather
@@ -652,21 +649,18 @@ function Sidebar({ state, target, loading, loadFailed, onTarget, onReload, onSel
                 aria-current={!selectMode && isSelected ? "true" : undefined}
                 role={selectMode ? "checkbox" : undefined}
                 aria-checked={selectMode ? checked : undefined}
-                title={`${provider.name} · ${provider.id}`}
+                title={`${provider.name} · ${provider.id}${provider.ready ? "" : ` · ${provider.notReadyLabel}`}`}
               >
                 {selectMode && <span className="provider-check" aria-hidden="true">{checked && <Check size={13} weight="bold" />}</span>}
                 <span className="provider-icon"><Icon size={23} weight="duotone" aria-hidden="true" /></span>
                 <span className="provider-copy">
-                  <strong>{provider.name}</strong>
+                  <span className="provider-name-line"><strong>{provider.name}</strong><span className="provider-badge">{provider.badge}</span></span>
                   <small>{provider.subtitle}</small>
                 </span>
+                {/* Only a row that needs action carries a dot; a green dot on every
+                    configured row was noise, and it took the subtitle's width. */}
                 <span className="provider-trailing">
-                  <span className="provider-badge">{provider.badge}</span>
-                  <span
-                    className={`status-dot ${provider.ready ? "is-ok" : "is-warn"}`}
-                    role="img"
-                    aria-label={provider.ready ? provider.readyLabel : provider.notReadyLabel}
-                  />
+                  {!provider.ready && <span className="status-dot is-warn" role="img" aria-label={provider.notReadyLabel} title={provider.notReadyLabel} />}
                 </span>
               </button>
               {!selectMode && <ProviderRowMenu provider={provider} onDuplicate={onDuplicate} onDelete={onDelete} />}

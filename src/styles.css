@@ -452,7 +452,13 @@ code { color: var(--ink); background: transparent; }
 .provider-icon { width: 40px; height: 40px; border: 1px solid var(--line); border-radius: var(--radius-md); display: grid; place-items: center; background: var(--field); color: var(--icon); transition: border-color var(--fast) var(--ease); }
 .provider-trailing { display: flex; align-items: center; gap: 8px; }
 .provider-copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.provider-copy strong { font-size: var(--text-md); font-weight: 680; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.provider-name-line { min-width: 0; display: flex; align-items: center; gap: 6px; }
+/* On the name line the badge must not be taller than the name, or every badged
+   row grows. Its CJK label sets a taller line than a Latin name (17px against 15px
+   at 13px, measured), so it drops its vertical padding and lends the line 1px each
+   way: the pill still reads 17px, the row keeps its height. */
+.provider-name-line .provider-badge { flex: none; padding-block: 0; margin-block: -1px; }
+.provider-copy strong { min-width: 0; font-size: var(--text-md); font-weight: 680; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .provider-copy small { font-size: var(--text-xs); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .list-empty { margin: 6px 6px 0; color: var(--ink-3); font-size: var(--text-sm); line-height: 1.6; }
 .link-button { border: 0; background: transparent; padding: 0; color: var(--blue); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
@@ -465,15 +471,11 @@ code { color: var(--ink); background: transparent; }
 .list-empty-first span { max-width: 240px; }
 .status-ok { color: var(--green); }
 .status-warn { color: var(--status-warn); }
-/* A single dot carries the connectivity read: green when the credential is in
-   place, amber when it still needs one. The orange 生效中/默认 badge beside it is a
-   different fact (which one is live), so the two no longer read as one crowded
-   cluster of ticks. */
+/* The dot appears only on a row that still needs a credential: amber with a soft
+   ring, so the one row asking for action is visible at a glance. Configured rows
+   carry no dot. The orange 生效中/默认 badge sits on the name line; it is a
+   different fact (which one is live). */
 .status-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; }
-.status-dot.is-ok { background: var(--green); }
-/* The amber "needs a credential" state is the one worth catching, so it carries a
-   soft ring the ready green does not: same read at a glance, more weight on the
-   dot that asks for action. */
 .status-dot.is-warn { background: var(--status-warn); box-shadow: 0 0 0 3px var(--warn-bg), 0 0 0 4px var(--warn-border); }
 
 .beginner-tip { position: relative; margin-top: auto; border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 14px 30px 14px 14px; display: flex; gap: 10px; color: var(--tip-text); background: var(--surface-warm); }
