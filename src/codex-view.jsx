@@ -859,15 +859,15 @@ export function CodexDeleteDialog({ provider, codex, deleting, requestError, con
         )}
         <ErrorBanner message={localError || requestError} conflict={conflict && !localError} />
         <div className="modal-actions">
-          <button type="button" ref={cancelRef} className="secondary-button" disabled={deleting} onClick={onClose}>取消</button>
+          <button type="button" ref={cancelRef} className="secondary-button button-md" disabled={deleting} onClick={onClose}>取消</button>
           <button
             type="button"
-            className="danger-button"
+            className="danger-button button-md"
             disabled={deleting}
             aria-disabled={blocked || deleting}
             onClick={confirm}
           >
-            {deleting ? <><Spinner />正在删除…</> : <><Trash size={18} />删除供应商</>}
+            {deleting ? <><Spinner />正在删除…</> : <><Trash size={16} />删除供应商</>}
           </button>
         </div>
       </section>
@@ -927,10 +927,10 @@ export function CodexProviderBulkDeleteDialog({ providerIds, codex, deleting, re
         )}
         <ErrorBanner message={requestError} conflict={conflict} />
         <div className="modal-actions">
-          <button type="button" ref={cancelRef} className="secondary-button" disabled={deleting} onClick={onClose}>取消</button>
+          <button type="button" ref={cancelRef} className="secondary-button button-md" disabled={deleting} onClick={onClose}>取消</button>
           <button
             type="button"
-            className="primary-button is-destructive"
+            className="primary-button is-destructive button-md"
             disabled={deleting || blocked}
             onClick={() => onConfirm({ providerIds, replacementProviderId: activeIncluded ? replacementProviderId : undefined })}
           >

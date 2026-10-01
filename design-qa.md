@@ -36,6 +36,16 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## Type and Button Scale, Second Slice: Dialogs — 2026-10-01
+
+- Scope: every dialog's buttons. 获取模型, 批量添加模型, Pi delete and bulk delete, Codex delete and bulk delete, and Claude delete. `.button-sm` was added. The owner approved the first slice (#144) before this one started.
+- Measured on the production build, served by `server.mjs` with `PI_PROVIDER_MANAGER_SERVE_UI=1` and isolated directories, under `?demo=1` (layout only), light and dark, 1440×900 and 390×844:
+  - Action rows went from 44px at 16px/700 with 18px trash icons to 40px at 14px/600 with 16px icons. 取消 is now 62px wide, down from 78px.
+  - In the 获取模型 dialog, the path retry went from 36px at 12px/700 to 40px at 14px/600, beside the 42px path input. 全选/清空 went from 32px at 12px/700 to 32px at 13px/600.
+  - The 520px rule that stretches the delete dialogs' buttons to full width is unchanged.
+  - Before/after screenshots were sent to the owner for local review and are not committed.
+- Verification on Node `24.18.0`, detached with `setsid`: build passed; `test:server` 98/98; production browser 34/34, including contrast, target size and 12px CJK in both themes.
+
 ## Type and Button Scale, First Slice: Model-Table Toolbar — 2026-10-01
 
 - Scope: item 1 of `docs/plans/ui-consistency.md`, limited to the model-table toolbar in Pi and Codex. The tokens `--text-*` and `--button-*` and the `.button-md` class were added. Nothing else reads them yet.

@@ -29,12 +29,17 @@ above them and far above the 13px body.
 
 - Add `--text-xs/sm/md/lg/xl/2xl` (12/13/14/16/18/24) beside the spacing and radius tokens.
 - Add three button sizes (32/40/44px), weight 600.
-- **First slice (done, awaiting owner approval):** the tokens above, `--button-sm/md/lg`, and a
-  `.button-md` size class (40px, 14px/600, 16px icons). Every button in the model-table toolbar uses it, in Pi
-  (全部用安全值, 获取模型, 批量添加, 添加模型) and Codex (批量添加, 添加模型), because they share one toolbar
-  row. At 600px and below the icon-only buttons are 40×40 instead of 44×44.
-- Next, only after approval: move other button groups onto `.button-sm/md/lg` and other text onto the
-  `--text-*` tokens, one surface at a time.
+- **Slice 1, shipped and approved (#144):** the tokens above, `--button-sm/md/lg`, and a `.button-md` size
+  class (40px, 14px/600, 16px icons) on every model-table toolbar button in Pi and Codex. At 600px and below
+  the icon-only buttons are 40×40.
+- **Slice 2 (done, awaiting owner approval): dialogs.** Adds `.button-sm` (32px, 13px/600). Every dialog's
+  action row uses `.button-md`: 获取模型, 批量添加模型, and the Pi, Codex and Claude single and bulk provider
+  delete dialogs. The 获取模型 path retry is `.button-md`, and its 全选/清空 helpers are `.button-sm`.
+- Remaining groups, one per slice after approval: the wizard, success and settings footers (44px at
+  16px/700, candidates for a `.button-lg`); the step-3 advanced panel (User-Agent and Beta helpers at
+  36px/12px beside 编辑原始配置 at 44px/16px), the JSON and Codex `config.toml` editors; the sidebar
+  bulk-action bar (34px/12px); the Codex bridge start/stop pair; the success screen's copy button. The
+  provider summary's 复制供应商/删除供应商 belong to item 2. Then text outside buttons onto `--text-*`.
 - Accept when every changed rule reads a scale token, and CJK text stays at 12px or above.
 
 ## 2. Claude Code summary, footer and settings parity (visual, converging on existing Pi/Codex look)

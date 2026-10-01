@@ -1478,7 +1478,7 @@ function DiscoverModal({ baseUrl, defaultPath, existingIds, onDiscover, onClose,
                 autoCorrect="off"
                 autoComplete="off"
               />
-              <button type="button" className="outline-button compact-button" onClick={retry}><ArrowsClockwise size={16} />用这个路径重试</button>
+              <button type="button" className="outline-button button-md" onClick={retry}><ArrowsClockwise size={16} />用这个路径重试</button>
             </span>
           </label>
         )}
@@ -1503,15 +1503,15 @@ function DiscoverModal({ baseUrl, defaultPath, existingIds, onDiscover, onClose,
         <div className="modal-actions">
           {status === "ready" && (
             <div className="discover-bulk-actions">
-              <button type="button" className="outline-button compact-button" onClick={selectVisible} disabled={selectable.length === 0}>全选{needle ? "匹配项" : ""}</button>
-              <button type="button" className="outline-button compact-button" onClick={clearSelection} disabled={chosen.length === 0}>清空</button>
+              <button type="button" className="outline-button button-sm" onClick={selectVisible} disabled={selectable.length === 0}>全选{needle ? "匹配项" : ""}</button>
+              <button type="button" className="outline-button button-sm" onClick={clearSelection} disabled={chosen.length === 0}>清空</button>
             </div>
           )}
           <span className="modal-count" aria-live="polite">
             {status === "ready" ? (models.length === 0 ? "没有可导入的模型" : `网关返回 ${models.length} 个模型，已选 ${chosen.length} 个`) : ""}
           </span>
-          <button type="button" className="secondary-button" onClick={onClose} disabled={status === "loading"}>取消</button>
-          <button type="button" className="primary-button" disabled={chosen.length === 0} onClick={() => onImport(chosen)}>{chosen.length > 0 ? `导入 ${chosen.length} 个模型` : "导入模型"}</button>
+          <button type="button" className="secondary-button button-md" onClick={onClose} disabled={status === "loading"}>取消</button>
+          <button type="button" className="primary-button button-md" disabled={chosen.length === 0} onClick={() => onImport(chosen)}>{chosen.length > 0 ? `导入 ${chosen.length} 个模型` : "导入模型"}</button>
         </div>
       </section>
     </div>
@@ -1593,9 +1593,9 @@ function ProviderDeleteDialog({ provider, state, deleting, requestError, conflic
         <ErrorBanner message={localError || requestError} conflict={conflict && !localError} />
 
         <div className="modal-actions">
-          <button ref={cancelRef} type="button" className="secondary-button" disabled={deleting} onClick={onClose}>取消</button>
-          <button type="button" className="danger-button" disabled={deleting} aria-disabled={!canDelete || deleting} onClick={confirm}>
-            {deleting ? <><Spinner />正在删除…</> : <><Trash size={18} />确认删除</>}
+          <button ref={cancelRef} type="button" className="secondary-button button-md" disabled={deleting} onClick={onClose}>取消</button>
+          <button type="button" className="danger-button button-md" disabled={deleting} aria-disabled={!canDelete || deleting} onClick={confirm}>
+            {deleting ? <><Spinner />正在删除…</> : <><Trash size={16} />确认删除</>}
           </button>
         </div>
       </section>
@@ -1696,9 +1696,9 @@ function ProviderBulkDeleteDialog({ providerIds, state, deleting, requestError, 
         <ErrorBanner message={localError || requestError} conflict={conflict && !localError} />
 
         <div className="modal-actions">
-          <button ref={cancelRef} type="button" className="secondary-button" disabled={deleting} onClick={onClose}>取消</button>
-          <button type="button" className="danger-button" disabled={deleting} aria-disabled={!canDelete || deleting} onClick={confirm}>
-            {deleting ? <><Spinner />正在删除…</> : <><Trash size={18} />删除 {chosen.length} 个供应商</>}
+          <button ref={cancelRef} type="button" className="secondary-button button-md" disabled={deleting} onClick={onClose}>取消</button>
+          <button type="button" className="danger-button button-md" disabled={deleting} aria-disabled={!canDelete || deleting} onClick={confirm}>
+            {deleting ? <><Spinner />正在删除…</> : <><Trash size={16} />删除 {chosen.length} 个供应商</>}
           </button>
         </div>
       </section>
