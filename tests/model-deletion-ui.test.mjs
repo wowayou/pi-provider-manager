@@ -4339,7 +4339,7 @@ test("Claude Code production workflow: create, rename, duplicate, switch, delete
     assert.equal(stored().env.ANTHROPIC_AUTH_TOKEN, "dummy-browser-claude-key");
     assert.equal(JSON.parse(fs.readFileSync(path.join(claudeDir, "pi-provider-manager-store.json"))).providers["ui-router"], undefined);
     await click(".success-actions button", "返回配置");
-    await click(".gateway-actions button", "复制供应商");
+    await click(".gateway-side button", "复制供应商");
     await cdp.waitFor("document.querySelector('.key-input input')");
     assert.equal(await cdp.evaluate("document.querySelector('.key-input input').value"), "");
     assert.equal(await cdp.evaluate('document.querySelector("[name=providerId]").value'), "ui-renamed-copy");
@@ -4356,7 +4356,7 @@ test("Claude Code production workflow: create, rename, duplicate, switch, delete
     await cdp.waitFor("document.querySelector('.success-page h1')?.textContent === '已设为 Claude Code 全局默认'");
     assert.equal(stored().env.ANTHROPIC_AUTH_TOKEN, "dummy-browser-copy-key");
     await click(".success-actions button", "返回配置");
-    await click(".gateway-actions button", "删除供应商");
+    await click(".gateway-side button", "删除供应商");
     await cdp.waitFor("document.querySelector('[role=dialog]')");
     await cdp.waitFor("document.activeElement?.textContent === '取消'");
     assert.equal(await cdp.evaluate("document.activeElement.textContent"), "取消");
@@ -4365,9 +4365,9 @@ test("Claude Code production workflow: create, rename, duplicate, switch, delete
     assert.equal(stored().env.ANTHROPIC_AUTH_TOKEN, "dummy-browser-claude-key");
     await click(".nav-settings", "设置与兼容性");
     await fill('.settings-card input', "简体中文");
-    await click(".wizard-footer button", "保存设置");
-    await cdp.waitFor("document.querySelector('.wizard-footer .primary-button').disabled");
-    await cdp.waitFor("document.querySelector('.footer-note')?.textContent === '与已读取的设置一致'");
+    await click(".settings-footer button", "保存设置");
+    await cdp.waitFor("document.querySelector('.settings-footer .primary-button').disabled");
+    await cdp.waitFor("document.querySelector('.settings-footer .dirty-note')?.textContent === '与已读取的设置一致'");
     assert.equal(stored().language, "简体中文");
     await click(".nav-prompts", "提示词");
     await fill('.prompt-editor input', "Claude 日常规则");

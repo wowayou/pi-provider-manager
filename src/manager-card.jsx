@@ -11,7 +11,7 @@
 import { useEffect, useState } from "react";
 import { ArrowsClockwise, Check, CheckCircle, CloudArrowDown, WarningCircle, X } from "@phosphor-icons/react";
 
-import { readApiResponse, Spinner } from "./ui-kit.jsx";
+import { KeyValueList, readApiResponse, Spinner } from "./ui-kit.jsx";
 
 export function ManagerCard({ state, demoMode, edited }) {
   const [updateInfo, setUpdateInfo] = useState(state.update || {});
@@ -126,11 +126,11 @@ export function ManagerCard({ state, demoMode, edited }) {
   return (
     <section className="settings-card manager-card">
       <h2>管理器与更新</h2>
-      <dl>
-        <div><dt>管理器版本</dt><dd className="mono">{state.compatibility?.appVersion || "unknown"}</dd></div>
-        <div><dt>Node</dt><dd className="mono">{state.compatibility?.nodeVersion || "unknown"}</dd></div>
-        <div><dt>本地服务</dt><dd className="mono">{state.compatibility?.serviceHost || "127.0.0.1"}:{state.compatibility?.servicePort || 43127}</dd></div>
-      </dl>
+      <KeyValueList rows={[
+        { label: "管理器版本", value: state.compatibility?.appVersion || "unknown", mono: true },
+        { label: "Node", value: state.compatibility?.nodeVersion || "unknown", mono: true },
+        { label: "本地服务", value: `${state.compatibility?.serviceHost || "127.0.0.1"}:${state.compatibility?.servicePort || 43127}`, mono: true },
+      ]} />
       {pendingApp && (
         <p className="compat-note is-warning">
           <WarningCircle size={20} weight="fill" />

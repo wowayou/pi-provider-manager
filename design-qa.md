@@ -36,6 +36,22 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## Claude Code Summary, Footer and Settings Parity — 2026-10-01
+
+- Scope: item 2 of `docs/plans/ui-consistency.md`. `ProviderSummary`, `WizardFooter` and `KeyValueList` were added to `ui-kit.jsx`.
+  - Pi uses all three: step 3 and its settings.
+  - Codex uses all three: step 3 and its settings.
+  - The shared manager card uses `KeyValueList`.
+  - Claude uses all three: step 3, every wizard step's footer, and settings, where the footer also became the `settings-footer`.
+  - `.compact-button` and the two Claude-only summary rules were removed once nothing used them.
+- Extraction check: the 25-screen capture of a `main` build was compared pixel by pixel with the extracted build before any size change.
+  - Every Pi screen was identical.
+  - Codex differed only in a 9×8px patch where `model_providers.custom` became one text node instead of two. That is a sub-pixel antialiasing change at the dot, not a visible one.
+  - The other differences matched the 2px strips two captures of one build already disagree on.
+- Then 复制供应商 and 删除供应商 moved onto the scale: from 36px at 16px/700 to `--button-md` at 14px/600, and at 600px and below to `--button-sm` at 13px. Before, only delete shrank there, to 34px. The element diff showed only these two buttons change.
+- Claude now matches Pi and Codex. Its step-3 summary carries the icon, the auth-type badge (a button back to step 1 once saved), the address (a button to step 2 once saved), the credential status, and the outlined actions. The footer note is 13px grey beside the actions. Its 390px footer, which wrapped to two rows with the longer 已读取保存的配置, fits one row with 没有改动.
+- Verification on Node `24.18.0`, detached with `setsid`: build passed; `test:server` 99/99; `test:claude` 32 passed, 2 Windows-only skips; production browser 34/34. The Claude production workflow case now finds the summary actions under `.gateway-side` and the settings note under `.settings-footer .dirty-note`, with the same text asserted.
+
 ## Type Scale for Text — 2026-10-01
 
 - Scope: every `font-size` in `src/styles.css`, plus the one `font` shorthand, now reads a `--text-*` token.

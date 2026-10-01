@@ -1,9 +1,9 @@
-// Pieces the Pi and Codex workspaces both use. They live here rather than in
-// App.jsx so the Codex view can import them without the two files importing
-// each other.
+// Pieces the Pi, Codex and Claude Code workspaces share. They live here rather
+// than in App.jsx so the other views can import them without the files
+// importing each other.
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowsClockwise, CheckCircle, CircleNotch, Eye, EyeSlash, Key, WarningCircle, X } from "@phosphor-icons/react";
+import { ArrowLeft, ArrowsClockwise, CheckCircle, CircleNotch, Copy, Eye, EyeSlash, Key, ShieldCheck, Trash, WarningCircle, X } from "@phosphor-icons/react";
 
 // Marks which edges of a scroll container have content beyond them, so the
 // list can fade there. A list that clips mid-row with no cue reads as a
@@ -32,6 +32,51 @@ export function useScrollEdges(ref, signal) {
     };
   }, [ref, signal]);
   return edges;
+}
+
+// The summary that opens step 3 in every target: what the provider is, whether
+// its credential is stored, and the copy/delete actions. Each target fills the
+// slots; the anatomy and the two actions stay one implementation, so a target
+// cannot drift into its own button styles again.
+export function ProviderSummary({ icon, name, badge, address, children, credential, onDuplicate, duplicateTitle, onDelete }) {
+  return (
+    <div className="gateway-summary">
+      <span className="summary-icon">{icon}</span>
+      <div><strong>{name}</strong>{badge}{address}{children}</div>
+      <div className="gateway-side">
+        <div className="saved-credential"><ShieldCheck size={29} weight="duotone" /><span><strong>{credential.title}</strong><small>{credential.detail}</small></span></div>
+        {onDuplicate && (
+          <button type="button" className="duplicate-provider-button" onClick={onDuplicate} title={duplicateTitle}>
+            <Copy size={16} />复制供应商
+          </button>
+        )}
+        {onDelete && (
+          <button type="button" className="delete-provider-button" onClick={() => onDelete()}>
+            <Trash size={16} />删除供应商
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Back on the left; on the right an optional state note beside the actions,
+// small and grey, so the primary action stays the loudest thing in the footer.
+export function WizardFooter({ onBack, backDisabled = false, note, children }) {
+  return (
+    <footer className="wizard-footer">
+      {onBack ? <button type="button" className="secondary-button" disabled={backDisabled} onClick={onBack}><ArrowLeft size={19} />上一步</button> : <span />}
+      <div className="footer-end">
+        {note && <span className="dirty-note" aria-live="polite">{note}</span>}
+        {children}
+      </div>
+    </footer>
+  );
+}
+
+// The key–value rows of a settings card (`.compatibility-card`, `.manager-card`).
+export function KeyValueList({ rows }) {
+  return <dl>{rows.map(({ label, value, mono, title }) => <div key={label}><dt>{label}</dt><dd className={mono ? "mono" : undefined} title={title}>{value}</dd></div>)}</dl>;
 }
 
 export function Spinner({ size = 18 }) {

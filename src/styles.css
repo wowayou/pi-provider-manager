@@ -705,11 +705,11 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .saved-credential span { display: flex; flex-direction: column; gap: 3px; }
 .saved-credential small { color: var(--muted); }
 .gateway-side { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 16px; margin-left: auto; }
-.delete-provider-button { min-height: 36px; border: 1px solid var(--danger-border); border-radius: var(--radius-md); background: var(--danger-bg); color: var(--danger-text); padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; white-space: nowrap; font-weight: 700; transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease); }
+.delete-provider-button { min-height: var(--button-md); border: 1px solid var(--danger-border); border-radius: var(--radius-md); background: var(--danger-bg); color: var(--danger-text); padding: 0 var(--space-4); display: inline-flex; align-items: center; justify-content: center; gap: 7px; white-space: nowrap; font-size: var(--text-md); font-weight: 600; transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease); }
 .delete-provider-button:hover { border-color: var(--danger-solid); background: var(--danger-solid); color: var(--on-brand); }
 /* The duplicate sits beside delete as its calm counterpart: same geometry,
    neutral palette — a copy is a safe act, so it must not read as a danger. */
-.duplicate-provider-button { min-height: 36px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--field); color: var(--ink-2); padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; white-space: nowrap; font-weight: 700; transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease); }
+.duplicate-provider-button { min-height: var(--button-md); border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--field); color: var(--ink-2); padding: 0 var(--space-4); display: inline-flex; align-items: center; justify-content: center; gap: 7px; white-space: nowrap; font-size: var(--text-md); font-weight: 600; transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease); }
 .duplicate-provider-button:hover { border-color: var(--border-hover); background: var(--surface-soft); color: var(--ink); }
 
 .models-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 32px 0 12px; }
@@ -719,7 +719,6 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
 .model-filter:focus-visible { outline: none; border-color: var(--orange); box-shadow: var(--ring); }
 .protocol-add-field select { max-width: 100%; }
 .models-actions { display: flex; flex-wrap: wrap; gap: 9px; }
-.compact-button { min-height: 44px; padding-inline: 15px; }
 
 .models-table { max-height: 396px; border: 1px solid var(--divider); border-radius: var(--radius-md); overflow: auto; background: var(--field); box-shadow: var(--shadow-card); }
 .model-table-head, .model-row { display: grid; grid-template-columns: minmax(170px, 1.5fr) minmax(130px, 1fr) minmax(130px, 1fr) minmax(110px, .8fr) minmax(145px, 1fr) 86px 52px; gap: 10px; }
@@ -1177,7 +1176,7 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
   .saved-credential svg { width: 22px; height: 22px; }
   .saved-credential strong { font-size: var(--text-md); }
   .gateway-side { gap: 10px; }
-  .delete-provider-button { min-height: 34px; }
+  .duplicate-provider-button, .delete-provider-button { min-height: var(--button-sm); padding-inline: var(--space-3); font-size: var(--text-sm); }
   .models-actions { flex-wrap: nowrap; justify-content: flex-end; }
   .models-actions > * { flex: 0 0 var(--button-md); width: var(--button-md); padding-inline: 0; }
   .models-actions .button-label { display: none; }
@@ -1275,8 +1274,6 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
 .claude-wizard .radio-card { flex-direction: row; align-items: center; gap: var(--space-2); cursor: pointer; }
 .claude-wizard .radio-card small { display: block; margin-top: var(--space-1); }
 .claude-wizard .gateway-summary { margin-bottom: var(--space-6); }
-.claude-wizard .gateway-summary > div { min-width: 0; }
-.claude-wizard .gateway-summary button.mono { max-width: 100%; overflow-wrap: anywhere; height: auto; min-height: 32px; text-align: left; }
 .claude-wizard .advanced-panel > p, .claude-wizard .advanced-panel > .form-grid { margin: var(--space-4); }
 .target-switch button { white-space: nowrap; }
 
