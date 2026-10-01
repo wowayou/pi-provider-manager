@@ -29,8 +29,12 @@ above them and far above the 13px body.
 
 - Add `--text-xs/sm/md/lg/xl/2xl` (12/13/14/16/18/24) beside the spacing and radius tokens.
 - Add three button sizes (32/40/44px), weight 600.
-- **First slice:** move only the model-table toolbar buttons to the 40px size at 14px. Compare, get
-  approval, then extend.
+- **First slice (done, awaiting owner approval):** the tokens above, `--button-sm/md/lg`, and a
+  `.button-md` size class (40px, 14px/600, 16px icons). Every button in the model-table toolbar uses it, in Pi
+  (全部用安全值, 获取模型, 批量添加, 添加模型) and Codex (批量添加, 添加模型), because they share one toolbar
+  row. At 600px and below the icon-only buttons are 40×40 instead of 44×44.
+- Next, only after approval: move other button groups onto `.button-sm/md/lg` and other text onto the
+  `--text-*` tokens, one surface at a time.
 - Accept when every changed rule reads a scale token, and CJK text stays at 12px or above.
 
 ## 2. Claude Code summary, footer and settings parity (visual, converging on existing Pi/Codex look)

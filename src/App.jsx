@@ -1265,10 +1265,10 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
         <div className="models-header">
           <div><h2>模型列表<span className="count-pill">{showModelFilter && modelFilterText ? `匹配 ${visibleModels.length} / 共 ${form.models.length}` : namedModels}</span></h2><p>Pi 以 provider/model 选择模型，thinking level 是独立设置。</p>{showModelFilter && <input className="model-filter mono" type="search" value={modelFilter} onChange={(event) => setModelFilter(event.target.value)} placeholder="筛选模型 ID" aria-label="筛选模型 ID" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />}</div>
           <div className="models-actions">
-            <button type="button" className="secondary-button compact-button" onClick={applySafeToAll} title="把所有模型的上下文容量与最大输出改为安全值，可撤销" aria-label="全部用安全值"><ShieldCheck size={18} /><span className="button-label">全部用安全值</span></button>
-            <button type="button" className="secondary-button compact-button" onClick={() => setShowDiscover(true)} title="向网关请求模型清单，勾选后加入列表" aria-label="获取模型"><CloudArrowDown size={18} /><span className="button-label">获取模型</span></button>
-            <button type="button" className="secondary-button compact-button" onClick={() => setShowBulk(true)} title="批量添加模型 ID" aria-label="批量添加"><ListPlus size={18} /><span className="button-label">批量添加</span></button>
-            <button type="button" className="outline-button compact-button" onClick={addModel} title="添加模型" aria-label="添加模型"><Plus size={19} /><span className="button-label">添加模型</span></button>
+            <button type="button" className="secondary-button button-md" onClick={applySafeToAll} title="把所有模型的上下文容量与最大输出改为安全值，可撤销" aria-label="全部用安全值"><ShieldCheck size={16} /><span className="button-label">全部用安全值</span></button>
+            <button type="button" className="secondary-button button-md" onClick={() => setShowDiscover(true)} title="向网关请求模型清单，勾选后加入列表" aria-label="获取模型"><CloudArrowDown size={16} /><span className="button-label">获取模型</span></button>
+            <button type="button" className="secondary-button button-md" onClick={() => setShowBulk(true)} title="批量添加模型 ID" aria-label="批量添加"><ListPlus size={16} /><span className="button-label">批量添加</span></button>
+            <button type="button" className="outline-button button-md" onClick={addModel} title="添加模型" aria-label="添加模型"><Plus size={16} /><span className="button-label">添加模型</span></button>
           </div>
         </div>
         {thinkingAliasModels.length > 0 && <div className="model-warning"><WarningCircle size={20} weight="fill" /><span><strong>发现疑似思考档位后缀：</strong>{thinkingAliasModels.map((model) => model.id).join("、")}。只有网关真的把它们作为模型 ID 时才应保留；否则用右侧“推理能力”和 Pi 的 Shift+Tab 切换。</span></div>}
