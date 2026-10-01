@@ -36,6 +36,21 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## UI Loose Ends — 2026-10-01
+
+- **Sidebar selection bar.** Measured in `?demo=1` with all nine providers selected.
+  - Before, at 1440px, the bar was 295px wide while its items needed 296px, so 取消全选 took two lines. At 1024px and 900px the bar was 215px; 已选 9 个 was squeezed to 12px wide, one character per line, and the bar was 87px tall.
+  - Now the bar is a two-row grid: selection and count on top, buttons right-aligned below, with `white-space: nowrap` on the labels. It is 77px at all three widths.
+  - The bulk-delete browser case now runs at 1024px and asserts every text node in the bar has one line box. Against the old build that assertion reported 全选 and 已选; it passes now.
+- **Demo Anthropic URL.** `discoveryRequest` derives `https://api.any-claude.com/v1/v1/models?limit=1000` for the demo's old base URL, so the demo showed what the server would really request. The data was wrong: Pi appends `/v1/messages` to an Anthropic base URL. The demo base URL is now `https://api.any-claude.com`, and the dialog shows `…/v1/models?limit=1000`.
+- **Demo delete dialog.** It says no other provider has models. Checked, not a defect: the other eight demo Pi providers have `models: []`.
+- **Bridge buttons.** Measured in the real `a saved bridged Codex provider gets its bridge control` flow: 启动桥 is 40px at 14px/600. Its 18px icon is now 16px, like the other `.button-md` buttons. A scan of every `.button-md` and `.button-sm` button found no other icon above 16px.
+- **Stale test comment.** The #147 comment in the deletion case described the scroll reset as running in an animation frame; since #150 it runs at commit. The comment now says so. The two-frame wait stays as a guard.
+- Verification on Node `24.18.0`: full `npm test`, detached with `setsid`, exit 0.
+  - Server 99, Codex 75, Claude 34 (32 passed, 2 Windows-only skips), prompts 12, Sites 4, Pi update 8, release 1, launchers 8 (7 passed; 1 skip, no Windows PowerShell on this machine).
+  - Production browser 35.
+  - Real Codex `0.149.0` 5/5, including the LiteLLM bridge. Real Pi `0.99.1` 2/2. Real Claude Code `2.1.286` 10/10, including the three pty cases.
+
 ## Save From Any Step — 2026-10-01
 
 - Scope: item 4, the last item of the UI consistency plan; the plan file is removed with this change, and its items are recorded in the entries below. The owner approved the behaviour change on 2026-10-01.

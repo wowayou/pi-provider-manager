@@ -13,6 +13,9 @@
   - Claude settings show 配置范围 as key–value rows (配置目录, 路径来源, 全局默认) with the save button in the settings footer.
   - 复制供应商 and 删除供应商 move onto the button scale in all three targets: 40px at 14px, and 32px at 13px at 600px and below. They were 36px at 16px/700, and only 删除供应商 shrank, to 34px, on narrow screens.
   - Pi and Codex screens were pixel-compared before and after the extraction.
+- **The sidebar's selection bar no longer crushes its labels.** Its four items need about 296px on one row. The sidebar leaves 295px at 1440px, which folded 取消全选 onto two lines, and 215px at 1024px, where 已选 N 个 shrank to one character per line and the bar grew to 87px. It is now two rows at every width (selection and count, then 取消 and 删除 (N)), 77px tall, with labels that never wrap. The bulk-delete browser case runs at 1024px and checks that every label stays on one line; it failed against the old bar.
+- **Demo data: the Anthropic provider's base URL stops before `/v1`.** Pi appends `/v1/messages` and discovery `/v1/models` to an Anthropic base URL, so the demo's `https://api.any-claude.com/v1` showed `…/v1/v1/models` in the 获取模型 dialog, the page screenshots come from. Demo only; real derivation is unchanged.
+- **The bridge start/stop buttons use the 16px icon of the other `.button-md` buttons.** Measured in the real bridged-provider flow (`?demo=1` does not render them): 40px at 14px/600, as intended, with an 18px icon.
 - **A saved provider can be saved from any wizard step.** Editing a saved provider in Pi, Codex or Claude Code now offers 保存更改 on steps 1 and 2 as well, next to 下一步 and disabled until something changes, so changing a Base URL no longer needs a trip to step 3.
   - It is the same save as step 3's: every step's checks still run. A refusal that belongs to step 3, such as an over-long User-Agent, moves there and focuses the field.
   - A 409 is reported on the step you saved from, with its 重新读取 action.
