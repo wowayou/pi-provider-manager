@@ -32,7 +32,7 @@ import { providerDraftIdentity } from "./model-draft.mjs";
 import { TomlDocument } from "../lib/toml-document.mjs";
 import { isLoopbackHostname } from "../lib/validation.mjs";
 import { ManagerCard } from "./manager-card.jsx";
-import { BulkModal, ConfigEditor, ErrorBanner, KeyValueList, PasswordInput, ProviderSummary, Spinner, WizardFooter, createRadioKeyHandler, formatJson, isValidTokens, parseTokens, titleFromId, useDialog, validateJson } from "./ui-kit.jsx";
+import { BulkModal, ConfigEditor, ErrorBanner, KeyValueList, PasswordInput, ProviderSummary, Spinner, StepFooter, WizardFooter, createRadioKeyHandler, formatJson, isValidTokens, parseTokens, titleFromId, useDialog, validateJson } from "./ui-kit.jsx";
 
 
 const UPSTREAM_OPTIONS = [
@@ -175,7 +175,7 @@ export function CodexStepper({ step, onStep, allowJump }) {
   );
 }
 
-function UpstreamStep({ form, setForm, codexVersion, onNext }) {
+function UpstreamStep({ form, setForm, codexVersion, error, conflict, saving, dirty, onNext, onSaveChanges }) {
   const [showHint, setShowHint] = useState(false);
   const cardRefs = useRef([]);
   const selectedIndex = Math.max(0, UPSTREAM_OPTIONS.findIndex((option) => option.id === form.upstream));
@@ -241,8 +241,9 @@ function UpstreamStep({ form, setForm, codexVersion, onNext }) {
           {codexVersion && codexVersion !== "unknown" && <>检测到你安装的 Codex 是 <code className="mono">{codexVersion}</code>。</>}
           Codex 自 2026 年 2 月起移除了 <code className="mono">chat</code>，写入该值会让整份 config.toml 解析失败。</span>
         </div>
+        <ErrorBanner message={error} conflict={conflict} />
       </div>
-      <footer className="wizard-footer"><span /><button type="button" className="primary-button" onClick={onNext}>下一步<ArrowRight size={19} /></button></footer>
+      <StepFooter onNext={onNext} onSave={onSaveChanges} dirty={dirty} saving={saving} />
     </section>
   );
 }
@@ -313,7 +314,7 @@ function BridgeControl({ codex, providerId, onStart, onStop, onNotify }) {
   );
 }
 
-function CodexCredentialsStep({ form, setForm, codex, selectedId, error, conflict, onBack, onNext, onNotify, onStartBridge, onStopBridge }) {
+function CodexCredentialsStep({ form, setForm, codex, selectedId, error, conflict, saving, dirty, onBack, onNext, onSaveChanges, onNotify, onStartBridge, onStopBridge }) {
   const [snippet, setSnippet] = useState("");
   const [showSnippet, setShowSnippet] = useState(false);
   const providerIdRef = useRef(null);
@@ -492,7 +493,7 @@ function CodexCredentialsStep({ form, setForm, codex, selectedId, error, conflic
         </div>
         <ErrorBanner message={error} conflict={conflict} />
       </div>
-      <footer className="wizard-footer"><button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={19} />上一步</button><button type="button" className="primary-button" onClick={onNext}>下一步<ArrowRight size={19} /></button></footer>
+      <StepFooter onBack={onBack} onNext={onNext} onSave={onSaveChanges} dirty={dirty} saving={saving} />
     </section>
   );
 }
@@ -798,7 +799,7 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
 }
 
 export function CodexWizard(props) {
-  if (props.step === 1) return <UpstreamStep form={props.form} setForm={props.setForm} codexVersion={props.codexVersion} onNext={props.onNext} />;
+  if (props.step === 1) return <UpstreamStep form={props.form} setForm={props.setForm} codexVersion={props.codexVersion} error={props.error} conflict={props.conflict} saving={props.saving} dirty={props.dirty} onNext={props.onNext} onSaveChanges={props.onSaveChanges} />;
   if (props.step === 2) return <CodexCredentialsStep {...props} />;
   return <CodexModelsStep {...props} />;
 }

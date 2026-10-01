@@ -3468,6 +3468,135 @@ test("editing a saved provider jumps steps, focuses invalid fields, and moves th
   }
 });
 
+test("a saved provider saves from steps 1 and 2; a new draft keeps the three-step flow", { timeout: 120_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-early-save-"));
+  const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-early-save-codex-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-early-save-"));
+  writeFixture(agentDir);
+  fs.writeFileSync(path.join(codexDir, "config.toml"), CODEX_FIXTURE);
+  const modelsPath = path.join(agentDir, "models.json");
+  const readJson = (name) => JSON.parse(fs.readFileSync(path.join(agentDir, name), "utf8"));
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server; let chrome; let cdp; let serverOutput = "";
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: codexDir, PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
+    chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl("http://127.0.0.1:" + debugPort + "/json/version", 30_000);
+    const target = await fetch("http://127.0.0.1:" + debugPort + "/json/new?" + encodeURIComponent("http://127.0.0.1:" + appPort), { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl); await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.send("Page.navigate", { url: "http://127.0.0.1:" + appPort });
+    const clickText = (selector, text) => cdp.evaluate("[...document.querySelectorAll(" + JSON.stringify(selector) + ")].find((node) => node.textContent.includes(" + JSON.stringify(text) + ")).click()");
+    const setValue = (selector, value) => cdp.evaluate("(() => { const input = document.querySelector(" + JSON.stringify(selector) + "); const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(input, " + JSON.stringify(value) + "); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+    const footer = () => cdp.evaluate(`(() => {
+      const save = [...document.querySelectorAll('.wizard-footer button')].find((node) => node.textContent.includes('保存更改'));
+      return { save: save ? { disabled: save.disabled, variant: save.className } : null, note: document.querySelector('.wizard-footer .dirty-note')?.textContent || "" };
+    })()`);
+    const jump = (index) => cdp.evaluate("document.querySelectorAll('.stepper .step')[" + index + "].click()");
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
+
+    // A new draft keeps the three-step flow: nothing to save on steps 1 and 2.
+    await cdp.evaluate("document.querySelector('.add-provider').click()");
+    await cdp.waitFor("document.querySelector('.protocol-grid')");
+    assert.deepEqual(await footer(), { save: null, note: "" });
+    await clickText(".wizard-footer .primary-button", "下一步");
+    await cdp.waitFor("document.querySelector('.form-grid input[type=url]')");
+    assert.deepEqual(await footer(), { save: null, note: "" });
+    await cdp.evaluate("[...document.querySelectorAll('.provider-select')].find((node) => node.title.includes('review-router')).click()");
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
+
+    // A saved provider offers 保存更改 on step 2, idle until something changes,
+    // and a Base URL edit saves from there without visiting step 3.
+    await jump(1);
+    await cdp.waitFor("document.querySelector('.form-grid input[type=url]')");
+    assert.deepEqual(await footer(), { save: { disabled: true, variant: "outline-button" }, note: "没有改动" });
+    await setValue(".form-grid input[type=url]", "https://router-moved.example/v1");
+    assert.deepEqual(await footer(), { save: { disabled: false, variant: "outline-button" }, note: "有未保存的修改" });
+    await clickText(".wizard-footer button", "保存更改");
+    await cdp.waitFor("document.querySelector('.success-page')");
+    const moved = readJson("models.json").providers["review-router"];
+    assert.equal(moved.baseUrl, "https://router-moved.example/v1");
+    assert.deepEqual(moved.models.map((model) => model.id), ["anthropic/claude-opus", "openai/gpt-router", "google/gemini-router"]);
+    // Pi's default and the stored key are untouched by a save from step 2.
+    assert.deepEqual(
+      (({ defaultProvider, defaultModel }) => ({ defaultProvider, defaultModel }))(readJson("settings.json")),
+      { defaultProvider: "review-router", defaultModel: "anthropic/claude-opus" },
+    );
+    assert.equal(readJson("auth.json")["review-router"].key, "dummy-browser-test-key");
+
+    // From step 1, a request error is reported on step 1, with the reload a
+    // 409 needs, and the external edit survives.
+    await clickText(".success-page button", "返回供应商详情");
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
+    await jump(0);
+    await cdp.waitFor("document.querySelector('.protocol-grid')");
+    assert.deepEqual(await footer(), { save: { disabled: true, variant: "outline-button" }, note: "没有改动" });
+    await cdp.evaluate("[...document.querySelectorAll('.protocol-card')].find((node) => node.textContent.includes('OpenAI Responses')).click()");
+    const external = readJson("models.json");
+    external.providers["single-router"].baseUrl = "https://single-external.example/v1";
+    fs.writeFileSync(modelsPath, JSON.stringify(external, null, 2) + "\n");
+    const externalText = fs.readFileSync(modelsPath, "utf8");
+    await clickText(".wizard-footer button", "保存更改");
+    await cdp.waitFor("document.querySelector('.protocol-grid') && document.querySelector('.error-banner .banner-reload')");
+    assert.equal(fs.readFileSync(modelsPath, "utf8"), externalText);
+
+    // A refusal that belongs to step 3 moves there and focuses the field, even
+    // from step 2: an over-long User-Agent is the one a saved draft can carry.
+    await cdp.send("Page.reload");
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
+    await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
+    await cdp.waitFor("document.querySelector('.user-agent-field input')");
+    await setValue(".user-agent-field input", " ".repeat(513));
+    await jump(1);
+    await cdp.waitFor("document.querySelector('.form-grid input[type=url]')");
+    const beforeRefusal = fs.readFileSync(modelsPath, "utf8");
+    await clickText(".wizard-footer button", "保存更改");
+    await cdp.waitFor("document.querySelector('.models-table') && document.activeElement === document.querySelector('.user-agent-field input')");
+    // The field ends up on screen: the step change's scroll reset no longer runs
+    // after, and undoes, the scroll that brings it into view.
+    await cdp.waitFor(`(() => {
+      const field = document.querySelector('.user-agent-field input').getBoundingClientRect();
+      const view = document.querySelector('.step-scroll').getBoundingClientRect();
+      return field.top >= view.top && field.bottom <= view.bottom;
+    })()`);
+    assert.equal(await cdp.evaluate("document.querySelector('.user-agent-field input').getAttribute('aria-invalid')"), "true");
+    assert.equal(fs.readFileSync(modelsPath, "utf8"), beforeRefusal);
+    await setValue(".user-agent-field input", "");
+
+    // Codex: the adopted provider saves from step 2 as well, keeping config.toml's
+    // hand-written parts. Its table needs a key of its own; the fixture has none.
+    await clickText(".target-switch button", "Codex");
+    if (await cdp.evaluate("Boolean(document.querySelector('.toast-action'))")) await clickText(".toast-action", "放弃修改并离开");
+    await cdp.waitFor("document.querySelector('.model-row.is-codex')");
+    await jump(1);
+    await cdp.waitFor("document.querySelector('.key-field input')");
+    assert.deepEqual(await footer(), { save: { disabled: true, variant: "outline-button" }, note: "没有改动" });
+    await setValue(".form-grid input[type=url]", "https://codex-moved.example/v1");
+    assert.deepEqual(await footer(), { save: { disabled: false, variant: "outline-button" }, note: "有未保存的修改" });
+    await cdp.evaluate("document.querySelector('.key-field input').focus()");
+    await cdp.send("Input.insertText", { text: "dummy-early-save-key" });
+    await clickText(".wizard-footer button", "保存更改");
+    await cdp.waitFor("document.querySelector('.success-page')");
+    const config = fs.readFileSync(path.join(codexDir, "config.toml"), "utf8");
+    assert.match(config, /base_url = "https:\/\/codex-moved\.example\/v1"/);
+    assert.match(config, /# 我自己写的注释，别动/);
+    assert.match(config, /\[model_providers\.myown\]/);
+
+    assert.deepEqual(cdp.errors, []);
+    assert.equal(serverOutput.includes("Error"), false, serverOutput);
+  } finally {
+    if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }
+    await stopProcess(chrome, true); await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(codexDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
 test("a long model catalogue filters for display only and adds protocol overrides on demand", { timeout: 90_000 }, async () => {
   requireFreshBuiltUi();
   const chromePath = findChrome();
@@ -4317,6 +4446,14 @@ test("Claude Code production workflow: create, rename, duplicate, switch, delete
     assert.equal(await launchCommand(), "CLAUDE_CONFIG_DIR='" + claudeDir.replaceAll("'", "'\\''") + "' claude");
     assert.equal(await cdp.evaluate("Boolean(document.querySelector('.claude-launch-card .compat-note.is-warning'))"), false, "no warning when this provider is the global default");
     assert.equal(await cdp.evaluate("document.querySelector('.claude-launch-card legend').textContent"), "启动方式");
+    await click(".success-actions button", "返回配置");
+    // A saved provider saves from step 2, without visiting step 3.
+    await cdp.evaluate("document.querySelectorAll('.step')[1].click()");
+    await fill('[name="baseUrl"]', "https://ui-router-moved.example");
+    await click(".wizard-footer .outline-button", "保存更改");
+    await cdp.waitFor("document.querySelector('.success-page')");
+    assert.equal(stored().env.ANTHROPIC_BASE_URL, "https://ui-router-moved.example");
+    assert.equal(stored().env.ANTHROPIC_AUTH_TOKEN, "dummy-browser-claude-key");
     await click(".success-actions button", "返回配置");
     await fill('[name="model"]', "unsaved-model");
     await click(".target-switch button", "Pi");

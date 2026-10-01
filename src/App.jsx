@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -47,7 +47,7 @@ import { USER_AGENT_PRESETS } from "./user-agent-presets.mjs";
 import { PromptsScreen } from "./prompts-view.jsx";
 import { useClaude, ClaudeWizard, ClaudeSuccess, ClaudeSettings, ClaudeDeleteDialog } from "./claude-view.jsx";
 import { ManagerCard } from "./manager-card.jsx";
-import { BulkModal, ConfigEditor, ErrorBanner, KeyValueList, PasswordInput, ProviderSummary, Spinner, WizardFooter, createRadioKeyHandler, readApiResponse, titleFromId, useDialog, useScrollEdges, validateJson, formatJson, formatTokens, parseTokens, isValidTokens } from "./ui-kit.jsx";
+import { BulkModal, ConfigEditor, ErrorBanner, KeyValueList, PasswordInput, ProviderSummary, Spinner, StepFooter, WizardFooter, createRadioKeyHandler, readApiResponse, titleFromId, useDialog, useScrollEdges, validateJson, formatJson, formatTokens, parseTokens, isValidTokens } from "./ui-kit.jsx";
 import {
   CodexDeleteDialog,
   CodexProviderBulkDeleteDialog,
@@ -738,7 +738,7 @@ function Sidebar({ state, target, loading, loadFailed, onTarget, onReload, onSel
   );
 }
 
-function ProtocolStep({ form, setForm, onNext }) {
+function ProtocolStep({ form, setForm, error, conflict, saving, dirty, onNext, onSave }) {
   const [showHint, setShowHint] = useState(false);
   const cardRefs = useRef([]);
   const selectedIndex = Math.max(0, API_OPTIONS.findIndex((option) => option.id === form.api));
@@ -802,13 +802,14 @@ function ProtocolStep({ form, setForm, onNext }) {
           })}
         </div>
         <div className="safe-note"><ShieldCheck size={22} weight="duotone" />高级参数会自动使用安全默认值，无需在这里配置。</div>
+        <ErrorBanner message={error} conflict={conflict} />
       </div>
-      <footer className="wizard-footer"><span /><button type="button" className="primary-button" onClick={onNext}>下一步<ArrowRight size={19} /></button></footer>
+      <StepFooter onNext={onNext} onSave={onSave} dirty={dirty} saving={saving} />
     </section>
   );
 }
 
-function CredentialsStep({ form, setForm, state, error, identity, apiFocusRequest, credentialFocus, onBack, onNext }) {
+function CredentialsStep({ form, setForm, state, error, conflict, saving, dirty, identity, apiFocusRequest, credentialFocus, onBack, onNext, onSave }) {
   const sources = state.authProviders.filter((id) => id !== form.providerId);
   const providerIdRef = useRef(null);
   const baseUrlRef = useRef(null);
@@ -854,9 +855,9 @@ function CredentialsStep({ form, setForm, state, error, identity, apiFocusReques
           {form.credentialMode === "migrate" && <div className="migrate-fields"><label><span>选择已有供应商</span><select ref={migrateRef} value={form.migrateFrom} onChange={(event) => setForm((current) => ({ ...current, migrateFrom: event.target.value }))} aria-invalid={erroredField === "migrateFrom" || undefined}>{sources.map((id) => <option key={id} value={id}>{titleFromId(id)} ({id})</option>)}</select></label><label className="checkbox-row"><input type="checkbox" checked={form.moveCredential} onChange={(event) => setForm((current) => ({ ...current, moveCredential: event.target.checked }))} />迁移成功后删除旧条目</label></div>}
         </fieldset>
         </div>
-        <ErrorBanner message={error} id="credential-error-banner" />
+        <ErrorBanner message={error} conflict={conflict} id="credential-error-banner" />
       </div>
-      <footer className="wizard-footer"><button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={19} />上一步</button><button type="button" className="primary-button" onClick={onNext}>下一步<ArrowRight size={19} /></button></footer>
+      <StepFooter onBack={onBack} onNext={onNext} onSave={onSave} dirty={dirty} saving={saving} />
     </section>
   );
 }
@@ -1980,10 +1981,17 @@ export function App() {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [piDirty, codexDirty, claudeFlow.dirty, screenDirty]);
+  // Back to the top when the step or view changes. A layout effect, so the
+  // reset happens at commit — before a child effect or animation frame scrolls
+  // an error banner or an invalid field into view. Run from a frame, it undid
+  // them: a save from step 2 refused by a step-3 check landed on step 3 with
+  // the refused field focused but scrolled off screen.
+  useLayoutEffect(() => {
+    document.querySelector(".step-scroll, .settings-scroll, .success-page")?.scrollTo({ top: 0, behavior: "instant" });
+  }, [view, step, target, codexStep, claudeFlow.step]);
   const firstViewRender = useRef(true);
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
-      document.querySelector(".step-scroll, .settings-scroll, .success-page")?.scrollTo({ top: 0, behavior: "instant" });
       // Moving between steps and views unmounts the control that was focused, so
       // focus falls back to <body> and a screen reader announces nothing. Send
       // it to the new heading instead — unless a field-focus intent (a jump from
@@ -2217,20 +2225,24 @@ export function App() {
     setConflict(false);
     const result = validateCredentials();
     if (result) { failCredentials(result); return; }
-    if (!form.models.some((model) => model.id.trim())) { setError("至少填写一个模型 ID。"); return; }
+    // The remaining checks belong to step 3. A save can start on step 1 or 2,
+    // so a refusal moves there, where the field it names can be fixed.
+    if (!form.models.some((model) => model.id.trim())) { setError("至少填写一个模型 ID。"); setStep(3); return; }
     const userAgentError = userAgentValidationError(form.userAgent);
     if (userAgentError) {
       setError(userAgentError);
+      setStep(3);
       setUserAgentFocusRequest((current) => current + 1);
       return;
     }
     const changedIdentity = changedPersistedModel(form.models);
     if (changedIdentity) {
       setError(<>已保存的模型 ID <code>{changedIdentity.persistedId}</code> 不能直接改名或清空；请添加新模型，再用删除按钮移除旧模型。</>);
+      setStep(3);
       return;
     }
     const selectedModel = selectedNamedModel(form.models, form.defaultRowId);
-    if (!selectedModel) { setError("请选择一个已命名模型作为默认模型。"); return; }
+    if (!selectedModel) { setError("请选择一个已命名模型作为默认模型。"); setStep(3); return; }
     const targetProviderId = form.providerId.trim();
     const targetProvider = state.providers.find((provider) => provider.id === targetProviderId);
     // A draft opened from a stored provider whose ID now differs is a rename of
@@ -2379,6 +2391,10 @@ export function App() {
       setSaving(false);
     }
   };
+
+  // Step 3's 保存更改 for a saved provider: Pi's default keeps setDefault so the
+  // default model follows the radio; any other provider saves without taking it.
+  const savePiChanges = () => save(state.settings.defaultProvider === form.providerId.trim());
 
   const saveSettings = async (draft) => {
     setConflict(false);
@@ -2679,9 +2695,10 @@ export function App() {
     const message = validateCodexCredentials();
     if (message) { setError(message); setCodexStep(2); return; }
     const named = codexForm.models.filter((model) => model.id.trim());
-    if (named.length === 0) { setError("至少填写一个模型 ID。"); return; }
+    // Step-3 checks: a save started on step 1 or 2 moves to the step that owns them.
+    if (named.length === 0) { setError("至少填写一个模型 ID。"); setCodexStep(3); return; }
     const selected = codexForm.models.find((model) => model.rowId === codexForm.defaultRowId && model.id.trim());
-    if (!selected) { setError("请选择一个已命名模型作为该供应商的默认模型。"); return; }
+    if (!selected) { setError("请选择一个已命名模型作为该供应商的默认模型。"); setCodexStep(3); return; }
     // A draft opened from a stored Codex provider whose ID now differs is a
     // rename of that provider, not a fork. The server moves its stored config
     // and active marker together, then relabels any matching bridge runtime
@@ -3149,6 +3166,10 @@ export function App() {
                 onNext={codexStep === 1 ? () => setCodexStep(2) : goToCodexModels}
                 onBack={() => setCodexStep(codexStep - 1)}
                 onSave={saveCodex}
+                dirty={codexDirty}
+                // Step 3's save for a saved provider: the live one stays live,
+                // any other is stored without switching Codex to it.
+                onSaveChanges={codexIdentity.sourceId ? () => saveCodex(Boolean(codexProvider(codexForm.providerId.trim())?.isActive)) : undefined}
                 onNotify={showToast}
                 onDuplicate={duplicateCodexProvider}
                 onStartBridge={() => bridgeAction("start")}
@@ -3160,7 +3181,7 @@ export function App() {
               />
             </>
           )
-        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={goToStep} allowJump={state.providers.some((provider) => provider.id === form.providerId.trim())} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} identity={piIdentity} apiFocusRequest={apiFocusRequest} credentialFocus={credentialFocus} onBack={() => setStep(1)} onNext={goToModels} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} onDiscover={discoverModels} onEditProtocol={() => goToStep(1)} onEditGateway={editGatewayAddress} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} hasProviders={state.providers.length > 0} dirty={piDirty} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} modelHints={state.modelHints?.[piIdentity.ownerId]} userAgentFocusRequest={userAgentFocusRequest} betaFocusRequest={betaFocusRequest} />}</>}
+        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={goToStep} allowJump={state.providers.some((provider) => provider.id === form.providerId.trim())} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} dirty={piDirty} onSave={piIdentity.sourceId ? savePiChanges : undefined} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} conflict={conflict} saving={saving} dirty={piDirty} identity={piIdentity} apiFocusRequest={apiFocusRequest} credentialFocus={credentialFocus} onBack={() => setStep(1)} onNext={goToModels} onSave={piIdentity.sourceId ? savePiChanges : undefined} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} onDiscover={discoverModels} onEditProtocol={() => goToStep(1)} onEditGateway={editGatewayAddress} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} hasProviders={state.providers.length > 0} dirty={piDirty} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} modelHints={state.modelHints?.[piIdentity.ownerId]} userAgentFocusRequest={userAgentFocusRequest} betaFocusRequest={betaFocusRequest} />}</>}
       </section>
       {claudeFlow.deleteId && claudeFlow.provider(claudeFlow.deleteId) && <ClaudeDeleteDialog flow={claudeFlow} saving={saving} conflict={conflict} />}
       {codexDeleteTargetId && codexProvider(codexDeleteTargetId) && (
