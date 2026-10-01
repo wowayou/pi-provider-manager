@@ -4,6 +4,7 @@
 
 - **添加供应商 keeps its height when the provider list is long.** The sidebar is a flex column, and the button shrank to about 30px once the list overflowed, while it stayed 48px with a short list. It no longer shrinks; a production-browser check measures it with the list overflowing.
 - **Claude Code copy matches per-terminal providers.** The sidebar tip no longer says Claude Code uses a single user-level gateway: the global default serves plain `claude`, and a provider's dedicated command pins one terminal to it. The settings screen shows 路径来源 as 自动识别 · 用户主目录 instead of the internal value `default-home`, matching Pi and Codex.
+- **The model filter field gets its intended background.** `.model-filter` read an undefined `--surface` token, so the declaration was dropped and the field was transparent instead of using `--field` like every other input. A new stylesheet check (`tests/style-tokens.test.mjs`, part of `test:server`) fails on literal hex or named colours in rules, undefined tokens, and dark-only tokens.
 
 ## 0.5.0 - 2026-09-30
 
