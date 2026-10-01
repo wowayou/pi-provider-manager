@@ -74,3 +74,16 @@ test("the dark theme only redefines tokens the light :root already declares", ()
   assert.ok(light.size > 50 && dark.size > 50, `light ${light.size}, dark ${dark.size}`);
   assert.deepEqual([...dark].filter((name) => !light.has(name)), []);
 });
+
+test("font sizes come from the type scale", () => {
+  const scale = tokenBlock(/(?:^|\n):root\s*\{([^}]*)\}/);
+  const steps = [...scale].filter((name) => name.startsWith("--text-"));
+  assert.ok(steps.length >= 6, `expected the --text-* scale, found ${steps.join(", ")}`);
+  // A px size outside the scale is how thirteen ad-hoc sizes accumulated. Relative
+  // sizes (`.94em` on the monospace face) and `inherit` stay allowed.
+  const offenders = declarations(css)
+    .filter(({ text }) => /^font(-size)?\s*:/.test(text))
+    .filter(({ text }) => /\d(\.\d+)?px/.test(text.replace(/var\([^)]*\)/g, "")))
+    .map(({ scope, text }) => `${scope} :: ${text}`);
+  assert.deepEqual(offenders, [], "use a --text-* token");
+});

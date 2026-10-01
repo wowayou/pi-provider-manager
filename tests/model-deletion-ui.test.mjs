@@ -627,14 +627,21 @@ test("production UI protects persisted model deletion paths", { timeout: 60_000 
     await cdp.evaluate(`localStorage.setItem('ppm-theme', 'dark')`);
     await cdp.send("Page.reload");
     await cdp.waitFor(`document.documentElement.dataset.theme === 'dark' && document.querySelectorAll('.model-row').length === 3`);
+    // Entering step 3 schedules the app's scroll-to-top for the next animation
+    // frame. Scrolling before that frame runs gets undone, which left the delete
+    // control below the viewport in about one run in four, on main as well. Let the
+    // frame pass, then scroll and confirm the position held.
     await cdp.evaluate(`(async () => {
+      const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await frame();
       const scroll = document.querySelector('.step-scroll');
       const table = document.querySelector('.models-table');
       const viewport = scroll.getBoundingClientRect();
       const before = table.getBoundingClientRect();
       const target = Math.max(0, Math.min(scroll.scrollHeight - scroll.clientHeight, before.top - viewport.top - 12));
       scroll.scrollTop = target;
-      await new Promise(requestAnimationFrame);
+      await frame();
+      if (Math.abs(scroll.scrollTop - target) > 1) throw new Error('step-scroll moved from ' + target + ' to ' + scroll.scrollTop);
     })()`);
     // Measured before the toast exists. This asks whether anything in the 420px
     // layout covers the delete control, and the toast is a transient overlay this
