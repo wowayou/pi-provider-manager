@@ -36,9 +36,18 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## v0.5.2 Release Acceptance — 2026-10-02
+
+- **Scope.** `main` after #157: the Pi `1.0.0` baseline below, the symlinked prompt fix and the Claude Code `2.1.287` resume case. Only `version` changed for the release.
+- **Release candidate.** Node `24.18.0`, with Pi `1.0.0` first on `PATH`. Full `npm test`, detached with `setsid`, exit 0: 297 tests, 294 passed, 0 failed.
+  - The 3 skips are Windows-only: two Claude launcher cases and one PowerShell launcher case, all run by the CI Windows job.
+  - Production browser: 36/36.
+  - Real binaries: Codex `0.149.0` 5/5 including the LiteLLM bridge, Pi `1.0.0` 2/2, Claude Code `2.1.287` 10/10 including the pty cases.
+- **Archive.** `npm run package:linux` built `pi-provider-manager-v0.5.2-linux-wsl.tar.gz` with no `node_modules`. Extracted outside any checkout, its `server.mjs` passed the same 10 checks as the Pi `1.0.0` record: page served, no key returned, settings (including `quietStartup: "header"` and `tuiMode`) and OAuth entry preserved through a provider save and a Settings save, `auth.json` at `0600`, and Pi `1.0.0` listing both saved models.
+
 ## Pi 1.0.0 Compatibility — 2026-10-02
 
-- **Pi `0.99.2` → `1.0.0`.** Released 2026-10-01, after that day's update-monitor run, so no reminder issue was opened. I read the release notes and diffed the two source archives.
+- **Pi `0.99.2` → `1.0.0` (closes #158, opened by the update monitor on 2026-10-02).** I read the release notes and diffed the two source archives.
   - `models.md` only adds image models, reached through codemode and extensions; the custom model schema is unchanged. `custom-provider.md` and `configuration.md` are unchanged. `providers.md` is retitled "Providers" and documents Radius.
   - `settings.md`: `quietStartup` also accepts `"header"`, and `tuiMode` now defaults to `"fullscreen"`. Neither is a managed key.
   - `cli.md`: `--provider` now requires `--model`. The handed-out command is `pi --model provider/model[:level]`; `model-resolver.ts` is unchanged.
@@ -56,7 +65,7 @@ terminal stops a browser suite before it prints a complete summary.
   - The handed-out command ran against the fake Anthropic gateway: `pi --model qa/claude-qa:high` sent thinking enabled, `:off` sent it disabled, both with the stored key.
 - **Suites.** Node `24.18.0`, with Pi `1.0.0` first on `PATH`. Full `npm test`, detached with `setsid`, exit 0: 297 tests, 294 passed, 0 failed, 3 Windows-only skips.
   - Real binaries: Pi `1.0.0` 2/2, Codex `0.149.0` 5/5 including the LiteLLM bridge, Claude Code `2.1.287` 10/10 including the pty cases.
-- **Baselines.** `piValidatedVersion` raised to `1.0.0`. `codexValidatedVersion` unchanged at `0.154.0`. No release was cut.
+- **Baselines.** `piValidatedVersion` raised to `1.0.0`. `codexValidatedVersion` unchanged at `0.154.0`.
 
 ## Symlinked Prompt Files — 2026-10-02
 

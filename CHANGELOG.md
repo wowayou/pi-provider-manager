@@ -2,16 +2,19 @@
 
 ## Unreleased
 
-- **Project status: a frozen personal tool.** The README and `AGENTS.md` now say what the project has been in practice: it is maintained for its owner's own setup, has no roadmap, and points most people to CC Switch. Work is limited to defects met in real use, security fixes, and Pi, Codex or Claude Code compatibility. Nothing in the product changes.
-- **Checked against Claude Code `2.1.287`.** When a gateway answers with a non-standard 400, Claude Code now repeats the request once without its new `thinking.display` field before failing. The real-binary resume case accepts that single repeat, and `docs/claude-code.md` describes it. Resuming across gateways behaves as before for users.
-- **Validated against Pi `1.0.0` (baseline raised from `0.99.2`).** Pi 1.0.0 changed none of the three managed files' structures, API identifiers, thinking levels or managed settings keys, so no code changed for it. What it does change:
+## 0.5.2 - 2026-10-02
+
+- **Validated against Pi `1.0.0` (baseline raised from `0.99.2`) and Codex `0.154.0` (unchanged).** Pi 1.0.0 changed none of the three managed files' structures, API identifiers, thinking levels or managed settings keys, so no code changed for it. What it does change:
   - Image models in codemode and extensions;
   - Radius and copy-code Anthropic sign-in, and MCP OAuth hardening;
   - fullscreen as the default `tuiMode`, and a new `quietStartup: "header"` value;
   - `--provider` without `--model` is now an error. The command the manager hands out is `pi --model provider/model[:level]`, which does not use `--provider`.
 
   Both new settings values survive a provider save and a Settings save untouched, as does an OAuth `auth.json` entry. Pi 1.0.0 lists the saved models offline, runs the handed-out `pi --model …:level` command against a loopback gateway, and passes the real-Pi header tests.
+- **Validated release candidate:** full `npm test` passed 294 of 297, with 0 failures and 3 Windows-only skips that the CI Windows job runs. That includes 36 production-browser tests, 5 real-Codex tests on `0.149.0`, 2 real-Pi tests on `1.0.0`, and 10 real-Claude tests on `2.1.287` (interactive pty cases included). The Linux/WSL archive also passed an isolated startup/save check without `node_modules`, and Pi `1.0.0` listed the provider it saved.
 - **A symlinked prompt file is no longer replaced.** Linking `$CODEX_HOME/AGENTS.md` or `CLAUDE.md` to a shared guidance file is a common way to keep one source. The prompt screen used to save over such a link with an atomic rename, which silently turned it into a private copy that stopped following the source. Now the screen shows where the link points, and the server refuses any save, activation or deletion that would write that file; a dangling link is reported too. Separately, a failed group write now rolls back only the files it changed, so a rollback can no longer replace an untouched symlink either.
+- **Checked against Claude Code `2.1.287`.** When a gateway answers with a non-standard 400, Claude Code now repeats the request once without its new `thinking.display` field before failing. The real-binary resume case accepts that single repeat, and `docs/claude-code.md` describes it. Resuming across gateways behaves as before for users.
+- **Project status: a frozen personal tool.** The README and `AGENTS.md` now say what the project has been in practice: it is maintained for its owner's own setup, has no roadmap, and points most people to CC Switch. Work is limited to defects met in real use, security fixes, and Pi, Codex or Claude Code compatibility. Nothing in the product changes.
 
 ## 0.5.1 - 2026-10-01
 
