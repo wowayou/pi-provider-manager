@@ -192,11 +192,13 @@ Codex 还会从当前工作目录往上找 `.codex/config.toml`，遇到它在�
 
 ## 项目状态与 CC Switch
 
-本项目处于维护模式。后续只处理确认过的缺陷、安全修复和 Pi / Codex / Claude Code 兼容变化，不再追求与 [CC Switch](https://github.com/farion1231/cc-switch) 的大而全功能对齐。
+这是一个个人工具，按作者自己的使用节奏维护，没有路线图。后续只处理真实使用中遇到的缺陷、安全修复和 Pi / Codex / Claude Code 兼容变化。对大多数人来说 [CC Switch](https://github.com/farion1231/cc-switch) 是更好的选择，本项目也不打算追平它的功能。
 
 Codex 支持是有意加入的，范围同样收窄：供应商、凭据和当前生效项。不做预设库、模型发现、用量看板，也不做流量代理。
 
 CC Switch 3.20 已完整接入 Pi 的供应商预设、模型发现、提示词、Skills、会话和用量统计，但它明确不读写 Pi 的 `auth.json`、`defaultProvider` 和 `defaultModel`。本项目继续作为一个更小、无数据库的工具，负责凭据/默认项边界、三份原生配置之间的一致性，以及它们旁边的全局提示词文件。两者可以读取同一套 Pi 文件，但一个工具保存后，另一个工具里已经打开的旧页面必须重新读取。
+
+两者也都能让 Claude Code 在不同终端使用不同供应商。CC Switch 的「打开终端」按钮会为该供应商弹出一个新终端窗口；本工具给出一条命令，在你已有的终端里运行，比如编辑器的集成终端、tmux 窗格或 WSL。
 
 ## 安装 Release 归档
 
@@ -338,9 +340,9 @@ npm run test:pi-update
 
 ## 路线图
 
-- 稳定维护：安全修复、确认过的正确性缺陷和 Pi / Codex / Claude Code 兼容更新
+- 没有路线图。只做维护：安全修复、真实使用中遇到的缺陷和 Pi / Codex / Claude Code 兼容更新
 - Pi 模型发现和 LiteLLM 托管已经实现；不再计划 CSV/CC-Switch 导入、Codex 模型发现、会话浏览、Skills、用量看板或管理器自建流量代理
-- 更广的一站式工作流交给 CC Switch；本项目保持聚焦于 Pi 与 Codex 的凭据、默认项和原生文件一致性
+- 更广的一站式工作流交给 CC Switch；本项目保持聚焦于 Pi、Codex 和 Claude Code 的凭据、默认项和原生文件一致性
 
 带日期的交互和兼容验证记录见 [design-qa.md](design-qa.md)；`qa/` 截图是历史参考，不代表当前验收基准。
 

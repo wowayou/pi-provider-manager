@@ -193,11 +193,13 @@ New sessions pick up the change cleanly. **Resuming an old session against a dif
 
 ## Project status and CC Switch
 
-This project is in maintenance mode. New work is limited to confirmed defects, security fixes, and Pi, Codex or Claude Code compatibility changes; it does not plan to match the broader feature set in [CC Switch](https://github.com/farion1231/cc-switch).
+This is a personal tool, maintained at its owner's pace for their own setup, with no roadmap. New work is limited to defects met in real use, security fixes, and Pi, Codex or Claude Code compatibility changes. For most people [CC Switch](https://github.com/farion1231/cc-switch) is the better choice, and this project does not plan to match its feature set.
 
 Codex support was added deliberately and stays narrow: providers, credentials, and the active selection. It does not add presets, model discovery, usage dashboards, or a traffic proxy.
 
 CC Switch 3.20 added a comprehensive Pi integration for provider presets, model discovery, prompts, Skills, sessions, and usage. It deliberately does not read or write Pi's `auth.json`, `defaultProvider`, or `defaultModel`. Pi Provider Manager remains a smaller, database-free tool for that credential/default boundary, the three-file invariants around it, and the global instruction files beside them. Both can use the same Pi files, but a stale page must reload after another editor changes them.
+
+Both tools can also run Claude Code with a different provider in each terminal. CC Switch's **Open Terminal** button opens a new terminal window for the provider; this manager gives a command to run in a terminal you already have, such as an editor's integrated terminal, a tmux pane, or WSL.
 
 ## Install a release archive
 
@@ -342,7 +344,7 @@ Entirely voluntary. It unlocks nothing, gates nothing, and the tool stays free e
 
 ## Roadmap
 
-- Stable maintenance: security fixes, confirmed correctness defects, and Pi, Codex or Claude Code compatibility updates
+- No roadmap. Maintenance only: security fixes, defects met in real use, and Pi, Codex or Claude Code compatibility updates
 - Pi model discovery and managed LiteLLM supervision are existing features. No planned CSV/CC-Switch import, Codex model discovery, session browser, Skills, usage dashboard, or manager-owned traffic proxy
 - Broader all-in-one workflows belong in CC Switch; this project stays focused on Pi, Codex and Claude Code credentials, defaults, and native-file consistency
 
