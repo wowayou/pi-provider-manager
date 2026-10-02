@@ -36,6 +36,23 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## Symlinked Prompt Files — 2026-10-02
+
+- **Trigger.** The owner plans to link `$CODEX_HOME/AGENTS.md` to a shared guidance repository, and to have `CLAUDE.md` import it.
+- **Measured before the change**, with an isolated temporary directory:
+  - `writeTextAtomic` renamed over a symlinked slot. The slot became a plain `0600` file, and the source kept its old text.
+  - `createFileGuard.writeAll` rolled back every file in its group after a failure, including files it never wrote. That rollback replaced an untouched link the same way.
+- **What each agent reads**, measured with fake gateways, temporary config directories and dummy keys:
+  - Codex `0.149.0` sent the linked file's text when `$CODEX_HOME/AGENTS.md` was a symlink.
+  - Claude Code `2.1.287` sent it when `CLAUDE.md` was a symlink, and also when `CLAUDE.md` held only `@<absolute path>`.
+  - A control run with no `CLAUDE.md` did not contain it.
+- **Change.**
+  - Prompt state reports `link: { target, exists }`.
+  - Saving, activating, or deleting the live document of a linked slot is refused before any write. Storing a document without activating it is still allowed.
+  - Rollback restores only the files whose bytes changed.
+  - The prompt screen shows the link target and a status line.
+- **Verification.** Node `24.18.0`, full `npm test` detached with `setsid`, exit 0: 297 tests, 294 passed, 0 failed, 3 Windows-only skips. That includes 3 new library tests, which failed before the change, and a production-browser case: the save was refused, the link survived, and the source was unchanged. Real Claude Code `2.1.287` 10/10. The light and dark screenshots were checked by eye.
+
 ## Claude Code 2.1.287 Resume Fallback — 2026-10-02
 
 - **Trigger.** This machine's Claude Code auto-updated from `2.1.286` to `2.1.287`. Full `npm test` then failed one case in `test:claude-real`: "cross-gateway resume fails when the new relay rejects the signature with a non-standard error". It expected one request to the new gateway and saw two. It reproduced twice in isolation. Every other suite passed.

@@ -87,6 +87,8 @@ export function PromptsScreen({ target, state, saving, error, conflict, onSave, 
   const overLimit = size > (library.limits?.maxBytes || Infinity);
   const deletableLive = isLive && documents.length > 1;
   const deleteBlocked = isLive && documents.length <= 1;
+  // Saving these would write the file, which the server refuses for a link.
+  const writesLinked = Boolean(slot.link) && (isNew || isLive);
   const slotKeyDown = createRadioKeyHandler({
     refs: slotRefs,
     values: slots.map((entry) => entry.id),
@@ -169,7 +171,7 @@ export function PromptsScreen({ target, state, saving, error, conflict, onSave, 
                 onClick={() => pickSlot(entry.id)}
               >
                 <code className="mono">{entry.file}</code>
-                <small>{entry.present ? `${entry.documents.length} 份 · 已写入` : "尚未写入"}</small>
+                <small>{entry.link ? "符号链接" : entry.present ? `${entry.documents.length} 份 · 已写入` : "尚未写入"}</small>
               </button>
             ))}
           </div>
@@ -181,7 +183,17 @@ export function PromptsScreen({ target, state, saving, error, conflict, onSave, 
             <code className="mono">{slot.path}</code> —— {slot.note}
           </span>
         </p>
-        {slot.adoptedId && (
+        {/* A linked file belongs to its source; the server refuses to write it. */}
+        {slot.link ? (
+          <p className="compat-note is-warning prompt-link-note">
+            <WarningCircle size={20} weight="fill" />
+            <span>
+              {slot.link.exists
+                ? <>这个文件是指向<code className="mono">{slot.link.target}</code>的符号链接，内容以那个文件为准，请在那里修改。这里只显示，不会保存或启用到这个文件：写入会把链接换成一份普通文件。</>
+                : <>这个文件是符号链接，但它指向的<code className="mono">{slot.link.target}</code>不存在，agent 读不到它。先修好或删除这个链接。</>}
+            </span>
+          </p>
+        ) : slot.adoptedId && (
           <p className="compat-note is-warning">
             <WarningCircle size={20} weight="fill" />
             <span>
@@ -268,14 +280,16 @@ export function PromptsScreen({ target, state, saving, error, conflict, onSave, 
                   <Trash size={16} />{armedDelete === selectedId ? "确认删除" : "删除"}
                 </button>
               )}
-              <span className={`prompt-status ${!isNew && !isLive && edited ? "is-warning" : ""}`}>
-                {isNew
-                  ? "保存后会立即写入文件"
-                  : isLive
-                    ? <><CheckCircle size={17} weight="fill" />正在生效</>
-                    : edited
-                      ? <><WarningCircle size={17} weight="fill" />有未保存的修改，保存后才能启用</>
-                      : "保存后不会改动文件，除非点「启用」"}
+              <span className={`prompt-status ${writesLinked || (!isNew && !isLive && edited) ? "is-warning" : ""}`}>
+                {writesLinked
+                  ? <><WarningCircle size={17} weight="fill" />符号链接不会被写入，请在源文件修改</>
+                  : isNew
+                    ? "保存后会立即写入文件"
+                    : isLive
+                      ? <><CheckCircle size={17} weight="fill" />正在生效</>
+                      : edited
+                        ? <><WarningCircle size={17} weight="fill" />有未保存的修改，保存后才能启用</>
+                        : "保存后不会改动文件，除非点「启用」"}
               </span>
               {selected && !isNew && !isLive && (
                 <button

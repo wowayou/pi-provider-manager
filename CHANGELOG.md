@@ -4,6 +4,7 @@
 
 - **Project status: a frozen personal tool.** The README and `AGENTS.md` now say what the project has been in practice: it is maintained for its owner's own setup, has no roadmap, and points most people to CC Switch. Work is limited to defects met in real use, security fixes, and Pi, Codex or Claude Code compatibility. Nothing in the product changes.
 - **Checked against Claude Code `2.1.287`.** When a gateway answers with a non-standard 400, Claude Code now repeats the request once without its new `thinking.display` field before failing. The real-binary resume case accepts that single repeat, and `docs/claude-code.md` describes it. Resuming across gateways behaves as before for users.
+- **A symlinked prompt file is no longer replaced.** Linking `$CODEX_HOME/AGENTS.md` or `CLAUDE.md` to a shared guidance file is a common way to keep one source. The prompt screen used to save over such a link with an atomic rename, which silently turned it into a private copy that stopped following the source. Now the screen shows where the link points, and the server refuses any save, activation or deletion that would write that file; a dangling link is reported too. Separately, a failed group write now rolls back only the files it changed, so a rollback can no longer replace an untouched symlink either.
 
 ## 0.5.1 - 2026-10-01
 
