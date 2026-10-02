@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **The LiteLLM loopback test no longer reads the stand-in's key file half-written (test-only).** The fake `litellm` wrote `key.txt` with a shell redirect, which creates the file empty before `printf` fills it. The test waits for the file to exist, so a slow runner could read it in that gap: this failed once on Node 18 in #159's CI with `actual: ''`. The stand-in now writes a temporary file and renames it to `key.txt`, so the file appears with its full content. With a 0.5-second gap forced between creating and filling the file, the old stand-in failed every time and the new one passed. The real file passed 30 of 30 runs, and the assertions are unchanged.
+
 ## 0.5.2 - 2026-10-02
 
 - **Validated against Pi `1.0.0` (baseline raised from `0.99.2`) and Codex `0.154.0` (unchanged).** Pi 1.0.0 changed none of the three managed files' structures, API identifiers, thinking levels or managed settings keys, so no code changed for it. What it does change:
