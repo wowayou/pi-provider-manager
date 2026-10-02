@@ -45,6 +45,7 @@ test("pins LiteLLM to loopback rather than its default 0.0.0.0", async (t) => {
   // stays alive, so the runner's own bookkeeping is exercised too.
   const fake = path.join(dir, "fake-litellm");
   const argvLog = path.join(dir, "argv.txt");
+  const keyPath = path.join(dir, "key.txt");
   fs.writeFileSync(
     fake,
     // Answers --version promptly, like a healthy LiteLLM: status() asks for it
@@ -52,7 +53,10 @@ test("pins LiteLLM to loopback rather than its default 0.0.0.0", async (t) => {
     `#!/usr/bin/env bash\n`
     + `if [ "$1" = "--version" ]; then echo "LiteLLM: Current Version = 1.97.0"; exit 0; fi\n`
     + `printf '%s\\n' "$@" > ${JSON.stringify(argvLog)}\n`
-    + `printf '%s' "$PPM_BRIDGE_UPSTREAM_KEY" > ${JSON.stringify(path.join(dir, "key.txt"))}\n`
+    // A redirect creates key.txt empty before printf fills it, and a read in
+    // that gap saw ''. Renaming a finished file makes key.txt appear whole.
+    + `printf '%s' "$PPM_BRIDGE_UPSTREAM_KEY" > ${JSON.stringify(`${keyPath}.tmp`)}\n`
+    + `mv ${JSON.stringify(`${keyPath}.tmp`)} ${JSON.stringify(keyPath)}\n`
     + `sleep 30\n`,
     { mode: 0o755 },
   );
@@ -65,7 +69,6 @@ test("pins LiteLLM to loopback rather than its default 0.0.0.0", async (t) => {
     started.start({ providerId: "p", port: 43999, upstreamKey: "upstream-secret" });
     // Wait for the file the stand-in writes *last*. Waiting on argv.txt let a
     // slow runner read key.txt in the gap between the two writes.
-    const keyPath = path.join(dir, "key.txt");
     for (let attempt = 0; attempt < 100 && !fs.existsSync(keyPath); attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
