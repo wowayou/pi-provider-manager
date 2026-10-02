@@ -47,7 +47,7 @@ terminal stops a browser suite before it prints a complete summary.
 
 ## Pi 1.0.0 Compatibility — 2026-10-02
 
-- **Pi `0.99.2` → `1.0.0`.** Released 2026-10-01, after that day's update-monitor run, so no reminder issue was opened. I read the release notes and diffed the two source archives.
+- **Pi `0.99.2` → `1.0.0` (closes #158, opened by the update monitor on 2026-10-02).** I read the release notes and diffed the two source archives.
   - `models.md` only adds image models, reached through codemode and extensions; the custom model schema is unchanged. `custom-provider.md` and `configuration.md` are unchanged. `providers.md` is retitled "Providers" and documents Radius.
   - `settings.md`: `quietStartup` also accepts `"header"`, and `tuiMode` now defaults to `"fullscreen"`. Neither is a managed key.
   - `cli.md`: `--provider` now requires `--model`. The handed-out command is `pi --model provider/model[:level]`; `model-resolver.ts` is unchanged.
