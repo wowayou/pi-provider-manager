@@ -137,6 +137,8 @@ All three agents read global instructions from their configuration directories, 
 
 Existing content that matches no saved prompt is adopted on the read path only — opening the screen never writes. An unmatched zero-byte file is not adopted; whitespace is preserved as content, and a saved empty prompt can still match the file. Deleting the document that is currently in a file requires naming its replacement, the same rule as deleting a live provider.
 
+A file that is a symbolic link — for example `$CODEX_HOME/AGENTS.md` pointing at a shared guidance repository — is shown with the path it points at and is never written. An atomic save renames over the link itself, which would turn it into a private copy that no longer follows the source, so saving or activating into it is refused; edit the source instead. Keeping a document in the manager's store without activating it still works.
+
 Prompt text is returned to the browser, unlike a credential. That is deliberate: a document nobody can read back cannot be edited. Anything secret belongs in a credential, not in a prompt.
 
 ### Upstreams that only expose `/v1/chat/completions`

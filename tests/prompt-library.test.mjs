@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { ConflictError } from "../lib/validation.mjs";
+import { createFileGuard } from "../lib/managed-files.mjs";
 import { MAX_DOCUMENTS_PER_SLOT, MAX_PROMPT_BYTES, createPromptLibrary } from "../lib/prompt-library.mjs";
 
 function sandbox() {
@@ -260,5 +261,102 @@ test("keeps the store private and distinguishes an empty file from a missing one
       assert.equal(fs.statSync(prompts.storePath).mode & 0o777, 0o600);
       assert.equal(fs.statSync(path.join(dir, "AGENTS.md")).mode & 0o777, 0o600);
     }
+  });
+});
+
+// A shared guidance file several agents link to is the normal reason a slot is
+// a symlink. An atomic write renames over the link itself, so the only safe
+// write is none: read it, show where it points, and refuse to replace it.
+function linkedLibrary(t, run) {
+  withLibrary((prompts, dir) => {
+    const source = path.join(dir, "shared", "AGENTS.md");
+    fs.mkdirSync(path.dirname(source));
+    fs.writeFileSync(source, "共享规则\n");
+    try {
+      fs.symlinkSync(source, path.join(dir, "AGENTS.md"));
+    } catch (error) {
+      if (error.code === "EPERM") { t.skip("this account cannot create symlinks"); return; }
+      throw error;
+    }
+    run(prompts, dir, source);
+  });
+}
+
+test("a symlinked slot is read and shown, and never replaced", (t) => {
+  linkedLibrary(t, (prompts, dir, source) => {
+    const linkPath = path.join(dir, "AGENTS.md");
+    const slot = slotOf(prompts.publicState(), "agents");
+    assert.deepEqual(slot.link, { target: source, exists: true });
+    assert.equal(slot.present, true);
+    assert.equal(slot.documents.find((document) => document.id === slot.activeId).text, "共享规则\n");
+    assert.equal(slotOf(prompts.publicState(), "system").link, null);
+
+    const unchanged = () => {
+      assert.equal(fs.lstatSync(linkPath).isSymbolicLink(), true, "the link was replaced by a plain file");
+      assert.equal(fs.readFileSync(source, "utf8"), "共享规则\n", "the shared file was written");
+    };
+    assert.throws(() => prompts.saveDocument({
+      slot: "agents", name: "新的", text: "不该写入\n", revision: prompts.publicState().revision,
+    }), /符号链接/);
+    assert.throws(() => prompts.saveDocument({
+      slot: "agents", id: slot.activeId, name: "现有内容", text: "改过\n", revision: prompts.publicState().revision,
+    }), /符号链接/);
+    unchanged();
+
+    // Keeping a document in the store does not touch the file, so it is allowed.
+    const stored = prompts.saveDocument({
+      slot: "agents", name: "备用", text: "备用规则\n", activate: false, revision: prompts.publicState().revision,
+    });
+    assert.equal(stored.activated, false);
+    unchanged();
+
+    assert.throws(() => prompts.activate({ slot: "agents", id: stored.id, revision: prompts.publicState().revision }), /符号链接/);
+    const live = slotOf(prompts.publicState(), "agents").activeId;
+    assert.throws(() => prompts.deleteDocument({
+      slot: "agents", id: live, replacementId: stored.id, revision: prompts.publicState().revision,
+    }), /符号链接/);
+    unchanged();
+
+    // Another slot in the same library is still an ordinary file.
+    prompts.saveDocument({ slot: "system", name: "系统", text: "SYSTEM\n", revision: prompts.publicState().revision });
+    assert.equal(fs.readFileSync(path.join(dir, "SYSTEM.md"), "utf8"), "SYSTEM\n");
+    unchanged();
+  });
+});
+
+test("a dangling symlink is reported and not replaced", (t) => {
+  linkedLibrary(t, (prompts, dir, source) => {
+    fs.unlinkSync(source);
+    const slot = slotOf(prompts.publicState(), "agents");
+    assert.deepEqual(slot.link, { target: source, exists: false });
+    assert.equal(slot.present, false);
+    assert.throws(() => prompts.saveDocument({
+      slot: "agents", name: "新的", text: "不该写入\n", revision: prompts.publicState().revision,
+    }), /不存在/);
+    assert.equal(fs.lstatSync(path.join(dir, "AGENTS.md")).isSymbolicLink(), true);
+    assert.equal(fs.existsSync(source), false);
+  });
+});
+
+test("a failed group write restores only the files it changed", (t) => {
+  withLibrary((_prompts, dir) => {
+    const source = path.join(dir, "source.md");
+    const linkPath = path.join(dir, "linked.md");
+    const written = path.join(dir, "written.md");
+    fs.writeFileSync(source, "源文件\n");
+    fs.writeFileSync(written, "原内容\n");
+    try {
+      fs.symlinkSync(source, linkPath);
+    } catch (error) {
+      if (error.code === "EPERM") { t.skip("this account cannot create symlinks"); return; }
+      throw error;
+    }
+    const guard = createFileGuard({ paths: [linkPath, written], revisionKey: crypto.randomBytes(32), subject: "测试" });
+    assert.throws(() => guard.writeAll(guard.revisionOf(), () => {
+      fs.writeFileSync(written, "写了一半\n");
+      throw new Error("模拟失败");
+    }), /模拟失败/);
+    assert.equal(fs.readFileSync(written, "utf8"), "原内容\n", "the changed file was not rolled back");
+    assert.equal(fs.lstatSync(linkPath).isSymbolicLink(), true, "rollback replaced an untouched symlink");
   });
 });

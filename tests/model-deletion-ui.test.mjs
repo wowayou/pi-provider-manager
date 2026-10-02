@@ -2717,6 +2717,115 @@ test("leaving an edited prompt goes through the toast, not the first click", { t
   }
 });
 
+test("a symlinked prompt file is shown with its source and never replaced", { timeout: 90_000 }, async (t) => {
+  requireFreshBuiltUi();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-promptlink-"));
+  const sharedDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-promptlink-shared-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-promptlink-"));
+  writeFixture(agentDir);
+  // The shape a shared guidance repository produces: AGENTS.md links to it.
+  const sharedText = "# 共享规则\n始终使用中文回复。\n";
+  const source = path.join(sharedDir, "AGENTS.md");
+  const agentsPath = path.join(agentDir, "AGENTS.md");
+  fs.writeFileSync(source, sharedText);
+  try {
+    fs.symlinkSync(source, agentsPath);
+  } catch (error) {
+    if (error.code !== "EPERM") throw error;
+    t.skip("this account cannot create symlinks");
+    for (const dir of [agentDir, sharedDir, profileDir]) fs.rmSync(dir, { recursive: true, force: true });
+    return;
+  }
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server;
+  let chrome;
+  let cdp;
+  let serverOutput = "";
+
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
+        PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir),
+        PI_PROVIDER_MANAGER_SERVE_UI: "1",
+        PI_PROVIDER_MANAGER_PORT: String(appPort),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; });
+    server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl(`http://127.0.0.1:${appPort}/api/state`);
+
+    chrome = spawn(findChrome(), [
+      "--headless",
+      "--no-sandbox",
+      "--disable-gpu",
+      `--remote-debugging-port=${debugPort}`,
+      `--user-data-dir=${profileDir}`,
+      "about:blank",
+    ], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
+    const target = await fetch(
+      `http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(`http://127.0.0.1:${appPort}`)}`,
+      { method: "PUT" },
+    ).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl);
+    await cdp.send("Page.enable");
+    await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+
+    await cdp.waitFor(`document.querySelector('.nav-prompts:not(:disabled)')`);
+    await cdp.evaluate(`document.querySelector('.nav-prompts').click()`);
+    await cdp.waitFor(`document.querySelector('.prompt-editor textarea')?.value.includes('共享规则')`);
+
+    // The source decides the content, so the page says where it is.
+    const opened = await cdp.evaluate(`({
+      note: document.querySelector('.prompt-link-note')?.textContent || "",
+      notePath: document.querySelector('.prompt-link-note code')?.textContent || "",
+      tab: document.querySelector('.prompt-slot.is-active small')?.textContent || "",
+      status: document.querySelector('.prompt-status')?.textContent || "",
+      adoptedNote: [...document.querySelectorAll('.compat-note')].some((node) => node.textContent.includes('不是本管理器写的')),
+    })`);
+    assert.equal(opened.notePath, source);
+    assert.match(opened.note, /符号链接/);
+    assert.equal(opened.tab, "符号链接");
+    assert.match(opened.status, /符号链接不会被写入/);
+    assert.equal(opened.adoptedNote, false, "the adopted-file note promises a later write that will not happen");
+
+    // Saving the live text is refused before anything is written.
+    await cdp.evaluate(`(() => {
+      const area = document.querySelector('.prompt-editor textarea');
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(area, ${JSON.stringify(`${sharedText}在这里改的一行。\n`)});
+      area.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await cdp.waitFor(`!document.querySelector('.prompt-actions .primary-button').disabled`);
+    await cdp.evaluate(`document.querySelector('.prompt-actions .primary-button').click()`);
+    await cdp.waitFor(`document.querySelector('.prompt-editor .error-banner')?.textContent.includes('符号链接')`);
+    assert.match(await cdp.evaluate(`document.querySelector('.prompt-editor .error-banner').textContent`), new RegExp(source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.equal(await cdp.evaluate(`document.querySelector('.prompt-editor textarea').value.includes('在这里改的一行')`), true, "the refused edit was discarded");
+
+    assert.equal(fs.lstatSync(agentsPath).isSymbolicLink(), true, "the link was replaced by a plain file");
+    assert.equal(fs.readFileSync(source, "utf8"), sharedText, "the shared file was written");
+    assert.deepEqual(cdp.errors, []);
+  } catch (error) {
+    error.message += `\nserver output:\n${serverOutput}`;
+    throw error;
+  } finally {
+    if (cdp) {
+      await Promise.race([
+        cdp.send("Browser.close").catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+      cdp.close();
+    }
+    await stopProcess(chrome, true);
+    await stopProcess(server);
+    for (const dir of [profileDir, agentDir, sharedDir]) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
 test("production UI keeps new-draft User-Agent intent and locates invalid whitespace", { timeout: 90_000 }, async () => {
   requireFreshBuiltUi();
   const chromePath = findChrome();
