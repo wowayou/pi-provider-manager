@@ -36,6 +36,17 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## Claude Code 2.1.287 Resume Fallback — 2026-10-02
+
+- **Trigger.** This machine's Claude Code auto-updated from `2.1.286` to `2.1.287`. Full `npm test` then failed one case in `test:claude-real`: "cross-gateway resume fails when the new relay rejects the signature with a non-standard error". It expected one request to the new gateway and saw two. It reproduced twice in isolation. Every other suite passed.
+- **Cause, measured with the test's fake gateways.**
+  - `2.1.287` sends `thinking.display: "updates"` with the `thinking-display-updates-2026-08-18` beta.
+  - When the gateway answers that request with a bare `400 Bad request`, Claude Code repeats it about 10 ms later without that field and without that beta. Both requests carry `x-stainless-retry-count: 0`, and nothing else in the body differs. The replayed signature stays, so the repeat is refused too, and the turn fails with 400 as before.
+  - `2.1.286`, installed into a temporary prefix, sends one request without the field.
+  - The user-facing behaviour is unchanged. Only the request count differs.
+- **Change.** The case now accepts one request, or a second one that equals the first minus `thinking.display`. In both shapes, every request must still carry the history and the signature. `docs/claude-code.md` describes the repeat. The CI pin stays at `2.1.285`. No product code changed.
+- **Verification.** Node `24.18.0`, detached with `setsid`. `test:claude-real` on `2.1.287`: 10/10, 0 skips, including the pty cases. The three resume cases on `2.1.286`: 3/3.
+
 ## Pi 0.99.2 Compatibility and v0.5.1 Release Acceptance — 2026-10-01
 
 - **Pi `0.99.1` → `0.99.2` (closes #152, opened by the update monitor).** I read the release notes and compared `v0.99.1...v0.99.2`, 213 files.
