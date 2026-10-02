@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **Project status: a frozen personal tool.** The README and `AGENTS.md` now say what the project has been in practice: it is maintained for its owner's own setup, has no roadmap, and points most people to CC Switch. Work is limited to defects met in real use, security fixes, and Pi, Codex or Claude Code compatibility. Nothing in the product changes.
+- **Checked against Claude Code `2.1.287`.** When a gateway answers with a non-standard 400, Claude Code now repeats the request once without its new `thinking.display` field before failing. The real-binary resume case accepts that single repeat, and `docs/claude-code.md` describes it. Resuming across gateways behaves as before for users.
 
 ## 0.5.1 - 2026-10-01
 

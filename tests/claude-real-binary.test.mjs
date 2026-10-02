@@ -273,7 +273,7 @@ const resumeCase = async (t, { modelA, modelB, reject, rejectMessage }) => {
     assert.ok(client.sessionId);
     client = streamClient([...STREAM_ARGS, "--settings", snapshot(B, modelB), "--resume", client.sessionId], { cwd, env });
     client.send("CONTINUE_ON_B"); await client.wait(1); await client.end();
-    return { result: client.results.at(-1), turns: B.records.map((turn) => ({ history: JSON.stringify(turn.body.messages).includes("REMEMBER_ALPHA"), signature: JSON.stringify(turn.body.messages).includes("SIG_FROM_A") })) };
+    return { result: client.results.at(-1), requests: B.records, turns: B.records.map((turn) => ({ history: JSON.stringify(turn.body.messages).includes("REMEMBER_ALPHA"), signature: JSON.stringify(turn.body.messages).includes("SIG_FROM_A") })) };
   } finally { await A.close(); await B.close(); }
 };
 
@@ -290,10 +290,19 @@ test("cross-gateway resume with the same model retries without thinking after a 
 });
 
 test("cross-gateway resume fails when the new relay rejects the signature with a non-standard error", { skip: installed ? false : "Claude Code is not installed", timeout: 150000 }, async (t) => {
-  const { result, turns } = await resumeCase(t, { modelA: "claude-sonnet-4-5", modelB: "claude-sonnet-4-5", reject: (body) => JSON.stringify(body.messages).includes("SIG_FROM_A"), rejectMessage: "Bad request" });
+  const { result, turns, requests } = await resumeCase(t, { modelA: "claude-sonnet-4-5", modelB: "claude-sonnet-4-5", reject: (body) => JSON.stringify(body.messages).includes("SIG_FROM_A"), rejectMessage: "Bad request" });
   assert.equal(result.is_error, true);
   assert.match(String(result.result), /400/);
-  assert.deepEqual(turns, [{ history: true, signature: true }]);
+  // The signature is never dropped here. Since 2.1.287 the first request asks
+  // for thinking.display "updates"; refused, Claude repeats it once without
+  // that field and nothing else changed. Up to 2.1.286 there is one request.
+  assert.ok(turns.length === 1 || turns.length === 2, JSON.stringify(turns));
+  assert.ok(turns.every((turn) => turn.history && turn.signature), JSON.stringify(turns));
+  if (requests.length === 2) {
+    assert.equal(requests[0].body.thinking?.display, "updates");
+    const withoutDisplay = (body) => JSON.parse(JSON.stringify({ ...body, thinking: { ...body.thinking, display: undefined } }));
+    assert.deepEqual(requests[1].body, withoutDisplay(requests[0].body));
+  }
 });
 
 // A real interactive session in a pseudo-terminal, driven through the copied
