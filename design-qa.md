@@ -36,6 +36,28 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## Pi 1.0.0 Compatibility — 2026-10-02
+
+- **Pi `0.99.2` → `1.0.0`.** Released 2026-10-01, after that day's update-monitor run, so no reminder issue was opened. I read the release notes and diffed the two source archives.
+  - `models.md` only adds image models, reached through codemode and extensions; the custom model schema is unchanged. `custom-provider.md` and `configuration.md` are unchanged. `providers.md` is retitled "Providers" and documents Radius.
+  - `settings.md`: `quietStartup` also accepts `"header"`, and `tuiMode` now defaults to `"fullscreen"`. Neither is a managed key.
+  - `cli.md`: `--provider` now requires `--model`. The handed-out command is `pi --model provider/model[:level]`; `model-resolver.ts` is unchanged.
+  - `model-registry.ts` only adds `generateImages()`. `anthropic-messages.ts` is unchanged. `openai-responses-shared.ts` only changes which replayed tool-call item IDs it drops. The `KnownApi` identifiers, thinking levels and transport values are unchanged.
+- **Checklist steps 6–8, production server.**
+  - Setup: Pi `1.0.0` was installed into a temporary npm prefix and put first on `PATH`; this machine's global Pi stays `0.99.1`. Pi, Codex and Claude directories were temporary. `settings.json` was seeded with `theme`, `defaultTools`, `codemode`, `fullscreenWheelScrollLines`, `quietStartup: "header"` and `tuiMode: "regular"`, and `auth.json` with an OAuth-shaped entry.
+  - A fake provider (HTTPS `.invalid` host, dummy key, two models, set as default) was saved through the API, then the default model, thinking level, thinking-block visibility and transport were changed through `/api/settings`. All 10 checks passed:
+    - The page was served.
+    - `/api/state` and the save response carried no key.
+    - The seeded settings survived both saves, and the OAuth entry was untouched.
+    - `auth.json` stayed `0600`.
+    - `PI_OFFLINE=1 pi --list-models qa-check` listed both models with the saved context, output, thinking and image values.
+    - The Pi run did not rewrite manager-written files.
+    - `detectPiVersion()` parsed `1.0.0` from the `pi` on `PATH`. The login-shell path reported this machine's global `0.99.1`, as before.
+  - The handed-out command ran against the fake Anthropic gateway: `pi --model qa/claude-qa:high` sent thinking enabled, `:off` sent it disabled, both with the stored key.
+- **Suites.** Node `24.18.0`, with Pi `1.0.0` first on `PATH`. Full `npm test`, detached with `setsid`, exit 0: 297 tests, 294 passed, 0 failed, 3 Windows-only skips.
+  - Real binaries: Pi `1.0.0` 2/2, Codex `0.149.0` 5/5 including the LiteLLM bridge, Claude Code `2.1.287` 10/10 including the pty cases.
+- **Baselines.** `piValidatedVersion` raised to `1.0.0`. `codexValidatedVersion` unchanged at `0.154.0`. No release was cut.
+
 ## Symlinked Prompt Files — 2026-10-02
 
 - **Trigger.** The owner plans to link `$CODEX_HOME/AGENTS.md` to a shared guidance repository, and to have `CLAUDE.md` import it.
@@ -46,6 +68,7 @@ terminal stops a browser suite before it prints a complete summary.
   - Codex `0.149.0` sent the linked file's text when `$CODEX_HOME/AGENTS.md` was a symlink.
   - Claude Code `2.1.287` sent it when `CLAUDE.md` was a symlink, and also when `CLAUDE.md` held only `@<absolute path>`.
   - A control run with no `CLAUDE.md` did not contain it.
+  - Checked later the same day with a temporary `HOME`: `2.1.287` also sent it when `CLAUDE.md` held only `@~/<path>`. A control `CLAUDE.md` without the import did not.
 - **Change.**
   - Prompt state reports `link: { target, exists }`.
   - Saving, activating, or deleting the live document of a linked slot is refused before any write. Storing a document without activating it is still allowed.
