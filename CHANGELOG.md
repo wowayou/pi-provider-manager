@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Project status: a frozen personal tool.** The README and `AGENTS.md` now say what the project has been in practice: it is maintained for its owner's own setup, has no roadmap, and points most people to CC Switch. Work is limited to defects met in real use, security fixes, and Pi, Codex or Claude Code compatibility. Nothing in the product changes.
+
 ## 0.5.1 - 2026-10-01
 
 - **Validated against Pi `0.99.2` (baseline raised from `0.99.1`) and Codex `0.154.0` (unchanged).** Pi 0.99.2 changed none of the three managed files' structures, API identifiers, thinking levels or managed settings keys, so no code changed for it. Its changes are:
