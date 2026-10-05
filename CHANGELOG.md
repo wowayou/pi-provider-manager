@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.5.3 - 2026-10-05
+
+- **Validated release candidate:** full `npm test` passed 300 of 302, with 0 failures and 2 Windows-only skips that the CI Windows job runs. That includes 36 production-browser tests, 5 real-Codex tests on `0.160.0`, 3 real-Pi tests on `1.0.2` (mixed-protocol wire paths included), and 10 real-Claude tests on `2.1.285` (interactive pty cases included). The Pi baseline moved to `1.0.2`; Codex and Claude baselines are unchanged.
+- **Validated against Pi `1.0.2` (previously `1.0.0`).** Pi 1.0.1/1.0.2 change none of the managed auth/default-setting contracts. The new `samplingParamsByThinkingLevel` field survives a provider save, including per-level `modelOverrides`; real Pi applies the preserved parameters on the wire. No new settings controls or Pi runtime dependency are needed.
+- **Pi models can override their address together with their protocol.** 模型接口与地址 sits beside the catalogue, separate from compatibility flags. A gateway can share one credential while OpenAI models use `/v1` and Anthropic models use the root or a custom prefix. The editor previews the appended request URL without automatically changing `/v1`, saves native model `baseUrl`, and supports restoring inheritance with undo. Explicit protocols remain pinned even when equal to the provider default. Omitted addresses preserve existing values; private or invalid stored addresses stay hidden and untouched until explicitly replaced or cleared.
 - **The LiteLLM loopback test no longer reads the stand-in's key file half-written (test-only).** The fake `litellm` wrote `key.txt` with a shell redirect, which creates the file empty before `printf` fills it. The test waits for the file to exist, so a slow runner could read it in that gap: this failed once on Node 18 in #159's CI with `actual: ''`. The stand-in now writes a temporary file and renames it to `key.txt`, so the file appears with its full content. With a 0.5-second gap forced between creating and filling the file, the old stand-in failed every time and the new one passed. The real file passed 30 of 30 runs, and the assertions are unchanged.
 
 ## 0.5.2 - 2026-10-02

@@ -25,6 +25,29 @@ To reduce breakage:
 7. The config directory follows Pi's own precedence: `PI_CODING_AGENT_DIR`, then `~/.pi/agent`.
 8. Project path, port, Node binary, browser opening, and WSL distribution are discovered or explicitly overridable; the network host remains loopback-only.
 
+### Mixed-protocol model endpoints
+
+The provider's `api` and `baseUrl` are defaults. A custom model may carry its own
+`api` and/or `baseUrl`; Pi resolves each independently (see `provider-composer.ts`,
+`modelFromJson`). The editor pairs these fields in 模型接口与地址 and shows the
+OpenAI/Anthropic request path. It never inserts or removes `/v1`: OpenAI appends
+`/chat/completions` or `/responses`, while Anthropic appends `/v1/messages`.
+Gateway-specific prefixes remain exactly where the user puts them.
+
+An explicit protocol remains explicit even when equal to the current provider
+default. An omitted address preserves its stored value; an explicit empty string
+removes the override. Editable model URLs are HTTP(S), with HTTP limited to
+loopback, and contain no user information, query or fragment. Other stored values
+are reported only as external and preserved by omission. A duplicate copies safe
+literal addresses, clears external ones and always requires a credential. Changing
+the provider default URL does not redirect models with independent URLs.
+
+Discovery remains a provider-level catalogue request using the provider default
+protocol/address and the existing same-origin path override. It does not infer
+protocols or addresses from model IDs, and a successful listing is not proof of a
+working inference endpoint. `npm run test:pi-real` checks native mixed-protocol
+requests, custom prefixes, inherited addresses and shared credentials on loopback.
+
 ### Provider User-Agent compatibility setting
 
 Pi permits provider-level request headers and model/extension-level request configuration. The manager exposes
@@ -59,7 +82,7 @@ rule is Pi's (`packages/ai/src/api/anthropic-messages.ts`, `getBetaFeatures`). D
 `POST /api/providers/discover-models` asks the gateway for its catalogue at the URL Pi's own clients would
 derive from the same baseUrl: `<baseUrl>/v1/models` for `anthropic-messages` (the Anthropic SDK appends
 `/v1/…`), `<baseUrl>/models` for the OpenAI protocols and Gemini (those clients treat the baseUrl as already
-versioned). A listing that works is usually evidence the chat endpoint will resolve too.
+versioned). A successful listing does not validate model-specific inference endpoints.
 
 Relays do not agree on where a catalogue lives, so the path is overridable per request (`path` in the body, a
 field in the 获取模型 dialog). An override is resolved against the baseUrl with standard URL semantics and is

@@ -325,6 +325,71 @@ test("writes router-style providers without exposing credentials", async () => {
   }
 });
 
+test("mixed model endpoints round-trip, preserve Pi sampling fields, and refuse invalid writes", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-endpoints-"));
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const modelsPath = path.join(agentDir, "models.json");
+  const model = (id, extra = {}) => ({ id, contextWindow: 200000, maxTokens: 16000, ...extra });
+  const sampling = { off: { temperature: 0.7, top_p: 0.8 }, high: { top_k: 20 } };
+  writeJsonAtomic(modelsPath, { providers: { router: {
+    api: "openai-completions", baseUrl: "https://router.example/v1", futureProvider: true,
+    modelOverrides: { chat: { samplingParamsByThinkingLevel: { high: { temperature: 0.8 } } } },
+    models: [model("chat", { samplingParams: { temperature: 1 }, samplingParamsByThinkingLevel: sampling }), model("external", { baseUrl: "https://router.example?key=private-url-secret" })],
+  } } });
+  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+    cwd: projectRoot,
+    env: serverEnv({ PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: path.join(agentDir, "codex"), PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const payload = {
+    providerId: "router", api: "openai-completions", baseUrl: "https://router.example/v1",
+    credential: { mode: "new", apiKey: "dummy-endpoint-secret" },
+    models: [model("chat", { api: "openai-completions" }), model("external"), model("claude", { api: "anthropic-messages", baseUrl: "https://router.example/anthropic/" }), model("responses", { api: "openai-responses", baseUrl: "https://router.example/openai/v1" })],
+    setDefault: true, defaultModelId: "chat",
+  };
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+    const saved = await postJson(baseUrl, "/api/providers", payload);
+    assert.equal(saved.status, 200, await saved.clone().text());
+    const { state } = await saved.json();
+    const publicModels = state.providers[0].models;
+    assert.deepEqual(publicModels[1].baseUrlOverride, { kind: "external" });
+    assert.deepEqual(publicModels[2].baseUrlOverride, { kind: "literal", value: "https://router.example/anthropic" });
+    assert.equal(JSON.stringify(state).includes("private-url-secret"), false);
+    assert.equal(JSON.stringify(state).includes("dummy-endpoint-secret"), false);
+    const read = () => readJson(modelsPath).providers.router;
+    assert.deepEqual(read().models[0].samplingParamsByThinkingLevel, sampling);
+    assert.deepEqual(read().models[0].samplingParams, { temperature: 1 });
+    assert.equal(read().models[0].api, "openai-completions", "an explicit protocol stays pinned even when equal to the provider default");
+    assert.equal(read().models[1].baseUrl, "https://router.example?key=private-url-secret");
+    assert.equal(read().models[2].api, "anthropic-messages");
+    assert.equal(read().models[3].baseUrl, "https://router.example/openai/v1");
+    assert.equal(read().futureProvider, true);
+
+    const snapshots = () => ["models.json", "settings.json", "auth.json"].map((file) => fs.readFileSync(path.join(agentDir, file), "utf8"));
+    const before = snapshots();
+    for (const extra of [{ baseUrl: null }, { baseUrl: "not-url" }, { baseUrl: "http://router.example" }, { baseUrl: "https://user:secret@router.example" }, { baseUrl: "https://router.example?key=secret" }, { api: "unsupported" }]) {
+      const response = await postJson(baseUrl, "/api/providers", { ...payload, models: [model("chat", extra)] });
+      assert.equal(response.status, 400, JSON.stringify(extra));
+      assert.deepEqual(snapshots(), before, "invalid input wrote a config file");
+    }
+    // An older client omits the new field; an explicit empty string clears it.
+    const update = { ...payload, credential: { mode: "keep" }, models: [model("chat"), model("external"), model("claude", { api: "anthropic-messages" }), model("responses", { baseUrl: "", api: "inherit" })] };
+    assert.equal((await postJson(baseUrl, "/api/providers", update)).status, 200);
+    assert.equal(read().models[2].baseUrl, "https://router.example/anthropic");
+    assert.equal(read().models[3].baseUrl, undefined);
+    assert.equal(read().models[3].api, undefined);
+    assert.deepEqual(read().models[0].samplingParamsByThinkingLevel, sampling);
+    assert.deepEqual(read().modelOverrides.chat.samplingParamsByThinkingLevel, { high: { temperature: 0.8 } });
+    const after = snapshots();
+    assert.equal((await postJson(baseUrl, "/api/providers", update, state.revision)).status, 409);
+    assert.deepEqual(snapshots(), after);
+  } finally {
+    await stopAndClean(child, [agentDir]);
+  }
+});
+
 test("handles model Anthropic Beta through the real HTTP boundary", async () => {
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-provider-manager-beta-"));
   const port = await freePort();

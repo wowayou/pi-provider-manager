@@ -95,7 +95,7 @@ function runPi(agentDir, model, flags = ["--no-tools", "--thinking", "off"]) {
     encoding: "utf8",
     timeout: 120_000,
     cwd: os.tmpdir(),
-    env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
+    env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1" },
   });
   return { status: run.status, output: `${run.stdout || ""}\n${run.stderr || ""}` };
 }
@@ -111,6 +111,73 @@ const model = (id, extra = {}) => ({ id, name: id, contextWindow: 200000, maxTok
 // the gateway and must not be asserted as a different one.
 const tokens = (header) => String(header || "").split(",").map((token) => token.trim()).filter(Boolean);
 const installed = piVersion();
+
+test("Pi uses each model's protocol and base URL with one provider credential, preserving level sampling", { skip: installed ? false : "pi is not installed", timeout: 300_000 }, async (t) => {
+  t.diagnostic(`pi ${installed}`);
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-pi-endpoints-"));
+  const recordPath = path.join(agentDir, "requests.jsonl");
+  const gatewayPort = await freePort();
+  const root = `http://127.0.0.1:${gatewayPort}`;
+  const gateway = spawn(process.execPath, [path.join(projectRoot, "tests/fixtures/fake-mixed-gateway.mjs"), String(gatewayPort), recordPath], { stdio: "ignore" });
+  const providerId = "mixed-router";
+  const modelsPath = path.join(agentDir, "models.json");
+  const chat = model("test-chat", { api: "openai-completions", baseUrl: `${root}/v1` });
+  const claude = model("test-claude", { api: "inherit" });
+  const responses = model("test-responses", { api: "openai-responses", baseUrl: `${root}/v1` });
+  const payload = { providerId, api: "anthropic-messages", baseUrl: root, credential: { mode: "new", apiKey: STORED_KEY }, models: [chat, claude, responses], setDefault: true, defaultModelId: chat.id };
+  try {
+    await waitFor(async () => (await fetch(`${root}/health`)).ok, 10_000, "mixed gateway");
+    await saveThroughServer(agentDir, payload);
+    // This new Pi field is not edited by the manager. An ordinary save must
+    // preserve it, and only a real request proves Pi still applies it.
+    const config = JSON.parse(fs.readFileSync(modelsPath, "utf8"));
+    config.providers[providerId].models[0].samplingParams = { temperature: 1, top_p: 0.95 };
+    config.providers[providerId].models[0].samplingParamsByThinkingLevel = { off: { temperature: 0.7, top_p: 0.8 }, high: { temperature: 0.9 } };
+    fs.writeFileSync(modelsPath, JSON.stringify(config));
+    payload.credential = { mode: "keep" };
+    await saveThroughServer(agentDir, payload);
+    const listing = spawnSync("pi", ["--list-models", providerId], { shell: process.platform === "win32", encoding: "utf8", timeout: 30_000, cwd: agentDir, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1" } });
+    assert.equal(listing.status, 0, listing.stderr);
+    for (const entry of payload.models) assert.ok(listing.stdout.includes(entry.id), `Pi did not list ${entry.id}`);
+    for (const entry of payload.models) {
+      const run = runPi(agentDir, `${providerId}/${entry.id}:off`);
+      assert.equal(run.status, 0, run.output);
+      assert.match(run.output, /PONG/);
+    }
+    const turns = () => fs.readFileSync(recordPath, "utf8").trim().split("\n").map(JSON.parse);
+    const first = turns();
+    assert.deepEqual(first.map((turn) => turn.url), ["/v1/chat/completions", "/v1/messages", "/v1/responses"]);
+    assert.equal(first[0].headers.authorization, `Bearer ${STORED_KEY}`);
+    assert.equal(first[1].headers["x-api-key"], STORED_KEY);
+    assert.equal(first[2].headers.authorization, `Bearer ${STORED_KEY}`);
+    assert.equal(first[0].body.temperature, 0.7);
+    assert.equal(first[0].body.top_p, 0.8);
+
+    // Reverse the provider default and clear chat's address. Then verify both
+    // inherited OpenAI and explicit Anthropic paths, including a relay prefix.
+    payload.api = "openai-completions";
+    payload.baseUrl = `${root}/v1`;
+    chat.api = "inherit"; chat.baseUrl = "";
+    claude.api = "anthropic-messages"; claude.baseUrl = `${root}/anthropic`;
+    responses.baseUrl = `${root}/openai/v1`;
+    await saveThroughServer(agentDir, payload);
+    fs.writeFileSync(recordPath, "");
+    for (const entry of payload.models) {
+      const run = runPi(agentDir, `${providerId}/${entry.id}:off`);
+      assert.equal(run.status, 0, run.output);
+      assert.match(run.output, /PONG/);
+    }
+    assert.deepEqual(turns().map((turn) => turn.url), ["/v1/chat/completions", "/anthropic/v1/messages", "/openai/v1/responses"]);
+    assert.equal(JSON.parse(fs.readFileSync(modelsPath, "utf8")).providers[providerId].models[0].baseUrl, undefined);
+  } finally {
+    if (gateway.exitCode === null && gateway.signalCode === null) {
+      const stopped = new Promise((resolve) => gateway.once("exit", resolve));
+      gateway.kill();
+      await stopped;
+    }
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
 
 test("pi sends exactly the model's anthropic-beta override, and its siblings keep Pi's own list", { skip: installed ? false : "pi is not installed", timeout: 300_000 }, async (t) => {
   t.diagnostic(`pi ${installed}`);

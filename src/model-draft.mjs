@@ -84,6 +84,13 @@ export function anthropicBetaSaveIntent(model, sourceProviderId, targetProviderI
   if (model.anthropicBetaKind === "external") return targetModelExists ? { write: false } : { write: true, value: "" };
   return { write: true, value: model.anthropicBeta || "" };
 }
+
+export function modelBaseUrlSaveIntent(model, sourceProviderId, targetProviderId) {
+  if (model.baseUrlEdited) return { baseUrl: model.baseUrl || "" };
+  if (sourceProviderId && sourceProviderId === targetProviderId && model.persistedId === model.id?.trim()) return {};
+  // A duplicate/new row cannot inherit a hidden source address.
+  return { baseUrl: model.baseUrlKind === "external" ? "" : model.baseUrl || "" };
+}
 // A duplicated provider saves as a new row, so the draft needs an ID that is
 // free: `<source>-copy`, then `-copy-2`, `-copy-3`, …
 export function suggestCopyId(sourceId, takenIds) {
@@ -120,6 +127,9 @@ export function duplicatePiForm(form, takenIds) {
       ...model,
       rowId: freshRowId(),
       persistedId: "",
+      baseUrl: model.baseUrlKind === "external" ? "" : model.baseUrl || "",
+      baseUrlKind: model.baseUrlKind === "external" ? "none" : model.baseUrlKind || "none",
+      baseUrlEdited: true,
       anthropicBeta: externalBeta ? "" : (model.anthropicBeta || ""),
       anthropicBetaKind: externalBeta ? "none" : (model.anthropicBetaKind || "none"),
       anthropicBetaEdited: true,
@@ -170,6 +180,7 @@ export function piFormToConfigJson(form) {
       api: model.api || "inherit",
     };
     if (model.forceAdaptiveThinking) entry.forceAdaptiveThinking = true;
+    if (model.baseUrlKind !== "external") entry.baseUrl = model.baseUrl || "";
     // Only a literal override is shown. An external value is never surfaced
     // (the app never brings it back to the browser), and "none" is the default.
     if (model.anthropicBetaKind === "literal" && model.anthropicBeta) entry.anthropicBeta = model.anthropicBeta;
@@ -201,6 +212,9 @@ export function piConfigJsonToForm(parsed, form) {
     if (!id) throw new Error(`第 ${index + 1} 个模型缺少 id。`);
     if (seenIds.has(id)) throw new Error(`模型 ID 重复：${id}。`);
     seenIds.add(id);
+    if (Object.hasOwn(raw, "baseUrl") && typeof raw.baseUrl !== "string") {
+      throw new Error(`模型 ${id} 的 API 地址必须是文本。`);
+    }
     // Reuse the matching row's rowId and persistedId so the draft's identity
     // tracking survives a round trip: a model kept under the same ID keeps its
     // storage identity, and the drift check still sees an unchanged persistedId.
@@ -235,6 +249,9 @@ export function piConfigJsonToForm(parsed, form) {
       supportsImages: Object.hasOwn(raw, "supportsImages") ? Boolean(raw.supportsImages) : Boolean(prior?.supportsImages),
       maximumThinking: PI_THINKING_VALUES.has(raw.thinking) ? raw.thinking : (prior?.maximumThinking || "on"),
       api: typeof raw.api === "string" ? raw.api : (prior?.api || "inherit"),
+      baseUrl: Object.hasOwn(raw, "baseUrl") ? raw.baseUrl : prior?.baseUrl || "",
+      baseUrlKind: Object.hasOwn(raw, "baseUrl") ? (raw.baseUrl ? "literal" : "none") : prior?.baseUrlKind || "none",
+      baseUrlEdited: Object.hasOwn(raw, "baseUrl") && (prior?.baseUrlKind === "external" || raw.baseUrl !== (prior?.baseUrl || "")) ? true : Boolean(prior?.baseUrlEdited),
       forceAdaptiveThinking: Object.hasOwn(raw, "forceAdaptiveThinking") ? Boolean(raw.forceAdaptiveThinking) : Boolean(prior?.forceAdaptiveThinking),
       anthropicBeta,
       anthropicBetaKind,

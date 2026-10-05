@@ -20,6 +20,7 @@ test("release staging contains runnable launchers and no local Pi data", () => {
     "lib/toml-document.mjs",
     "lib/validation.mjs",
     "lib/model-hints.mjs",
+    "lib/pi-endpoints.mjs",
     "dist/client/index.html",
     "bin/pi-provider-manager-ui",
     "bin/pi-provider-manager.ps1",
