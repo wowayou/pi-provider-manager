@@ -36,6 +36,42 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## Pi 1.0.2 and mixed-protocol addresses — 2026-10-05
+
+- **Scope.** Local changes after v0.5.2; Node `24.18.0`, installed Pi `1.0.2`.
+  Reviewed official [1.0.1](https://github.com/earendil-works/pi/releases/tag/v1.0.1)
+  and [1.0.2](https://github.com/earendil-works/pi/releases/tag/v1.0.2) releases and
+  the `v1.0.0...v1.0.2` diff. Managed auth/settings contracts and API identifiers
+  are unchanged. The relevant addition is `samplingParamsByThinkingLevel`;
+  provider/model merge preservation already supports it.
+- **Real Pi, 3/3, zero skips.** One loopback gateway and one stored dummy credential
+  served Anthropic Messages, OpenAI Chat and Responses. Pi reached `/v1/messages`,
+  `/v1/chat/completions`, and `/v1/responses`; after changing the provider default,
+  inherited Chat and explicit `/anthropic/v1/messages` and `/openai/v1/responses`
+  still worked. Commands included the advertised `--model provider/model:off`
+  form. Stored `samplingParamsByThinkingLevel.off` reached Chat as temperature
+  `0.7` and top_p `0.8` after a manager save. Both prior beta-header tests passed.
+- **Production API smoke.** Separate temporary Pi/Codex/Claude directories;
+  built UI served by `server.mjs`. Saved a dummy `.invalid` provider, then settings;
+  Pi listed both models offline. OAuth credentials and unknown settings
+  (`quietStartup: "header"`, `tuiMode`, `defaultTools`, `codemode`) survived;
+  credentials were absent from state and `auth.json` remained `0600`.
+- **Regression.** `test:server` 103/103; `test:ui` 36/36; `test:sites` 4/4;
+  `test:pi-update` 8/8; release staging 1/1. All zero skips. Browser coverage
+  includes address save/reload, unchanged JSON round trips, invalid URL focus
+  after saving from step 2, restoring inheritance and undo, plus existing Beta,
+  discovery, default/409, Codex and Claude flows. For the v0.5.3 release
+  candidate the full `npm test` was re-run: 300 of 302, 0 failures, 2
+  Windows-only skips, including 5 real-Codex tests on `0.160.0`, 3 real-Pi
+  tests on `1.0.2` and 10 real-Claude tests on `2.1.285`.
+- **Preview.** Opened real production pages at 1440px light, 850px dark and
+  390px light. No horizontal page overflow; fields stay within the panel. The
+  phone disclosure keeps its title on one line and its count below. Contrast
+  and control-size checks passed in the browser suite. Captures use dummy
+  gateways and stay outside the repository.
+- **Limits.** No live gateway, paid request, real credential or owner config was
+  used. Gateway-specific prefixes still require the gateway's documentation.
+
 ## v0.5.2 Release Acceptance — 2026-10-02
 
 - **Scope.** `main` after #157: the Pi `1.0.0` baseline below, the symlinked prompt fix and the Claude Code `2.1.287` resume case. Only `version` changed for the release.

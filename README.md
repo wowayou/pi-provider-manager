@@ -22,7 +22,7 @@ Codex has the opposite problem. Its configuration is small but unforgiving: one 
 
 ## Highlights
 
-- **Pi-native provider/model workflow** — model IDs, default thinking level, image capability, context/output limits, and per-model API overrides.
+- **Pi-native provider/model workflow** — model IDs, default thinking level, image capability, context/output limits, and per-model protocol/address overrides. One gateway can serve OpenAI at `/v1` and Anthropic at its root with the same credential; the editor previews the appended request path.
 - **Router-first catalog management** — one OpenRouter-like gateway can contain models from many upstream vendors.
 - **Pi capacity suggestions** — manual entry, bulk paste, and discovery reuse the last capacities saved for that gateway/model, then gateway-reported limits, then generation defaults. Editing either number stops automatic updates. See [capacity sources and rules](docs/model-capacities.md).
 - **Provider-level compatibility UA** — the third step keeps an optional literal `User-Agent` override with explicit none/literal/external handling; model-level User-Agent overrides are reported without returning their values. The editable model-level `anthropic-beta` literal is exposed separately.

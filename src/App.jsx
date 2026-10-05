@@ -39,7 +39,8 @@ import {
 } from "@phosphor-icons/react";
 import { PROVIDER_ID_PATTERN, normalizeUrl } from "../lib/validation.mjs";
 import { validateUserAgent } from "../lib/pi-user-agent.mjs";
-import { changedPersistedModel, draftSignature, duplicateCodexForm, duplicatePiForm, providerDraftIdentity, selectedNamedModel, userAgentSaveIntent, anthropicBetaSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "./model-draft.mjs";
+import { changedPersistedModel, draftSignature, duplicateCodexForm, duplicatePiForm, providerDraftIdentity, selectedNamedModel, userAgentSaveIntent, anthropicBetaSaveIntent, modelBaseUrlSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "./model-draft.mjs";
+import { effectiveModelApi, endpointHint, normalizeModelBaseUrl, piRequestUrl } from "../lib/pi-endpoints.mjs";
 import { normalizeAnthropicBeta } from "../lib/pi-anthropic-beta.mjs";
 import { defaultDiscoveryPath } from "../lib/model-discovery.mjs";
 import { CONSERVATIVE, recommendedDefaults, seedModelLimits } from "./model-catalog.mjs";
@@ -209,6 +210,9 @@ function blankModel(id = "", limits = recommendedDefaults(id)) {
     supportsImages: true,
     maximumThinking: "on",
     api: "inherit",
+    baseUrl: "",
+    baseUrlKind: "none",
+    baseUrlEdited: false,
     forceAdaptiveThinking: false,
     anthropicBeta: "",
     anthropicBetaKind: "none",
@@ -343,6 +347,9 @@ function providerToForm(provider, state) {
               ? "on"
               : "off",
         api: model.api || "inherit",
+        baseUrl: model.baseUrlOverride?.kind === "literal" ? model.baseUrlOverride.value : "",
+        baseUrlKind: model.baseUrlOverride?.kind || "none",
+        baseUrlEdited: false,
         forceAdaptiveThinking: Boolean(model.compat?.forceAdaptiveThinking),
         anthropicBeta: model.anthropicBeta?.kind === "literal" ? model.anthropicBeta.value : "",
         anthropicBetaKind: model.anthropicBeta?.kind || "none",
@@ -764,7 +771,7 @@ function ProtocolStep({ form, setForm, error, conflict, saving, dirty, onNext, o
     <section className="step-content">
       <div className="step-scroll">
         <div className="section-heading">
-          <div><h1>选择网关的默认接口协议</h1><p>供应商类似 OpenRouter：先选默认协议，下面可以挂多个模型。</p></div>
+          <div><h1>选择网关的默认接口协议</h1><p>同一供应商共用一份凭据；模型可单独指定协议和地址。</p></div>
           <button type="button" className="help-link" aria-expanded={showHint} aria-controls="protocol-hint" onClick={() => setShowHint((value) => !value)}>
             <Question size={19} />不确定选哪个？
           </button>
@@ -813,6 +820,12 @@ function ProtocolStep({ form, setForm, error, conflict, saving, dirty, onNext, o
   );
 }
 
+function EndpointPreview({ api, baseUrl }) {
+  const endpoint = piRequestUrl(api, baseUrl);
+  const hint = endpointHint(api).split(/(\/[a-z0-9/]+)/g).map((part, index) => part.startsWith("/") ? <code key={index}>{part}</code> : part);
+  return <div className="endpoint-preview"><p>{hint}</p>{endpoint && <p>请求地址：<code>{endpoint}</code></p>}</div>;
+}
+
 function CredentialsStep({ form, setForm, state, error, conflict, saving, dirty, identity, apiFocusRequest, credentialFocus, onBack, onNext, onSave }) {
   const sources = state.authProviders.filter((id) => id !== form.providerId);
   const providerIdRef = useRef(null);
@@ -845,8 +858,10 @@ function CredentialsStep({ form, setForm, state, error, conflict, saving, dirty,
             const keepStillValid = state.authProviders.includes(identity.sourceId || providerId);
             return { ...current, providerId, credentialMode: current.credentialMode === "keep" && !keepStillValid ? "new" : current.credentialMode };
           })} placeholder="any-router" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" ref={providerIdRef} aria-invalid={providerIdInvalid || Boolean(identity.conflict) || (erroredField === "providerId" && !form.providerId.trim()) || undefined} aria-describedby={identity.conflict ? "pi-rename-conflict" : erroredField === "providerId" && !form.providerId.trim() ? "credential-error-banner" : undefined} />{providerIdInvalid && <span className="field-warning"><WarningCircle size={15} weight="fill" />只能使用小写字母、数字、点、下划线和连字符，且以字母或数字开头。</span>}{identity.overwrites && !providerIdInvalid && <span className="field-warning"><WarningCircle size={15} weight="fill" />已有同名供应商，保存会替换它的地址与模型列表。</span>}{identity.conflict && !providerIdInvalid && <span id="pi-rename-conflict" className="field-warning"><WarningCircle size={15} weight="fill" />{identity.conflict}</span>}{identity.renameFrom && !identity.conflict && !providerIdInvalid && <span className="field-note"><Info size={15} weight="duotone" />保存会把 <code className="mono">{identity.renameFrom}</code> 改名为这个 ID：模型、凭据和默认设置都会一并迁移，旧 ID 不再保留。</span>}</label>
-          <label><span>API 地址</span><small>填写接口根地址，不要包含具体模型路径</small><input ref={baseUrlRef} className="mono" type="url" inputMode="url" value={form.baseUrl} onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))} placeholder="https://api.example.com/v1" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" aria-invalid={erroredField === "baseUrl" || undefined} aria-describedby={erroredField === "baseUrl" ? "credential-error-banner" : undefined} /></label>
+          <label><span>默认 API 地址</span><small>用于 {apiMeta(form.api).title}；不同协议的模型可在第 3 步单独设置地址</small><input ref={baseUrlRef} className="mono" type="url" inputMode="url" value={form.baseUrl} onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))} placeholder={form.api === "anthropic-messages" ? "https://api.example.com" : "https://api.example.com/v1"} spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" aria-invalid={erroredField === "baseUrl" || undefined} aria-describedby={erroredField === "baseUrl" ? "credential-error-banner" : "provider-endpoint-help"} /></label>
         </div>
+        <div id="provider-endpoint-help"><EndpointPreview api={form.api} baseUrl={form.baseUrl} /></div>
+        {form.models.some((model) => model.baseUrlKind && model.baseUrlKind !== "none") && <p className="field-note">有模型使用独立地址；修改默认地址不会改变它们，请在第 3 步「模型接口与地址」核对。</p>}
         <fieldset className="credential-box">
           <legend>访问凭据</legend>
           <div className="credential-tabs">
@@ -939,6 +954,7 @@ function ModelRow({ model, isDefault, isLiveDefault, onChange, onDefault, onArmR
         </span>
         <span className="model-row-annotations">
           {model.api !== "inherit" && <small className="protocol-override">协议覆盖为 {apiMeta(model.api).short}</small>}
+          {model.baseUrlKind !== "none" && model.baseUrlKind && <small className="protocol-override">独立地址</small>}
           {isLiveDefault && <small className="live-default-badge">Pi 当前默认</small>}
         </span>
       </label>
@@ -992,7 +1008,54 @@ function userAgentValidationError(value) {
   }
 }
 
-function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, onDiscover, onEditProtocol, onEditGateway, canDeleteProvider, isExistingProvider, isCurrentDefault, hasProviders, dirty, liveDefaultModelId, modelHints, userAgentFocusRequest, betaFocusRequest }) {
+function ModelEndpoints({ form, setForm, onNotify, focusRequest }) {
+  const panelRef = useRef(null);
+  const inputRef = useRef(null);
+  const [rowId, setRowId] = useState("");
+  const models = form.models.filter((model) => model.id.trim());
+  const model = models.find((item) => item.rowId === rowId) || models[0];
+  const overridden = models.filter((item) => (item.api && item.api !== "inherit") || item.baseUrlKind !== "none").length;
+  useEffect(() => {
+    if (!focusRequest?.serial) return;
+    setRowId(focusRequest.rowId);
+    panelRef.current.open = true;
+    requestAnimationFrame(() => { inputRef.current?.focus(); inputRef.current?.scrollIntoView({ block: "center" }); });
+  }, [focusRequest?.serial]);
+  const update = (fields) => setForm((current) => ({ ...current, models: current.models.map((item) => item.rowId === model.rowId ? { ...item, ...fields } : item) }));
+  let urlError = "";
+  if (model && model.baseUrlKind !== "external") {
+    try { normalizeModelBaseUrl(model.baseUrl || ""); } catch (problem) { urlError = problem.message; }
+  }
+  const api = model ? effectiveModelApi(model, form.api) : form.api;
+  return (
+    <details className="endpoint-panel" ref={panelRef}>
+      <summary><SlidersHorizontal size={19} /><span>模型接口与地址</span><small>{overridden ? `${overridden} 个模型有单独设置` : "默认全部继承网关"}</small><CaretDown size={16} /></summary>
+      <div className="endpoint-content">
+        <p>同一供应商共用凭据。选择模型后一起核对协议和地址；切换协议不会自动增删 <code>/v1</code>。</p>
+        <label><span>选择模型</span><select className="mono endpoint-model" value={model?.rowId || ""} onChange={(event) => setRowId(event.target.value)}>{!models.length && <option value="">请先添加模型</option>}{models.map((item) => <option key={item.rowId} value={item.rowId}>{item.id}</option>)}</select></label>
+        {model && <>
+          <label><span>接口协议</span><select className="endpoint-api" value={model.api} onChange={(event) => update({ api: event.target.value })}><option value="inherit">继承网关：{apiMeta(form.api).title}</option>{API_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label>
+          {model.baseUrlKind === "external" && <p className="advanced-external-note">已有外部地址配置，原文不回传；不修改会保留。填写新地址可替换，或恢复继承网关。</p>}
+          <label><span>模型 API 地址（可选）</span><input ref={inputRef} className="mono endpoint-url" type="url" inputMode="url" value={model.baseUrl} placeholder={form.baseUrl || "留空继承网关地址"} spellCheck={false} autoComplete="off" autoCapitalize="off" autoCorrect="off" onChange={(event) => update({ baseUrl: event.target.value, baseUrlKind: event.target.value.trim() ? "literal" : "none", baseUrlEdited: true })} aria-invalid={Boolean(urlError) || undefined} aria-describedby="model-endpoint-help" /></label>
+          <div id="model-endpoint-help">
+            {urlError && <p className="field-error">{urlError}</p>}
+            {model.baseUrlKind !== "external" && <>
+              <p>{model.baseUrl.trim() ? "使用模型独立地址；凭据仍来自此供应商。" : "继承网关默认地址。"}</p>
+              <EndpointPreview api={api} baseUrl={model.baseUrl.trim() || form.baseUrl} />
+            </>}
+          </div>
+          <button type="button" className="secondary-button button-sm" disabled={model.api === "inherit" && model.baseUrlKind === "none"} onClick={() => {
+            const before = { api: model.api, baseUrl: model.baseUrl, baseUrlKind: model.baseUrlKind, baseUrlEdited: model.baseUrlEdited };
+            update({ api: "inherit", baseUrl: "", baseUrlKind: "none", baseUrlEdited: true });
+            onNotify(<>已让 <code>{model.id}</code> 继承网关协议与地址；保存后生效</>, "success", { label: "撤销", onAction: () => update(before) });
+          }}>恢复网关协议与地址</button>
+        </>}
+      </div>
+    </details>
+  );
+}
+
+function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, onDiscover, onEditProtocol, onEditGateway, canDeleteProvider, isExistingProvider, isCurrentDefault, hasProviders, dirty, liveDefaultModelId, modelHints, userAgentFocusRequest, betaFocusRequest, endpointFocusRequest }) {
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [showDiscover, setShowDiscover] = useState(false);
@@ -1165,11 +1228,6 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
   const visibleModels = showModelFilter && modelFilterText
     ? form.models.filter((model) => model.id.toLowerCase().includes(modelFilterText))
     : form.models;
-  // Protocol overrides: list only the models that actually carry one, plus a
-  // picker to add an override to a model that inherits — instead of a select for
-  // every row in a long catalogue.
-  const overriddenModels = form.models.filter((model) => model.api && model.api !== "inherit");
-  const inheritingModels = form.models.filter((model) => (!model.api || model.api === "inherit") && model.id.trim());
   const userAgentError = userAgentValidationError(form.userAgent);
   const externalUserAgent = form.userAgentKind === "external" && !form.userAgentEdited;
   const userAgentSummary = externalUserAgent
@@ -1271,6 +1329,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
         </div>
         <p className="scroll-hint">表格可左右滑动，查看上下文容量、图像与推理能力等字段。</p>
         <div className="models-note"><ShieldCheck size={21} weight="duotone" />未指定的能力项将使用保守默认值，不影响正常使用。</div>
+        <ModelEndpoints form={form} setForm={setForm} onNotify={onNotify} focusRequest={endpointFocusRequest} />
         <details ref={advancedRef} className="advanced-panel">
           <summary><span><SlidersHorizontal size={21} />高级兼容设置 <small>通常无需修改</small>{userAgentSummary && <small>{userAgentSummary}</small>}</span><CaretDown size={19} /></summary>
           <div className="advanced-content">
@@ -1311,14 +1370,6 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
               <label className="beta-value-field"><span>Beta token 列表</span><small id="anthropic-beta-help">逗号分隔的 ASCII token，例如 <code>context-1m-2025-08-07</code>。动态表达式不会执行。</small><input ref={betaInputRef} className="mono" value={betaModel?.anthropicBetaKind === "external" ? "" : betaModel?.anthropicBeta || ""} disabled={!betaModel} onChange={(event) => { const value = event.target.value; if (!betaModel) return; updateModel(betaModel.rowId, { ...betaModel, anthropicBeta: value, anthropicBetaKind: value ? "literal" : "none", anthropicBetaEdited: true }); }} placeholder="未设置模型 Beta 覆盖" aria-invalid={Boolean(betaError) || undefined} aria-describedby={betaError ? "anthropic-beta-help anthropic-beta-error" : "anthropic-beta-help"} spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />{betaError && <span id="anthropic-beta-error" className="field-error"><WarningCircle size={15} weight="fill" />{betaError}</span>}</label>
               <div className="beta-actions"><button type="button" className="outline-button button-sm" disabled={!betaModel} onClick={() => { if (!betaModel) return; const before = betaModel; const nextValue = "context-1m-2025-08-07"; updateModel(betaModel.rowId, { ...betaModel, anthropicBeta: nextValue, anthropicBetaKind: "literal", anthropicBetaEdited: true }); onNotify("已填入网关旧版 1M 示例；保存后才会写入", "success", { label: "撤销", onAction: () => setForm((current) => ({ ...current, models: current.models.map((item) => item.rowId === before.rowId && item.anthropicBeta === nextValue ? { ...item, anthropicBeta: before.anthropicBeta, anthropicBetaKind: before.anthropicBetaKind, anthropicBetaEdited: before.anthropicBetaEdited } : item) })) }); }}>填入网关旧版 1M 示例</button><button type="button" className="secondary-button button-sm" disabled={!betaModel} onClick={() => { if (!betaModel) return; const before = betaModel; updateModel(betaModel.rowId, { ...betaModel, anthropicBeta: "", anthropicBetaKind: "none", anthropicBetaEdited: true }); onNotify("已清除模型 Beta 覆盖；保存后才会移除", "success", { label: "撤销", onAction: () => setForm((current) => ({ ...current, models: current.models.map((item) => item.rowId === before.rowId && item.anthropicBeta === "" ? { ...item, anthropicBeta: before.anthropicBeta, anthropicBetaKind: before.anthropicBetaKind, anthropicBetaEdited: before.anthropicBetaEdited } : item) })) }); }}>清除模型覆盖</button></div>
               <p className="user-agent-disclaimer">留空表示没有模型级覆盖；Pi 默认值或其他配置仍可能提供 Beta 请求头。</p>
-            </div>
-            <div className="advanced-group protocol-group">
-              <div className="advanced-group-heading"><h3>模型协议覆盖</h3><p>只有网关针对某个模型使用不同接口时才需要设置。默认全部继承网关协议。</p></div>
-              {overriddenModels.length === 0 && <p className="user-agent-disclaimer">当前没有模型设置协议覆盖。</p>}
-              {overriddenModels.map((model) => <label key={model.rowId}><span className="mono">{model.id || "未命名模型"}</span><select value={model.api} onChange={(event) => updateModel(model.rowId, { ...model, api: event.target.value })}><option value="inherit">继承网关默认协议（移除覆盖）</option>{API_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label>)}
-              {inheritingModels.length > 0 && (
-                <label className="protocol-add-field"><span>为模型添加覆盖</span><select value="" onChange={(event) => { const rowId = event.target.value; if (!rowId) return; const model = form.models.find((item) => item.rowId === rowId); if (model) updateModel(rowId, { ...model, api: API_OPTIONS[0].id }); }}><option value="">选择一个模型…</option>{inheritingModels.map((model) => <option key={model.rowId} value={model.rowId}>{model.id}</option>)}</select></label>
-              )}
             </div>
             <div className="advanced-group json-group">
               <div className="advanced-group-heading"><h3>配置 JSON（进阶）</h3><p>直接编辑该供应商的地址、协议与模型列表（不包含凭据）。应用后仍需点保存，服务端会做完整校验。</p></div>
@@ -1871,6 +1922,7 @@ export function App() {
   const [codexBulkDeleteIds, setCodexBulkDeleteIds] = useState([]);
   const [userAgentFocusRequest, setUserAgentFocusRequest] = useState(0);
   const [betaFocusRequest, setBetaFocusRequest] = useState({ rowId: "", serial: 0 });
+  const [endpointFocusRequest, setEndpointFocusRequest] = useState({ rowId: "", serial: 0 });
   const [target, setTarget] = useState("pi");
   const [codexForm, setCodexForm] = useState(blankCodexForm);
   // Baselines: the signature of the last draft loaded from saved data (or a
@@ -2065,12 +2117,13 @@ export function App() {
     if (!state.providers.some((provider) => provider.id === form.providerId.trim())) return;
     const copiedExternalUserAgent = form.userAgentKind === "external" && !form.userAgentEdited;
     const copiedExternalBeta = form.models.some((model) => model.anthropicBetaKind === "external");
+    const copiedExternalBaseUrl = form.models.some((model) => model.baseUrlKind === "external");
     loadForm(duplicatePiForm(form, state.providers.map((provider) => provider.id)));
     setSelectedId("");
     setStep(2);
     setView("wizard");
     setError("");
-    showToast(copiedExternalUserAgent || copiedExternalBeta
+    showToast(copiedExternalUserAgent || copiedExternalBeta || copiedExternalBaseUrl
       ? "已复制模型与兼容设置；外部配置未复制，请在第三步重新填写"
       : "已复制模型与兼容设置；改好 ID 和网关地址，填入新 key 后保存");
   };
@@ -2109,12 +2162,13 @@ export function App() {
     const sourceForm = providerToForm(provider, state);
     const copiedExternalUserAgent = sourceForm.userAgentKind === "external" && !sourceForm.userAgentEdited;
     const copiedExternalBeta = sourceForm.models.some((model) => model.anthropicBetaKind === "external");
+    const copiedExternalBaseUrl = sourceForm.models.some((model) => model.baseUrlKind === "external");
     loadForm(duplicatePiForm(sourceForm, state.providers.map((item) => item.id)));
     setSelectedId("");
     setStep(2);
     setView("wizard");
     setError("");
-    showToast(copiedExternalUserAgent || copiedExternalBeta
+    showToast(copiedExternalUserAgent || copiedExternalBeta || copiedExternalBaseUrl
       ? "已复制模型与兼容设置；外部配置未复制，请在第三步重新填写"
       : "已复制模型与兼容设置；改好 ID 和网关地址，填入新 key 后保存");
   };
@@ -2258,6 +2312,16 @@ export function App() {
     const renameFrom = piIdentity.renameFrom;
     const intentSourceId = renameFrom ? targetProviderId : selectedId;
     for (const model of form.models.filter((item) => item.id.trim())) {
+      try {
+        if (!API_OPTIONS.some((option) => option.id === effectiveModelApi(model, form.api))) throw new Error("请选择受支持的接口协议。");
+        const address = modelBaseUrlSaveIntent(model, intentSourceId, targetProviderId);
+        if (Object.hasOwn(address, "baseUrl")) normalizeModelBaseUrl(address.baseUrl);
+      } catch (problem) {
+        setError(<>模型 <code>{model.id.trim()}</code>：{problem.message}</>);
+        setEndpointFocusRequest((current) => ({ rowId: model.rowId, serial: current.serial + 1 }));
+        setStep(3);
+        return;
+      }
       const targetModelExists = Boolean(targetProvider?.models?.some((item) => item.id === model.id.trim()));
       const betaIntent = anthropicBetaSaveIntent(model, intentSourceId, targetProviderId, targetModelExists);
       if (betaIntent.write && betaIntent.value) {
@@ -2286,6 +2350,7 @@ export function App() {
         reasoning: model.maximumThinking !== "off",
         maximumThinking: model.maximumThinking,
         api: model.api,
+        ...modelBaseUrlSaveIntent(model, intentSourceId, targetProviderId),
         forceAdaptiveThinking: model.forceAdaptiveThinking,
         ...(() => {
           const targetModelExists = Boolean(targetProvider?.models?.some((item) => item.id === model.id.trim()));
@@ -2334,6 +2399,9 @@ export function App() {
             input: model.supportsImages ? ["text", "image"] : ["text"],
             reasoning: model.reasoning,
             api: model.api === "inherit" ? undefined : model.api,
+            baseUrlOverride: Object.hasOwn(model, "baseUrl")
+              ? (model.baseUrl ? { kind: "literal", value: normalizeModelBaseUrl(model.baseUrl) } : { kind: "none" })
+              : (preservedProvider?.models?.find((item) => item.id === model.id)?.baseUrlOverride || { kind: "none" }),
             anthropicBeta: Object.hasOwn(model, "anthropicBeta")
               ? (model.anthropicBeta ? { kind: "literal", value: model.anthropicBeta } : { kind: "none" })
               : (preservedProvider?.models?.find((item) => item.id === model.id)?.anthropicBeta || { kind: "none" }),
@@ -3185,7 +3253,7 @@ export function App() {
               />
             </>
           )
-        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={goToStep} allowJump={state.providers.some((provider) => provider.id === form.providerId.trim())} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} dirty={piDirty} onSave={piIdentity.sourceId ? savePiChanges : undefined} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} conflict={conflict} saving={saving} dirty={piDirty} identity={piIdentity} apiFocusRequest={apiFocusRequest} credentialFocus={credentialFocus} onBack={() => setStep(1)} onNext={goToModels} onSave={piIdentity.sourceId ? savePiChanges : undefined} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} onDiscover={discoverModels} onEditProtocol={() => goToStep(1)} onEditGateway={editGatewayAddress} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} hasProviders={state.providers.length > 0} dirty={piDirty} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} modelHints={state.modelHints?.[piIdentity.ownerId]} userAgentFocusRequest={userAgentFocusRequest} betaFocusRequest={betaFocusRequest} />}</>}
+        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={goToStep} allowJump={state.providers.some((provider) => provider.id === form.providerId.trim())} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} dirty={piDirty} onSave={piIdentity.sourceId ? savePiChanges : undefined} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} conflict={conflict} saving={saving} dirty={piDirty} identity={piIdentity} apiFocusRequest={apiFocusRequest} credentialFocus={credentialFocus} onBack={() => setStep(1)} onNext={goToModels} onSave={piIdentity.sourceId ? savePiChanges : undefined} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} onDiscover={discoverModels} onEditProtocol={() => goToStep(1)} onEditGateway={editGatewayAddress} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} hasProviders={state.providers.length > 0} dirty={piDirty} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} modelHints={state.modelHints?.[piIdentity.ownerId]} userAgentFocusRequest={userAgentFocusRequest} betaFocusRequest={betaFocusRequest} endpointFocusRequest={endpointFocusRequest} />}</>}
       </section>
       {claudeFlow.deleteId && claudeFlow.provider(claudeFlow.deleteId) && <ClaudeDeleteDialog flow={claudeFlow} saving={saving} conflict={conflict} />}
       {codexDeleteTargetId && codexProvider(codexDeleteTargetId) && (

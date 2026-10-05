@@ -2995,10 +2995,10 @@ test("production UI edits Anthropic Beta and preserves unrelated draft edits", {
     // switched to an OpenAI protocol by the per-model override, given a beta.
     // Pi sends model.headers on every protocol, so the field stays editable and
     // the save goes through; the note only says most such gateways ignore it.
-    // Add an override for the second model through the picker, then set it.
-    await cdp.evaluate("(() => { const add = document.querySelector('.protocol-add-field select'); const option = [...add.options].find((o) => o.textContent === 'openai/gpt-router'); const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set; setter.call(add, option.value); add.dispatchEvent(new Event('change', { bubbles: true })); })()");
-    await cdp.waitFor("[...document.querySelectorAll('.protocol-group label')].some((label) => label.querySelector('.mono')?.textContent === 'openai/gpt-router')");
-    await cdp.evaluate("(() => { const label = [...document.querySelectorAll('.protocol-group label')].find((l) => l.querySelector('.mono')?.textContent === 'openai/gpt-router'); const select = label.querySelector('select'); const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set; setter.call(select, 'openai-completions'); select.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    // Choose the model, then set its protocol in the paired endpoint editor.
+    await cdp.evaluate("document.querySelector('.endpoint-panel > summary').click()");
+    await cdp.evaluate("(() => { const select = document.querySelector('.endpoint-model'); const option = [...select.options].find((o) => o.textContent === 'openai/gpt-router'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, option.value); select.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    await cdp.evaluate("(() => { const select = document.querySelector('.endpoint-api'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, 'openai-completions'); select.dispatchEvent(new Event('change', { bubbles: true })); })()");
     await cdp.evaluate("(() => { const select = document.querySelector('.beta-model-field select'); const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set; setter.call(select, select.options[1].value); select.dispatchEvent(new Event('change', { bubbles: true })); })()");
     await cdp.waitFor("document.querySelector('.beta-group .compat-note')");
     assert.match(await cdp.evaluate("document.querySelector('.beta-group .compat-note').textContent"), /仍会把这个请求头原样发出/);
@@ -3723,7 +3723,7 @@ test("a saved provider saves from steps 1 and 2; a new draft keeps the three-ste
   }
 });
 
-test("a long model catalogue filters for display only and adds protocol overrides on demand", { timeout: 90_000 }, async () => {
+test("a long model catalogue filters without changing storage and edits model protocol with its address", { timeout: 90_000 }, async () => {
   requireFreshBuiltUi();
   const chromePath = findChrome();
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-filter-"));
@@ -3782,18 +3782,51 @@ test("a long model catalogue filters for display only and adds protocol override
     assert.equal(saved.providers["big-router"].models.length, 12);
     assert.equal(defaultBefore, "anthropic/claude-1");
 
-    // Back in the editor, the protocol-override group renders no per-model
-    // selects until one is added through the picker.
+    // Endpoint settings are independent of compatibility flags. Picking a
+    // model does not change its protocol; edits show the actual request path.
     await cdp.evaluate("[...document.querySelectorAll('.provider-select')].find((node) => node.title.includes('big-router')).click()");
     await cdp.waitFor("document.querySelector('.models-table')");
+    await cdp.evaluate("document.querySelector('.endpoint-panel > summary').click()");
+    assert.equal(await cdp.evaluate("document.querySelector('.advanced-panel').open"), false);
+    const selectValue = (selector, value) => cdp.evaluate("(() => { const select = document.querySelector(" + JSON.stringify(selector) + "); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, " + JSON.stringify(value) + "); select.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    assert.equal(await cdp.evaluate("document.querySelector('.endpoint-api').value"), "inherit");
+    assert.equal(await cdp.evaluate("document.querySelector('.wizard-footer .primary-button').disabled"), true);
+    await selectValue('.endpoint-api', 'anthropic-messages');
+    await cdp.waitFor("document.querySelector('#model-endpoint-help').textContent.includes('/v1/v1/messages')");
+    assert.equal(await cdp.evaluate("document.querySelector('.endpoint-url').value"), '', 'changing protocol must not rewrite the address');
+    await setValue('.endpoint-url', 'https://big.example/anthropic');
+    await cdp.waitFor("document.querySelector('#model-endpoint-help').textContent.includes('https://big.example/anthropic/v1/messages')");
+    await clickText('.wizard-footer .primary-button', '保存更改');
+    await cdp.waitFor("document.querySelector('.success-page')");
+    const modelOnDisk = () => JSON.parse(fs.readFileSync(modelsPath, 'utf8')).providers['big-router'].models[0];
+    assert.equal(modelOnDisk().api, 'anthropic-messages');
+    assert.equal(modelOnDisk().baseUrl, 'https://big.example/anthropic');
+    await cdp.evaluate("[...document.querySelectorAll('.provider-select')].find((node) => node.title.includes('big-router')).click()");
+    await cdp.waitFor("document.querySelector('.models-table')");
+    await cdp.evaluate("document.querySelector('.endpoint-panel > summary').click()");
+    assert.equal(await cdp.evaluate("document.querySelector('.endpoint-url').value"), 'https://big.example/anthropic');
+    // A JSON round trip must preserve the endpoint and leave the draft clean.
     await cdp.evaluate("document.querySelector('.advanced-panel > summary').click()");
-    await cdp.waitFor("document.querySelector('.protocol-group')");
-    // Only the "add override" picker exists — not one select per model.
-    assert.equal(await cdp.evaluate("document.querySelectorAll('.protocol-group select').length"), 1);
-    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.protocol-add-field'))"), true);
-    // Add an override for the first inheriting model.
-    await cdp.evaluate("(() => { const select = document.querySelector('.protocol-add-field select'); const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set; setter.call(select, select.options[1].value); select.dispatchEvent(new Event('change', { bubbles: true })); })()");
-    await cdp.waitFor("document.querySelectorAll('.protocol-group select').length === 2");
+    await clickText('.json-group button', '编辑原始配置');
+    await clickText('.json-group button', '应用到表单');
+    assert.equal(await cdp.evaluate("document.querySelector('.wizard-footer .primary-button').disabled"), true);
+    // Refusing a save from step 2 focuses the invalid endpoint in step 3.
+    await setValue('.endpoint-url', 'http://remote.example/anthropic');
+    assert.equal(await cdp.evaluate("document.querySelector('.endpoint-url').getAttribute('aria-invalid')"), 'true');
+    await clickText('.wizard-footer button', '上一步');
+    await cdp.waitFor("document.querySelector('.form-step')");
+    await clickText('.wizard-footer button', '保存更改');
+    await cdp.waitFor("document.activeElement.classList.contains('endpoint-url')");
+    assert.equal(modelOnDisk().baseUrl, 'https://big.example/anthropic');
+    await clickText('.endpoint-content button', '恢复网关协议与地址');
+    await cdp.waitFor("document.querySelector('.endpoint-url').value === ''");
+    await cdp.evaluate("[...document.querySelectorAll('.toast')].find((node) => node.textContent.includes('继承网关协议与地址')).querySelector('button').click()");
+    await cdp.waitFor("document.querySelector('.endpoint-url').value === 'http://remote.example/anthropic'");
+    await clickText('.endpoint-content button', '恢复网关协议与地址');
+    await clickText('.wizard-footer .primary-button', '保存更改');
+    await cdp.waitFor("document.querySelector('.success-page')");
+    assert.equal(modelOnDisk().baseUrl, undefined);
+    assert.equal(modelOnDisk().api, undefined);
 
     assert.deepEqual(cdp.errors, []);
   } finally {

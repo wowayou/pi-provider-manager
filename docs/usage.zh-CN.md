@@ -252,6 +252,20 @@ pi --model provider/model:thinking
 
 ## 四、Pi：模型清单里的几个省事功能
 
+- **模型接口与地址**：同一家网关支持多个协议时，展开模型列表下方的这个区域，选择模型，同时设置协议和
+  可选的模型 API 地址。留空继承第 2 步的默认地址；所有模型仍共用该供应商的凭据。
+
+  | 模型接口 | 常见基础地址 | Pi 拼接后的请求地址 |
+  |---|---|---|
+  | OpenAI Chat | `https://gateway.example/v1` | `https://gateway.example/v1/chat/completions` |
+  | OpenAI Responses | `https://gateway.example/v1` | `https://gateway.example/v1/responses` |
+  | Anthropic Messages | `https://gateway.example` | `https://gateway.example/v1/messages` |
+
+  以网关文档为准：例如 Anthropic 地址可能是 `https://gateway.example/anthropic`，其请求路径就是
+  `/anthropic/v1/messages`。页面会预览请求地址；切换协议不会自动增删 `/v1`。
+  明确选择的模型协议不会跟随后续的默认协议变更；独立地址也不会跟随默认地址变更。
+  「恢复网关协议与地址」可清除两项覆盖，并提供撤销；保存后才生效。已有外部地址配置不会回传原文，
+  不修改就保留；需要替换时填新地址，或恢复继承。复制供应商会带上可显示的独立地址，请一并核对。
 - **获取模型**：点「获取模型」，管理器在本机服务端用保存时会用的那把 key（第二步刚填的，或已保存的）向网关
   请求模型清单，弹窗里勾选要加的行，「导入」后出现在列表里，保存后才写入。请求地址按 Pi 的规则推：Anthropic
   Messages 网关请求 `<地址>/v1/models`，OpenAI / Gemini 网关请求 `<地址>/models`。拿到清单不代表对话接口或模型能力已经验证。key 不回传浏览器，

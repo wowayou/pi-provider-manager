@@ -37,6 +37,7 @@ import { applyUserAgent, readUserAgent } from "./lib/pi-user-agent.mjs";
 import { applyAnthropicBeta, readAnthropicBeta, normalizeAnthropicBeta } from "./lib/pi-anthropic-beta.mjs";
 import { describeDiscoveryStatus, discoveryRequest, parseModelList } from "./lib/model-discovery.mjs";
 import { publicModelHints, recordModelHints } from "./lib/model-hints.mjs";
+import { normalizeModelBaseUrl, readModelBaseUrl } from "./lib/pi-endpoints.mjs";
 import { ConflictError, PROVIDER_ID_PATTERN, isLoopbackHostname, normalizeUrl } from "./lib/validation.mjs";
 
 const HOST = "127.0.0.1";
@@ -764,6 +765,7 @@ function publicModel(model) {
   }
   const beta = readAnthropicBeta(model.headers);
   result.anthropicBeta = beta;
+  result.baseUrlOverride = readModelBaseUrl(model);
   if (isObject(model.compat) && typeof model.compat.forceAdaptiveThinking === "boolean") {
     result.compat = { forceAdaptiveThinking: model.compat.forceAdaptiveThinking };
   }
@@ -851,7 +853,7 @@ function publicState() {
   };
 }
 
-function normalizeModel(model, providerApi) {
+function normalizeModel(model) {
   if (!isObject(model)) throw new Error("模型配置无效。");
   const id = String(model.id || "").trim();
   if (!id) throw new Error("模型 ID 不能为空。");
@@ -882,7 +884,14 @@ function normalizeModel(model, providerApi) {
     contextWindow,
     maxTokens,
   };
-  if (model.api && ALLOWED_APIS.has(model.api) && model.api !== providerApi) {
+  if (Object.hasOwn(model, "baseUrl")) {
+    const baseUrl = normalizeModelBaseUrl(model.baseUrl);
+    if (baseUrl) normalized.baseUrl = baseUrl;
+  }
+  if (model.api && model.api !== "inherit" && !ALLOWED_APIS.has(model.api)) {
+    throw new Error(`${id} 的接口协议无效。`);
+  }
+  if (model.api && ALLOWED_APIS.has(model.api)) {
     normalized.api = model.api;
   }
   if (reasoning && maximumThinking === "xhigh") normalized.thinkingLevelMap = { xhigh: "xhigh" };
@@ -908,13 +917,14 @@ function cleanCompat(api, compat) {
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
-function mergeExistingModel(existing, normalized, submitted, providerApi) {
+function mergeExistingModel(existing, normalized, submitted) {
   const merged = { ...(isObject(existing) ? existing : {}), ...normalized };
+  if (Object.hasOwn(submitted, "baseUrl") && !normalized.baseUrl) delete merged.baseUrl;
   if (Object.hasOwn(submitted, "anthropicBeta")) {
     const headers = applyAnthropicBeta(existing?.headers, submitted.anthropicBeta);
     if (headers) merged.headers = headers; else delete merged.headers;
   }
-  const inheritsProviderApi = !submitted.api || submitted.api === "inherit" || submitted.api === providerApi;
+  const inheritsProviderApi = !submitted.api || submitted.api === "inherit";
   if (inheritsProviderApi) delete merged.api;
   if (!normalized.thinkingLevelMap) delete merged.thinkingLevelMap;
 
@@ -968,7 +978,7 @@ function saveProvider(payload) {
   if (!ALLOWED_APIS.has(api)) throw new Error("请选择受支持的接口协议。");
   const baseUrl = normalizeUrl(payload.baseUrl);
   if (!Array.isArray(payload.models) || payload.models.length === 0) throw new Error("至少添加一个模型。");
-  const normalizedModels = payload.models.map((model) => normalizeModel(model, api));
+  const normalizedModels = payload.models.map(normalizeModel);
   if (new Set(normalizedModels.map((model) => model.id)).size !== normalizedModels.length) {
     throw new Error("模型 ID 不能重复。");
   }
@@ -1020,7 +1030,7 @@ function saveProvider(payload) {
       .map((model) => [model.id, model]),
   );
   const mergedModels = normalizedModels.map((model, index) =>
-    mergeExistingModel(existingModels.get(model.id), model, payload.models[index], api),
+    mergeExistingModel(existingModels.get(model.id), model, payload.models[index]),
   );
   const providerConfig = { ...existingProvider, baseUrl, api, models: mergedModels };
   if (Object.hasOwn(payload, "userAgent")) {
