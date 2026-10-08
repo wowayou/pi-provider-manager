@@ -36,6 +36,85 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## v0.5.4 Release Acceptance — 2026-10-08
+
+- **Scope.** The Pi `1.1.0` compatibility and version-detection changes below,
+  plus release metadata. Node `24.18.0`, npm `11.16.0`; the installed Pi command
+  now reports `1.1.0`. No global agent installation or owner configuration was
+  changed during release acceptance.
+- **Full candidate run.** `npm ci --ignore-scripts`, then full `npm test`,
+  detached with `setsid`, exit 0: 304 tests, 302 passed, 0 failed. The two skips
+  are Windows-only Claude launcher cases run by the required CI Windows job.
+  Production browser: 36/36. Real binaries: Codex `0.160.0` 5/5 including the
+  LiteLLM bridge, Pi `1.1.0` 3/3, Claude Code `2.1.285` 10/10 including all three
+  interactive pty cases; each real-binary suite has zero skips.
+- **Archive.** `npm run package:linux` built the candidate without `node_modules`.
+  Extracted outside the checkout, it passed 13 checks using separate temporary
+  Pi, Codex and Claude directories: production page/CSP, all three version
+  values, provider and Settings saves preserving unknown fields and OAuth,
+  mixed model endpoints, default selection, credentials absent from responses,
+  `auth.json` at `0600`, and real Pi listing both saved models offline without
+  rewriting any of the three Pi files. Chromium opened the archive's Settings
+  page, rendered detected Pi `1.1.0`, validated Pi `1.1.0` and manager `0.5.4`,
+  and reported no JavaScript errors. The screenshot remains outside the repo.
+- **Release boundaries.** Build produced all three required Sites entry files;
+  the existing chunk-size warning remains non-fatal. The read-only Pi monitor
+  reported baseline `1.1.0`, latest stable `1.1.0`, status `current`. No real
+  gateway or paid inference was used; Codex's declared baseline is unchanged.
+
+## Pi 1.1.0 and managed-install migration — 2026-10-08
+
+- **Scope.** Manager `0.5.3` plus these unreleased changes; Node `24.18.0`, npm
+  `11.16.0`. The owner's official managed installation remains Pi `1.0.4`.
+  Pi `1.1.0` was installed only in a temporary prefix using the official release's
+  install manifest and lockfile with `npm ci --ignore-scripts`.
+- **Upstream review.** Read the `1.0.3`, `1.0.4` and `1.1.0` release notes and
+  compared pinned `v1.0.2...v1.1.0` sources. Reviewed models, settings, providers,
+  configuration and custom-provider references, auth schema/resolution, provider
+  composition, prompt loading and the managed wire implementations. Managed file
+  shapes, gateway API identifiers, thinking levels and transport values are
+  unchanged. `--tools` modifiers and expanded `outputPad` semantics remain Pi's
+  responsibility. The Azure **provider ID** changed to `azure`, while its
+  `azure-openai-responses` **API** did not; the guide records this conditional
+  migration. A boolean-only inspection found no legacy Azure reference in the
+  owner's auth, models, default, scope or thinking-level settings; none was edited.
+- **Version-detection defect.** A fake old nvm manifest made the previous detector
+  report `1.0.2` without ever asking a runnable `1.1.0`. Four regressions failed
+  before the fix; all 12 version tests pass afterward. The detector no longer
+  scans installation manifests. With a deliberately stale `hash -p` in the parent
+  Bash, both Node's direct `pi --version` and the manager detected the installed
+  managed `1.0.4`, proving the terminal hash is not shared.
+- **Real Pi.** `test:pi-real`: `1.0.4` 3/3 and `1.1.0` 3/3, zero skips. Stored
+  credentials, Anthropic/OpenAI Chat/Responses paths, explicit and inherited model
+  addresses, custom prefixes, advertised `--model provider/model:off`, preserved
+  sampling parameters, beta override/replacement and clearing all reached the
+  loopback gateways correctly. With thinking enabled, the sibling still sent
+  `interleaved-thinking-2025-05-14` and the override replaced it.
+- **Production boundary.** Built `server.mjs` with separate temporary Pi/Codex/
+  Claude directories. Saved a dummy `.invalid` provider and both models through
+  the API, then changed defaults through Settings. Unknown settings (including
+  `defaultTools`, `codemode`, `outputPad` and `npmCommand`) and an OAuth-shaped entry
+  survived both writes; responses contained no key/token and `auth.json` remained
+  `0600`. Pi `1.1.0` listed both models offline without rewriting any managed file.
+  Opened the production Settings page in Chromium; it rendered the detected and
+  validated versions without JavaScript errors. The server fixture now checks
+  these unmanaged settings after both types of save and isolates the Codex dir.
+- **Regression.** Separate detached runs, not a full `npm test`: server 105/105,
+  production browser 36/36, Sites 4/4, update monitor 8/8, prompts 15/15, release
+  staging 1/1, launchers 8/8. Including both real-Pi runs: 183 tests, zero failures
+  and zero skips. Build produced all three required Sites entry files.
+- **Install/build warnings.** Reviewed the installed npm 11.16 documentation:
+  unreviewed scripts still run by default and the pending-list command is read-only.
+  No approval policy was changed. A separate clean temporary project install using
+  `npm ci --ignore-scripts` also built successfully. Vite still warns about the
+  535.13 kB JS chunk (155.98 kB gzip); no threshold, UI or splitting change was made.
+- **Limits.** No global Pi upgrade, owner configuration write, real gateway request
+  or paid inference. Interactive Pi `/model`, live Azure, Windows Pi detection,
+  and real Codex/Claude binaries were not revalidated in this task. The `402`
+  diagnosis is based on the gateway error the owner supplied, not a live quota
+  probe. `piValidatedVersion` advances only after these compatibility checks;
+  Codex's baseline is unchanged.
+
 ## Pi 1.0.2 and mixed-protocol addresses — 2026-10-05
 
 - **Scope.** Local changes after v0.5.2; Node `24.18.0`, installed Pi `1.0.2`.

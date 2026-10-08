@@ -63,9 +63,8 @@ function freePort() {
 }
 
 async function waitForServer(url) {
-  // detectPiVersion() runs before listen() and, with no nvm-installed pi, falls
-  // back to `bash -lic "pi --version"` with an 8s timeout. A budget shorter than
-  // that fails on any machine with a heavy shell profile.
+  // detectPiVersion() runs before listen() and asks `bash -lic "pi --version"`
+  // with an 8s timeout. A shorter budget fails with a heavy shell profile.
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
     try {
@@ -191,23 +190,29 @@ test("writes router-style providers without exposing credentials", async () => {
       },
     },
   }));
-  // Shaped like a settings.json a current Pi actually writes: `futureSetting`
-  // stands in for a key this manager will never know, and the three beside it
-  // are real keys Pi 0.84.4 added — per-model startup thinking levels and two
-  // JSON-only terminal overrides. This manager owns none of them, so a save
-  // that dropped one would silently undo a Pi setting.
-  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({
+  // Unmanaged settings from Pi's current reference, including tool modifiers
+  // and outputPad whose semantics expanded in 1.1.0. Both kinds of save must
+  // preserve them; futureSetting stands in for a key Pi has not added yet.
+  const preservedSettings = {
     futureSetting: "keep-setting",
     modelThinkingLevels: { "any-router/anthropic/claude-opus": "high" },
     fullscreenCopyOnSelect: false,
     terminal: { hyperlinks: "auto", trueColor: true },
-  }));
+    defaultTools: ["+codemode", "-write"],
+    codemode: { mode: "only", inlineBudget: 2000 },
+    quietStartup: "header",
+    tuiMode: "regular",
+    outputPad: 0,
+    npmCommand: ["npm", "--offline"],
+  };
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify(preservedSettings));
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
     cwd: projectRoot,
     env: serverEnv({
       PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
+      PI_PROVIDER_MANAGER_CODEX_DIR: path.join(agentDir, "codex"),
       PI_PROVIDER_MANAGER_API_PORT: String(port),
       PI_PROVIDER_MANAGER_SERVE_UI: "1",
     }),
@@ -275,6 +280,7 @@ test("writes router-style providers without exposing credentials", async () => {
     assert.deepEqual(models.providers["any-router"].models[0].cost, { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 });
     assert.equal(settings.defaultProvider, "any-router");
     assert.equal(settings.defaultModel, "anthropic/claude-opus");
+    for (const [key, value] of Object.entries(preservedSettings)) assert.deepEqual(settings[key], value, key);
 
     const migrateResponse = await postJson(baseUrl, "/api/providers", {
         providerId: "new-router",
@@ -315,10 +321,7 @@ test("writes router-style providers without exposing credentials", async () => {
     assert.equal(updatedSettings.defaultThinkingLevel, "xhigh");
     assert.equal(updatedSettings.hideThinkingBlock, true);
     assert.equal(updatedSettings.transport, "websocket");
-    assert.equal(updatedSettings.futureSetting, "keep-setting");
-    assert.deepEqual(updatedSettings.modelThinkingLevels, { "any-router/anthropic/claude-opus": "high" });
-    assert.equal(updatedSettings.fullscreenCopyOnSelect, false);
-    assert.deepEqual(updatedSettings.terminal, { hyperlinks: "auto", trueColor: true });
+    for (const [key, value] of Object.entries(preservedSettings)) assert.deepEqual(updatedSettings[key], value, key);
   } finally {
     child.kill("SIGTERM");
     fs.rmSync(agentDir, { recursive: true, force: true });
