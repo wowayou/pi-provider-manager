@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.5.4 - 2026-10-08
+
+- **Validated release candidate:** full `npm test` passed 302 of 304, with 0 failures and 2 Windows-only Claude launcher skips covered by the required CI Windows job. That includes 36 production-browser tests, 5 real-Codex tests on `0.160.0` (LiteLLM bridge included), 3 real-Pi tests on `1.1.0`, and 10 real-Claude tests on `2.1.285` (interactive pty cases included). An extracted Linux/WSL archive passed 13 production-page, configuration-preservation, credential-safety and offline Pi checks without `node_modules`.
+- **Validated against Pi `1.1.0` (previously `1.0.2`).** Real Pi `1.0.4` and `1.1.0` each passed all three loopback tests, including mixed-protocol model addresses, stored credentials, per-thinking-level sampling and beta-header replacement. Production-browser and offline model-listing checks passed; unmanaged settings and OAuth entries survive both provider and Settings saves. The four managed gateway protocols and file schemas are unchanged. Pi `1.0.3` did rename the built-in Azure provider to `azure`; the compatibility guide records the conditional migration without changing custom gateways automatically.
+- **Pi version detection follows the runnable command, not old nvm installs.** After moving to the official installer, leftover npm manifests could shadow the actual Pi version in Settings; choosing the highest installed version could also report an inactive install. The detector now uses the existing fresh-login-shell / bare-command path, retains background refresh, and reports `unknown` if neither command works. Regression tests cover stale installs, a selected older version, command failures and Windows command selection.
+- **Installation troubleshooting distinguishes warnings from failures.** The usage guide explains Bash's per-terminal command hash, npm 11.16's advisory esbuild script-review warning, the non-fatal Vite chunk-size warning, and gateway budget-exhaustion HTTP 402. No script permissions, build warning limits or model configuration were changed to hide these messages.
+
 ## 0.5.3 - 2026-10-05
 
 - **Validated release candidate:** full `npm test` passed 300 of 302, with 0 failures and 2 Windows-only skips that the CI Windows job runs. That includes 36 production-browser tests, 5 real-Codex tests on `0.160.0`, 3 real-Pi tests on `1.0.2` (mixed-protocol wire paths included), and 10 real-Claude tests on `2.1.285` (interactive pty cases included). The Pi baseline moved to `1.0.2`; Codex and Claude baselines are unchanged.

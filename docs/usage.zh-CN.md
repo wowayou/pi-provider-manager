@@ -546,6 +546,29 @@ PI_CODING_AGENT_DIR=/tmp/pi-try CODEX_HOME=/tmp/codex-try PI_PROVIDER_MANAGER_CL
 
 ## 十一、故障排查：按屏幕上的原话查
 
+### 安装与构建提示
+
+- `npm warn allow-scripts ... esbuild@...`：npm 11.16 的脚本审批提醒。目前未审阅脚本仍默认执行，
+  不表示 esbuild 安装失败；未来 npm 可能改为阻止。用 `npm approve-scripts --allow-scripts-pending`
+  只读查看。审阅后若选择授权，可用 `npm approve-scripts esbuild`，默认只批准当前安装的具体版本，
+  并把决定写进 `package.json`；不要为消除提示直接批准所有依赖。管理器不会替你修改审批策略。
+- `Some chunks are larger than 500 kB after minification`：Vite 对单个压缩后 JS 文件的体积提醒，
+  不是构建失败，也不是 Pi 兼容性错误。若后面显示 `built` 和 `Prepared Sites build`，构建已完成。
+  当前本地工具不需要仅为这条提示拆包或提高告警阈值。
+
+### Pi 命令与网关报错
+
+- 从 npm 切到官方安装脚本后，旧终端仍报旧的 `.nvm/.../pi` 不存在：在**那个终端**执行 `hash -r`，
+  再用 `type -a pi`、`pi --version` 核对。新命令通常是 `~/.local/bin/pi`，可能软链接到
+  `~/.pi/agent/bin/pi`。配置仍按 `PI_CODING_AGENT_DIR` 或 `~/.pi/agent` 读取，不需要搬迁密钥。
+  管理器通过新登录 shell 检测实际命令，不共享旧终端的 Bash hash，也不再根据遗留 npm 目录猜版本。
+- `402 ... Budget pool quota has been exhausted`：网关明确拒绝了请求，原因是分配给该凭据的预算池
+  已耗尽。到网关检查预算池/额度，请管理员增加额度，或明确选择有可用额度的池或供应商。
+  换同一耗尽预算池里的模型不一定有效；改安装路径、重建管理器或升级 Pi 都不会补充网关额度。
+  后面的 `/bug` 是 Pi 的通用提示，本身不是 Pi 有缺陷的证据。
+- Pi 1.0.3 起内置 Azure 供应商 ID 改为 `azure`：只有原来使用 `azure-openai-responses` 供应商的
+  配置需要复核，不要把同名的 API 协议标识一起改掉。见[迁移范围](compatibility.md#azure-provider-rename-in-pi-103)。
+
 ### 启动阶段
 
 | 你看到的 | 含义与做法 |

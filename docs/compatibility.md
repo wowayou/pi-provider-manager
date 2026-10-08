@@ -25,6 +25,41 @@ To reduce breakage:
 7. The config directory follows Pi's own precedence: `PI_CODING_AGENT_DIR`, then `~/.pi/agent`.
 8. Project path, port, Node binary, browser opening, and WSL distribution are discovered or explicitly overridable; the network host remains loopback-only.
 
+### Pi installation and version detection
+
+Pi may be installed by its official managed installer, npm, or another package
+manager. Its executable location is independent of the configuration directory:
+`PI_CODING_AGENT_DIR`, then `~/.pi/agent`. The manager does not import Pi or need
+its npm package to remain under a particular Node installation.
+
+Version detection asks `pi --version` in a fresh login shell on Unix, then tries
+the inherited `PATH` if that fails; Windows uses the command directly through a
+shell so npm `.cmd` shims work too. It does not scan nvm manifests or select the
+highest installed version: an inactive or leftover installation is not evidence
+of the command a user runs. Detection refreshes in the background after ten
+seconds when state is read; requests never wait for it. If neither command
+answers, the panel reports `unknown`, without blocking configuration editing.
+
+A stale Bash command hash belongs to that terminal, not to Node or the new
+login shell. After moving Pi from npm to the managed installer, run `hash -r`
+in the affected terminal and check `type -a pi` and `pi --version`. Ensure the
+installer's command is on that shell's `PATH`; do not move credentials or rewrite
+model URLs to fix an executable-path problem.
+
+### Azure provider rename in Pi 1.0.3
+
+Pi renamed its built-in **provider ID** from `azure-openai-responses` to `azure`
+([release notes](https://github.com/earendil-works/pi/releases/tag/v1.0.3)). This is
+not a rename of the `azure-openai-responses` **API identifier**, which still exists.
+Installations using the old built-in provider must review the corresponding keys
+in `auth.json`, `models.json`, and settings references (`defaultProvider`,
+`enabledModels`, `modelThinkingLevels`, and any provider-qualified overrides).
+Existing sessions can fall back to another model and lose prompt-cache reuse.
+
+Ordinary custom gateways are unaffected. The manager does not silently migrate
+provider identities or add Azure-native controls; its four supported gateway
+protocols and unknown-field preservation remain unchanged.
+
 ### Mixed-protocol model endpoints
 
 The provider's `api` and `baseUrl` are defaults. A custom model may carry its own

@@ -24,9 +24,8 @@ function fakeHome(installs = {}) {
   return home;
 }
 
-// Records every command attempted and refuses to answer, so a test that means
-// "the install tree alone answered this" can assert nothing was ever spawned —
-// a detector that swallows the refusal must not read as a pass.
+// Records every command attempted and refuses to answer. Old package manifests
+// must never turn an unavailable command into an apparently installed version.
 function refusing() {
   const attempts = [];
   return {
@@ -38,29 +37,32 @@ function refusing() {
   };
 }
 
-test("reads the Pi version from the install tree without running anything", async () => {
-  const home = fakeHome({ "v24.18.0": "0.84.3" });
+// homeDir was the old detector's install-tree input. Keep feeding it here so
+// restoring that shortcut fails against a real stale tree, not just a mock.
+test("asks the runnable Pi even when an old npm install remains after migration", async () => {
+  const home = fakeHome({ "v24.18.0": "1.0.2" });
+  const attempts = [];
+  const version = await detectPiVersion({
+    homeDir: home, platform: "linux",
+    run: (command, args) => { attempts.push([command, ...args]); return "1.1.0\n"; },
+  });
+  assert.equal(version, "1.1.0");
+  assert.deepEqual(attempts, [["/bin/bash", "-lic", "pi --version"]]);
+});
+
+test("reports the selected Pi rather than the newest inactive npm install", async () => {
+  const home = fakeHome({ "v20.11.0": "1.0.2", "v22.14.0": "1.1.0" });
+  assert.equal(await detectPiVersion({ homeDir: home, platform: "linux", run: () => "1.0.4" }), "1.0.4");
+});
+
+test("does not report a leftover manifest as runnable when both commands fail", async () => {
+  const home = fakeHome({ "v24.18.0": "1.0.2" });
   const shell = refusing();
-  assert.equal(await detectPiVersion({ homeDir: home, platform: "linux", run: shell.run }), "0.84.3");
-  assert.deepEqual(shell.attempts, []);
+  assert.equal(await detectPiVersion({ homeDir: home, platform: "linux", run: shell.run }), "unknown");
+  assert.deepEqual(shell.attempts, [["/bin/bash", "-lic", "pi --version"], ["pi", "--version"]]);
 });
 
-test("prefers the newest Pi when several Node versions carry one", async () => {
-  // localeCompare's default collation orders 0.84.10 below 0.84.9; the numeric
-  // option is what makes this the newest rather than the longest.
-  const home = fakeHome({ "v20.11.0": "0.84.9", "v22.14.0": "0.84.10", "v24.18.0": "0.9.0" });
-  assert.equal(await detectPiVersion({ homeDir: home, platform: "linux", run: refusing().run }), "0.84.10");
-});
-
-test("ignores an unreadable entry in the install tree instead of failing", async () => {
-  const home = fakeHome({ "v24.18.0": "0.84.3" });
-  const broken = path.join(home, ".nvm", "versions", "node", "v20.11.0", "lib", "node_modules", "@earendil-works", "pi-coding-agent");
-  fs.mkdirSync(broken, { recursive: true });
-  fs.writeFileSync(path.join(broken, "package.json"), "{ not json");
-  assert.equal(await detectPiVersion({ homeDir: home, platform: "linux", run: refusing().run }), "0.84.3");
-});
-
-test("falls back to the command, through a login shell first, when no install tree exists", async () => {
+test("asks a fresh login shell first when no install tree exists", async () => {
   const home = fakeHome();
   const attempts = [];
   const version = await detectPiVersion({
@@ -95,6 +97,25 @@ test("reports unknown rather than guessing when nothing answers", async () => {
   const home = fakeHome();
   assert.equal(await detectPiVersion({ homeDir: home, platform: "linux", run: refusing().run }), "unknown");
   assert.equal(await detectCodexVersion({ platform: "linux", run: () => "codex, no version here" }), "unknown");
+});
+
+test("tries the bare Pi command when the login shell output contains no version", async () => {
+  const attempts = [];
+  assert.equal(await detectPiVersion({ platform: "linux", run: (command) => {
+    attempts.push(command);
+    return command === "/bin/bash" ? "no version" : "1.1.0";
+  } }), "1.1.0");
+  assert.deepEqual(attempts, ["/bin/bash", "pi"]);
+});
+
+test("asks Windows for Pi through the bare command, never through bash or npm manifests", async () => {
+  const home = fakeHome({ "v24.18.0": "1.0.2" });
+  const attempts = [];
+  assert.equal(await detectPiVersion({ homeDir: home, platform: "win32", run: (command, args) => {
+    attempts.push([command, ...args]);
+    return "1.1.0";
+  } }), "1.1.0");
+  assert.deepEqual(attempts, [["pi", "--version"]]);
 });
 
 test("asks the Codex binary itself, and asks Windows only the bare command", async () => {
