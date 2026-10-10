@@ -199,7 +199,7 @@ This is a personal tool, maintained at its owner's pace for their own setup, wit
 
 Codex support was added deliberately and stays narrow: providers, credentials, and the active selection. It does not add presets, model discovery, usage dashboards, or a traffic proxy.
 
-CC Switch 3.20 added a comprehensive Pi integration for provider presets, model discovery, prompts, Skills, sessions, and usage. It deliberately does not read or write Pi's `auth.json`, `defaultProvider`, or `defaultModel`. Pi Provider Manager remains a smaller, database-free tool for that credential/default boundary, the three-file invariants around it, and the global instruction files beside them. Both can use the same Pi files, but a stale page must reload after another editor changes them.
+CC Switch 3.20 added a comprehensive Pi integration for provider presets, model discovery, prompts, Skills, sessions, and usage. Its [v4.0.6 native contract](https://github.com/farion1231/cc-switch/blob/v4.0.6/docs/pi-native-contract-zh.md) reads global `defaultProvider` / `defaultModel` for warnings, but does not write them; Pi's `auth.json` is neither read nor written. Pi Provider Manager remains a smaller, database-free tool for that credential/default boundary, the three-file invariants around it, and the global instruction files beside them. Both can use the same Pi files, but a stale page must reload after another editor changes them.
 
 Both tools can also run Claude Code with a different provider in each terminal. CC Switch's **Open Terminal** button opens a new terminal window for the provider; this manager gives a command to run in a terminal you already have, such as an editor's integrated terminal, a tmux pane, or WSL.
 
