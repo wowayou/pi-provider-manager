@@ -39,6 +39,9 @@ highest installed version: an inactive or leftover installation is not evidence
 of the command a user runs. Detection refreshes in the background after ten
 seconds when state is read; requests never wait for it. If neither command
 answers, the panel reports `unknown`, without blocking configuration editing.
+Login-shell startup text is ignored when it contains unrelated version numbers
+(for example, an Ubuntu/WSL banner); the panel uses the line naming Pi or Codex,
+or the standalone version line emitted by the command itself.
 
 A stale Bash command hash belongs to that terminal, not to Node or the new
 login shell. After moving Pi from npm to the managed installer, run `hash -r`
@@ -278,6 +281,10 @@ edits the same files:
 **Deliberately not adopted as references.** Recorded so the same evaluation is not
 repeated:
 
+- Octopus: <https://github.com/bestruirui/octopus> — an AGPL-3.0 LLM API
+  aggregation gateway with channel aggregation, protocol conversion, failover and
+  statistics. It is a gateway product, while this project edits agent-native
+  configuration and deliberately carries no model traffic.
 - new-api (<https://github.com/QuantumNous/new-api>, AGPL-3.0) — its own README
   marks OpenAI-compatible ⇄ Responses as in development, and the code agrees: the
   `oai_responses` converter has 2 test files where sub2api has 27. For the one

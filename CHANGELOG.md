@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.5.6 - 2026-10-10
+
+- **Validated release:** full `npm test` passed 318 of 320 tests, with 0 failures and 2 Windows-only Claude launcher skips reserved for the required CI Windows job. Real binaries passed Codex 5/5, Pi 3/3, and Claude Code 10/10. The production build no longer emits Vite's large-JavaScript-chunk warning.
+- **兼容状态不再把 Ubuntu/WSL 启动横幅当成 Pi 版本。** 版本探测现在只接受 Pi/Codex 明确输出的版本行或独立版本行；仅有系统横幅时显示 `unknown`。
+- **应用 PR #164 的构建依赖安全更新。** `source-map-js` 在锁文件中从 `1.2.1` 更新到 `1.2.2`；它是 Vite/PostCSS 的构建依赖，不是安装包服务端的运行依赖。
+- **拆分 Vite 入口分块。** 图标库和三个目标的页面模块分别输出，入口压缩后从约 532KB 降到约 309KB；构建不再产生单个 JS 超过 500KB 的警告。
+
 ## 0.5.5 - 2026-10-10
 
 - **Validated against Pi `1.1.0` (unchanged).** The release candidate passed full `npm test`: 315 of 317 tests, 0 failures, with 2 Windows-only Claude launcher skips reserved for the required CI Windows job. Production browser: 45/45. Real binaries: Codex `0.160.0` 5/5 including the LiteLLM bridge, Pi `1.1.0` 3/3, Claude Code `2.1.285` 10/10 including interactive terminal cases, all without skips. An extracted Linux/WSL archive passed 12 production-page, configuration-preservation, credential-safety and offline Pi checks without `node_modules`.

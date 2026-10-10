@@ -577,8 +577,8 @@ PI_CODING_AGENT_DIR=/tmp/pi-try CODEX_HOME=/tmp/codex-try PI_PROVIDER_MANAGER_CL
   只读查看。审阅后若选择授权，可用 `npm approve-scripts esbuild`，默认只批准当前安装的具体版本，
   并把决定写进 `package.json`；不要为消除提示直接批准所有依赖。管理器不会替你修改审批策略。
 - `Some chunks are larger than 500 kB after minification`：Vite 对单个压缩后 JS 文件的体积提醒，
-  不是构建失败，也不是 Pi 兼容性错误。若后面显示 `built` 和 `Prepared Sites build`，构建已完成。
-  当前本地工具不需要仅为这条提示拆包或提高告警阈值。
+  不是构建失败，也不是 Pi 兼容性错误。当前版本已经把图标库和各目标页面拆成独立分块，正常构建不应再出现这条提示；
+  如果旧版本仍出现，更新代码后重新运行 `npm ci`（锁文件有变化时）和 `npm run build`。
 
 ### Pi 命令与网关报错
 

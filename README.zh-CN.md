@@ -2,211 +2,44 @@
 
 [English](README.md)
 
-一个面向 **Pi、Codex CLI 与 Claude Code** 的本地模型目录与 API 网关管理器。它不替代这三个 agent，而是安全、可视化地维护它们各自的原生配置文件。
+Pi Provider Manager 是一个面向 **Pi、Codex CLI 和 Claude Code** 的本地原生配置管理器。它编辑三个 agent 自己的配置文件，帮助管理供应商、凭据、默认模型和全局提示词；模型请求仍由 agent 直接发送到配置的网关。
 
-**详细使用说明书：[docs/usage.zh-CN.md](docs/usage.zh-CN.md)** —— 面向使用者写的，覆盖安装、三个向导、托管桥、全部环境变量，以及一张按屏幕原话索引的故障排查表。
+它不承载推理流量，也不是 API 聚合网关。Codex 遇到只有 Chat Completions 的上游时，可选用 LiteLLM 作为本机第三方桥接程序；本项目只生成配置并看管进程，仍不经过模型请求。
 
-## 我们解决的核心问题
+**使用手册：** [docs/usage.zh-CN.md](docs/usage.zh-CN.md) · **架构：** [docs/architecture.md](docs/architecture.md) · **兼容性：** [docs/compatibility.md](docs/compatibility.md) · **Claude Code：** [docs/claude-code.md](docs/claude-code.md)
 
-Pi 在运行时以模型为中心，但配置不是“只有模型”：
+## 项目状态
 
-- 会话最终选择的是具体 `provider/model`
-- thinking level 与模型 ID 分离
-- key 和默认接口协议属于 provider
-- 一个 provider 可以包含多个模型
-- 混合协议网关可以为单个模型覆盖 API 类型
+当前版本是 `0.5.6`。这是一个为作者本人维护的冻结工具：后续只处理真实使用中的缺陷、安全修复，以及 Pi、Codex 或 Claude Code 的兼容变化，不再扩展新的目标、功能路线或 CC Switch 功能追平。
 
-因此本项目不是普通的“供应商切换器”，而是把 Pi 的 provider/model/thinking 关系做成小白也能理解的本地工作流。
+对需要更完整 Pi 工作流的人，[CC Switch](https://github.com/farion1231/cc-switch) 通常更合适。按其 [v4.0.6 原生契约](https://github.com/farion1231/cc-switch/blob/v4.0.6/docs/pi-native-contract-zh.md)，它会读取 Pi 全局 `defaultProvider` / `defaultModel` 用于提醒，但不会写入；也不读写 Pi 的 `auth.json`。本项目保留的差异是直接管理 Pi 凭据、默认项和三份原生文件的一致性，并管理其旁边的全局提示词文件。两个工具共用 Pi 文件时，另一个工具保存后，已经打开的页面需要重新读取。
 
-Codex 的问题正好相反：配置很小，但一点都不宽容 —— 只有一个凭据槽、只剩一种还被接受的 wire 协议、而且供应商表缺少 `name` 就会让整份配置加载失败。手工换网关意味着每次都要同时改对两个文件，还得把当前没在用的那把 key 放到别处存着。同一套三步流程现在也覆盖了这件事，见[Codex 支持](#codex-支持)。
+[Octopus](https://github.com/bestruirui/octopus) 属于另一类产品：它是带渠道聚合、协议转换、故障转移和统计能力的 LLM API 网关。本项目不替代它，也不试图成为一个网关；本项目解决的是 agent 原生配置的本地管理。
 
-## 项目亮点
+## 管理范围
 
-- **Pi 原生语义**：直接管理 provider、模型 ID、思考强度、图像能力、上下文、最大输出和模型级协议、地址覆盖。同一网关可共用凭据，让 OpenAI 使用 `/v1`、Anthropic 使用根地址，并预览拼接后的请求路径。
-- **适合聚合网关**：一个类似 OpenRouter 的网关可以挂载多个上游厂商模型。
-- **Pi 容量建议**：手输、批量添加和模型发现优先恢复同网关同模型上次保存的容量，其次用网关返回值，最后用代际默认值。手动修改任一容量后停止自动更新，见[来源与规则](docs/model-capacities.md)。
-- **供应商级兼容 UA**：第三步的高级兼容设置支持可选的字面量 `User-Agent` 覆盖，明确区分未设置、字面量和外部配置；模型级 User-Agent 覆盖只提示，不回传其值；可编辑的模型级 `anthropic-beta` 字面量单独提供。
-- **key 不回传浏览器**：已有 key 保存在对应 agent 的原生凭据／设置文件或私有供应商库，前端只能看到“已配置”。
-- **三文件原子写入与回滚**：写入前校验，失败时回滚，避免半配置状态。
-- **并发编辑保护**：每次写入都携带不透明 revision；CC Switch、另一个标签页或文本编辑器改过文件后，旧表单会收到 `409`，不会覆盖新修改。供应商保存和默认／生效切换会短暂锁定编辑与导航，直到请求结束，避免迟到的响应丢掉后续草稿。
-- **受保护的供应商删除**：Pi 删除会列明受影响的模型，默认删除凭据，也可选择保留；删除当前默认项必须先指定替代供应商和模型。Codex 删除会移除保存的 key，删除生效项必须由保留的供应商接替。
-- **行内菜单与批量删除**：每行菜单可复制、删除，或将已保存的供应商设为默认／当前生效，不重新提交表单；Pi 会先询问模型，只写 `settings.json` 的默认字段。「选择」模式可一次删除多家，Pi 和 Codex 都支持，整批一次写入、全有或全无。
-- **面向 Pi 更新**：编辑已知字段时保留未知 provider/model/settings 字段，降低升级时的数据损失风险。
-- **升级能在界面里走完**：按一下才联网检查最新 Release；远端更新检查和 Pi 模型清单请求都由用户主动触发，启动与打开页面不请求它们；git checkout 可以直接拉取并构建，归档安装则解包到相邻目录、绝不覆盖当前安装；最后用重启按钮生效，新进程起不来会把端口还给当前这个并显示原因。
-- **保存后有明确闭环**：显示准确的 `pi --model provider/model:thinking` 命令，并指导用户用 `/model` 验证。
-- **适合长模型清单**：表头吸顶、内部滚动、批量粘贴模型 ID、「获取模型」直接列出网关自己的模型清单勾选导入（在本机服务端用保存时会用的那把 key 请求，key 不回传浏览器；清单路径可以自己填，只要求与 API 地址同源），并提示 `-max/-xhigh` 可能只是 thinking level。
-- **模型级 `anthropic-beta` 请求头**：网关仍要求 `context-1m-2025-08-07` 之类 beta token 时，可按模型填写字面量；任何协议的模型都能填（Pi 对每种协议都会发出模型 headers，网关认不认是网关的事），读取契约与 UA 一样分未设置/字面量/外部配置。`npm run test:pi-real` 会用已安装的 Pi 对本机假网关实测线上到底发了什么。
-- **复制供应商**：以现有网关为模板新建一个，模型清单与兼容设置照搬，只需改 ID、地址和 key。凭据**不会**被复制 —— 已保存的 key 不回传浏览器，所以副本一定要求填新的。
-- **真实设置页**：可修改默认 provider/model/thinking、传输方式、thinking 显示，并查看 Pi 版本和兼容状态。
-- **Codex CLI 支持**：同一套侧栏与三步向导管理 `~/.codex/config.toml` 与 `auth.json`，一键切换生效网关，并逐字节保留文件里的注释和你手写的表。
-- **上游只有 chat/completions 也能用**：Codex 只说 Responses API，管理器会为这类网关配置并起停一个本机 LiteLLM 桥。你只需装好 LiteLLM，配置、接线、起停都由它完成。
-- **不锁定数据**：Pi 自己的配置文件始终是唯一事实来源，程序不会读取或写入 `models-store.json`。
+| 目标 | 管理内容 | 关键事实来源 |
+| --- | --- | --- |
+| Pi | 供应商、模型、协议和模型地址覆盖、容量、思考级别、默认项、兼容请求头、全局提示词 | `auth.json`、`models.json`、`settings.json` |
+| Codex CLI | 当前供应商、凭据、模型和推理设置；可选的本机 LiteLLM 桥 | `config.toml`、`auth.json`；其余供应商在管理器私有库 |
+| Claude Code | 静态 Anthropic 网关、两种认证方式、模型别名、回复偏好、全局 `CLAUDE.md`、每终端固定供应商命令 | `settings.json`、管理器私有库、`CLAUDE.md` |
 
-## 管理的文件
+三个目标共用侧栏、三步向导和设置页，但配置文件、修订号和运行语义彼此独立。Pi 的模型发现只在用户明确点击「获取模型」时进行；Codex 不提供模型发现。
 
-Pi：
+## 凭据与安全边界
 
-- `~/.pi/agent/auth.json`
-- `~/.pi/agent/models.json`
-- `~/.pi/agent/settings.json`
-- `~/.pi/agent/pi-provider-manager-model-hints.json` —— 管理器自己的容量缓存（`0600`），独立于 Pi 配置及其版本校验；缓存写入失败不会使已提交的保存失败。
+- 已保存的 API key 永不返回浏览器。提示词正文可以返回浏览器，这是为了编辑文档的明确例外。
+- 服务端只监听 `127.0.0.1`，写请求还会校验 loopback Host 和 JSON 内容类型。
+- 保存前会校验并以原子方式写入；并发修改会返回 `409`，不会用旧页面覆盖 CC Switch、文本编辑器或其他标签页的修改。
+- Pi、Codex 和 Claude 的原生文件仍是运行时事实来源；管理器私有库只保存它确实需要额外保存的数据。
+- 启动和打开页面不会自动请求上游。版本检查、Pi 模型发现和可选桥接都由用户主动触发。
+- 不要把 `auth.json`、真实 API key 或私有供应商库上传到 issue。漏洞披露规则见 [SECURITY.md](SECURITY.md)。
 
-`models-store.json` 不在本管理器的职责范围内，程序既不读取也不写入它。
+## 安装
 
-Codex（`$CODEX_HOME`，缺省 `~/.codex`）：
+从 [最新 Release](https://github.com/wowayou/pi-provider-manager/releases/latest) 下载 Linux/WSL 或 Windows 归档。归档已经包含构建后的 UI 和无第三方运行依赖的服务端，只需 Node.js 18 或更高版本。
 
-- `config.toml` —— 只写本管理器自己的那张 `[model_providers.<id>]`，以及顶层的模型/推理相关键。注释、无关键、你手写的其它供应商表都逐字节保留。
-- `auth.json` —— 只写当前生效供应商的 `auth_mode` 与 `OPENAI_API_KEY`，其余键（包括 ChatGPT 登录态）保留。
-- `pi-provider-manager-store.json` —— 本管理器自己的供应商库，权限 `0600`，见 [Codex 支持](#codex-支持)。
-- `pi-provider-manager-litellm.yaml`、`pi-provider-manager-bridge.json`、`pi-provider-manager-bridge.log` —— 只有供应商用了托管桥时才会写：LiteLLM 的生成配置、代理的运行时记录，以及它的输出。
-
-
-## Claude Code 支持
-
-第三个目标支持静态凭据的 Anthropic Messages 网关、模型别名、回复偏好和全局
-`CLAUDE.md`。**保存供应商**后可复制专属终端命令；**保存并设为全局默认**还会
-更新直接运行 `claude` 时的默认配置。命令卡片提供两种启动方式：**固定此供应商**
-每次启动使用独立的私有配置快照，两个终端可以分别使用两家供应商，切换全局默认也
-不会串线；**跟随全局默认**就是直接运行 `claude`，由 Claude Code 自己热加载，运行
-中的会话从下一条请求起跟随全局切换。已有密钥不会返回浏览器，也不会出现在复制的
-命令中。
-
-文件位于 `CLAUDE_CONFIG_DIR`（默认 `~/.claude`）：`settings.json`、私有
-`pi-provider-manager-store.json`、`CLAUDE.md`、提示词库，以及临时
-`pi-provider-manager-runs/session-*/` 快照。正常退出、Ctrl+C 和关闭终端都会清理
-快照；强制结束后，下次运行专属命令或启动管理器时，会在记录的两个进程都已退出后自动清理。组织策略仍有
-更高优先级。完整工作流、利弊、
-文件边界和验证方式见 [Claude Code 支持](docs/claude-code.md)。
-
-## Codex 支持
-
-Codex 和 Pi 的形态很不一样，设计上的取舍都来自它的三个事实：
-
-- 它只有**一个凭据槽**：`auth.json` 里只放得下一个 `OPENAI_API_KEY`。
-- 从 2026 年 2 月起它**只说 Responses API**。`wire_api = "chat"` 已被移除，写进去会让整份 `config.toml` 加载失败。
-- 它的配置**只在启动时读一次**。切换供应商影响的是新开的会话；已经在跑的 `codex` 进程不受影响。
-
-### 单表模式：原地整表重写
-
-`config.toml` 里任何时刻只有一张本管理器拥有的供应商表，所以文件形状和厂商文档里给的片段完全一致：
-
-```toml
-model_provider = "custom"
-model = "gpt-5.6-sol"
-model_reasoning_effort = "high"
-
-[model_providers.custom]
-name = "PackyCode"
-base_url = "https://api.packycode.com/v1"
-wire_api = "responses"
-requires_openai_auth = true
-```
-
-切换供应商 = 整表重写这一张 + 换掉 `auth.json` 里的 key。因为 Codex 没有地方安放"当前没在用"的供应商，其余供应商的地址、模型列表和 key 存在 `pi-provider-manager-store.json`（权限 `0600`，永不回传浏览器）。**`config.toml` 仍然是"Codex 实际会怎么做"的事实来源；供应商库是"你还配了些什么"的事实来源。**
-
-如果磁盘上的这张表和库里对不上 —— 第一次使用，或者你手动改过 —— 以**文件为准**：它会被接管为一个供应商条目，界面上明确标注"已接管"。读取状态永远不写盘，所以打开页面本身不会动到一套正在工作的配置。
-
-表名默认 `custom`，可在设置里改。Codex 的内建 id（`openai`、`ollama`、`lmstudio`、两个 Bedrock）会被拒绝。
-
-### 在同一供应商内换模型
-
-默认模型会写进 `config.toml`。该供应商的其它模型，开会话时在命令行上指定：
-
-```bash
-codex                              # 该供应商的默认模型
-codex -m gpt-5.1-codex             # 同一供应商的另一个模型
-codex -m gpt-5.1-codex -c model_reasoning_effort="low"
-```
-
-本管理器不写任何 `[profiles.*]`。Codex 0.149.0 已把 `config.toml` 里的 profile 判为 legacy，只要存在同名表就**直接拒绝 `--profile <name>`**，于是生成它反而弄坏了它本该启用的那条命令。0.2.0 和 0.2.1 确实生成过；下一次保存会精确删掉它们记录下来的那批，你自己手写的 `[profiles.*]` 即使前缀相同也不会被碰。
-
-注意走桥的供应商只服务你在向导里列出的模型 —— LiteLLM 只应答这些，所以 `-m` 指定一个没配过的模型会在桥这一层失败，得先回界面把它加上。
-
-### 全局提示词
-
-三个 agent 的全局提示词都落在各自配置目录里，所以一套界面同时服务它们。每个文件同时只有一份内容生效，其余存在管理器自己的库里 —— 和未生效的供应商是同一套做法。
-
-| Agent | 文件 | 作用 |
-|---|---|---|
-| Pi | `~/.pi/agent/AGENTS.md` | 与项目、父目录的 `AGENTS.md` 拼接 |
-| Pi | `~/.pi/agent/SYSTEM.md` | 整体替换默认系统提示 |
-| Pi | `~/.pi/agent/APPEND_SYSTEM.md` | 追加在默认系统提示之后 |
-| Codex | `$CODEX_HOME/AGENTS.md` | 与项目的 `AGENTS.md` 拼接 |
-| Claude Code | `$CLAUDE_CONFIG_DIR/CLAUDE.md` | 用户全局指令，与项目指令一起读取 |
-
-已有内容与库内提示词不匹配时会被**接管**，且只发生在读路径上 —— 打开这个界面永远不写盘。未匹配的零字节文件不接管；空白字符仍算内容，已保存的空提示词仍可与文件匹配。删除当前正在文件里的那一份时必须指定替代，规则与删除生效中的供应商一致。
-
-如果文件是符号链接（例如 `$CODEX_HOME/AGENTS.md` 指向一个共享规则仓库），界面会显示它指向的路径，并且永远不写它。原子保存会直接替换链接本身，把它变成一份不再跟随源文件的普通副本，所以往这个文件里保存或启用都会被拒绝，请到源文件里修改。只存进管理器自己的库、不启用，仍然可以。
-
-和凭据不同，提示词正文会返回给浏览器。这是有意的：读不回来的文档没法编辑。真正需要保密的东西属于凭据，不属于提示词。
-
-### 上游只提供 `/v1/chat/completions` 时
-
-Codex 直连不了这类上游，靠配置也解决不了 —— 必须有一层翻译。管理器会替你配置并起停它，你只需要装。
-
-Debian / Ubuntu（包括 WSL）按 [PEP 668](https://peps.python.org/pep-0668/) 禁止系统级 `pip install`，用 `pipx` 或 venv：
-
-```bash
-pipx install 'litellm[proxy]'
-# 或
-python3 -m venv ~/.local/litellm && ~/.local/litellm/bin/pip install 'litellm[proxy]'
-```
-
-这两种落到的位置管理器都会自己找，不需要再配任何东西；凭据那一步会显示它实际选中了哪个可执行文件。
-
-**LiteLLM 要单独装。** 在同一条命令里附带别的版本钉子，解析器会转而把 LiteLLM 降级去满足那个钉子，而旧版**完全没有** Responses→Chat 的桥接能力 —— `1.79.0` 实测会把 `/v1/responses` 原样转发给上游然后拿到 404。本项目验证过的是 `1.97.0`。
-
-如果之后 `litellm --version` 吐的是 traceback 而不是版本号，再**单独**降 FastAPI：
-
-```bash
-pip install 'fastapi==0.140.6'
-```
-
-LiteLLM 没把 FastAPI 钉死。FastAPI 在 `0.140.7` 移除了 `get_flat_dependant`，而 LiteLLM `1.97.0` 仍然 import 它，所以 `0.140.7` 及以上（含当前的 `0.141.1`）都会在 import 时报 `cannot import name 'get_flat_dependant'` —— 偏偏这些版本又都满足 LiteLLM 自己声明的 `fastapi>=0.136.3,<1.0`。`0.140.6` 是仍然可用的最新版本；更旧的比如 `0.115.14` 也可以。
-
-然后在第一步选「上游只有 chat/completions」，填**你上游自己的**地址和 key。剩下的管理器来做：
-
-- 为你的每个模型生成 LiteLLM 的 `config.yaml`，带上 `use_chat_completions_api: true`
-- 把 Codex 指向本机代理（`base_url = "http://127.0.0.1:43210/v1"`、`requires_openai_auth = false`）
-- 在凭据那一步直接起停这个代理
-
-上游的 key 两个配置文件里都不会出现。它存在管理器自己的 `0600` 库里，通过环境变量 `PPM_BRIDGE_UPSTREAM_KEY` 交给 LiteLLM —— 这正是配置里 `api_key: os.environ/...` 期待的形式。代理被强制绑定在 `127.0.0.1`：LiteLLM 自己的默认是 `0.0.0.0`，那会把一个持有你 key、且无鉴权的代理暴露在所有网卡上。
-
-代理是 detach 启动的，关掉管理器不会把 Codex 掐断。停止时只会对「命令行里仍然指向管理器那份配置文件」的进程发信号，因为 pid 会被复用。
-
-在管理器无法证明「已启动的进程仍是自己那个」的平台上（没有 procfs 的系统，包括原生 Windows），它不会去代管进程。配置照样生成，凭据那一步会给出手动运行的命令。Codex 的其余部分（包括直连供应商）不受影响。
-
-**本项目仍然不自己翻译模型流量。** 写第三方配置文件、看管一个进程，和它已经在为 Pi 和 Codex 做的是同一类事；没有任何请求经过管理器。翻译这件事留给 LiteLLM 维护 —— 这很重要，因为一直在动的那一侧是 Codex：reasoning item、加密的 reasoning 内容、tool call 的结构，而 Codex 基本每周发版。[codex-relay](https://github.com/MetaFARS/codex-relay) 和 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 是另外两个你可以自己跑的选择，那种情况下不用桥，按普通供应商指向它们即可。CLIProxyAPI 自己就提供 Responses 端点，并能在 `openai-compatibility` 下接一个带 key 的 chat/completions 上游，所以在本管理器看来它就是个普通供应商 —— 这里要填的 key 是它自己 `api-keys` 列表里的那个，不是你上游的。它的监听默认是 `host: ""` + 8317 端口，也就是所有网卡，记得自己绑定回本机 —— 理由和本项目把 LiteLLM 钉在 `127.0.0.1` 完全一样。
-
-### 如果 Codex 提示「project-local config keys」
-
-Codex 还会从当前工作目录往上找 `.codex/config.toml`，遇到它在项目级不认的键时会警告：
-
-```
-⚠ Ignored unsupported project-local config keys in <目录>/.codex/config.toml: model_provider, model_providers
-```
-
-这说的是**那个目录自己的文件**，不是本管理器编辑的那份。`model_provider` 和 `model_providers` 只能在用户级设置 —— 而那正是管理器写的位置（`$CODEX_HOME/config.toml`）。最常见的触发方式是在一个恰好含有 `.codex/` 的家目录里跑 `codex`，比如 WSL 下的 `/mnt/c/Users/<你>`（Windows 上也装了 Codex 时）。换到你的项目目录里跑就行。
-
-### 切换能带走什么，不能带走什么
-
-新会话会干净地用上新配置。**但换供应商后用 `codex resume` 接续旧会话并不可靠**：Codex 会请求 `reasoning.encrypted_content` 并在后续轮次原样回传，而一家加密的内容另一家读不了。这是 Codex 的设计，任何切换工具都绕不过去。同一段对话请在开始它的那家上聊完。
-
-## 项目状态与 CC Switch
-
-这是一个个人工具，按作者自己的使用节奏维护，没有路线图。后续只处理真实使用中遇到的缺陷、安全修复和 Pi / Codex / Claude Code 兼容变化。对大多数人来说 [CC Switch](https://github.com/farion1231/cc-switch) 是更好的选择，本项目也不打算追平它的功能。
-
-Codex 支持是有意加入的，范围同样收窄：供应商、凭据和当前生效项。不做预设库、模型发现、用量看板，也不做流量代理。
-
-CC Switch 3.20 已完整接入 Pi 的供应商预设、模型发现、提示词、Skills、会话和用量统计。按其 [v4.0.6 原生契约](https://github.com/farion1231/cc-switch/blob/v4.0.6/docs/pi-native-contract-zh.md)，它会只读全局 `defaultProvider` / `defaultModel` 用于提醒，但不会写入；Pi 的 `auth.json` 仍不读、不写。本项目继续作为一个更小、无数据库的工具，负责凭据/默认项边界、三份原生配置之间的一致性，以及它们旁边的全局提示词文件。两者可以读取同一套 Pi 文件，但一个工具保存后，另一个工具里已经打开的旧页面必须重新读取。
-
-两者也都能让 Claude Code 在不同终端使用不同供应商。CC Switch 的「打开终端」按钮会为该供应商弹出一个新终端窗口；本工具给出一条命令，在你已有的终端里运行，比如编辑器的集成终端、tmux 窗格或 WSL。
-
-## 安装 Release 归档
-
-从[最新 Release](https://github.com/wowayou/pi-provider-manager/releases/latest)下载 Linux/WSL 或 Windows 归档。归档已经包含构建后的 UI 和无第三方运行依赖的服务端，只需安装 Node.js 18 或更高版本。
-
-Linux 或 WSL：
+Linux/WSL：
 
 ```bash
 tar -xzf pi-provider-manager-v*-linux-wsl.tar.gz
@@ -222,11 +55,9 @@ cd .\pi-provider-manager\pi-provider-manager-v*
 pwsh -File .\bin\pi-provider-manager.ps1
 ```
 
-环境变量覆盖和执行策略说明见归档内的 `INSTALL.md`。归档请解到 Windows 本地盘：PowerShell 默认的
-`RemoteSigned` 把 UNC 路径（`\\wsl.localhost\...`，也就是 WSL 里的 checkout）当远程来源，未签名脚本
-一律拒绝，只留一句 `is not digitally signed`。checkout 在 WSL 里就用 WSL 的 bash 启动器。
+归档内的 `INSTALL.md` 说明环境变量和 Windows 执行策略。完整安装、升级、卸载和故障排查见 [使用手册](docs/usage.zh-CN.md)。
 
-## 在 Linux 或 WSL 从源码构建
+从源码安装（Linux/WSL）：
 
 ```bash
 git clone https://github.com/wowayou/pi-provider-manager.git ~/pi-provider-manager-ui
@@ -235,120 +66,23 @@ npm run setup
 ~/.pi/agent/bin/pi-provider-manager-ui
 ```
 
-`npm run setup` 依次执行 `npm ci`、`npm run build`、`npm run install:launcher`。想
-分别看每一步就分开跑，结果一样。
+`npm run setup` 会依次执行依赖安装、构建和启动器安装。源码安装的环境变量与临时配置目录也见使用手册。
 
-`npm run install:launcher` 不接参数、不需要填路径,这正是它存在的理由:它替换掉的那条双操作数
-`install` 命令,在仓库以外的任何目录执行都只会得到 GNU install 自己的
-"missing destination file operand",那句话既没提到本项目,也没说清错在哪。
-
-它装的是一个转发脚本,不是副本。副本在你下次 `git pull` 之后就和仓库不一致了,而过期的启动器
-**不会报错** —— 0.3.0 之前那一代照样能启动,只是不再把 Codex 目录和 LiteLLM 路径交给服务端,
-于是托管桥在离原因很远的地方坏掉。转发脚本每次都执行仓库里当前那一份,所以 `git pull` 就是全部
-升级动作。如果你之前手工复制过启动器,现在启动器自己会把内容和仓库里的那份对比,并在启动前明确
-说出来;重跑一次 `npm run install:launcher` 就能换掉它。那个路径上如果放着不属于本项目的文件,
-不加 `--force` 不会被覆盖。
-
-Release 归档不需要这一步:归档升级时是整个替换的,指向归档的转发脚本会在下个版本失效。解包后
-直接运行 `./bin/pi-provider-manager-ui` 即可。
-
-启动器会复用已运行的管理器，或在 `43127-43146` 中自动选择空闲端口。在 WSL 下会打开 Windows 默认浏览器；其他环境会使用可用的 WSL/PowerShell 浏览器桥接，若都不存在则输出本地 URL。复用前会检查 `/api/state` 身份，不会把同端口的其他应用误认成本项目。
-
-如果仓库不在 `~/pi-provider-manager-ui`，`npm run install:launcher` 会把实际路径记在转发脚本里，不需要再做别的。没装转发脚本时，把 `PI_PROVIDER_MANAGER_PROJECT_DIR` 设为仓库绝对路径，或直接在仓库里运行 `./bin/pi-provider-manager-ui`。启动器找不到仓库时，现在会把它查过的四个位置以及各自解析到的路径全部打印出来。
-
-### 自动识别与环境变量覆盖
-
-| 环境变量 | 自动默认值 | 用途 |
-|---|---|---|
-| `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi 的 auth/models/settings 配置目录 |
-| `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code 用户配置目录 |
-| `PI_PROVIDER_MANAGER_CLAUDE_DIR` | `CLAUDE_CONFIG_DIR` 的值 | 管理器及其复制的启动命令使用的 Claude 目录覆盖 |
-| `CODEX_HOME` | `~/.codex` | Codex 配置目录，沿用 Codex 自己的优先级 |
-| `PI_PROVIDER_MANAGER_CODEX_DIR` | `CODEX_HOME` 的值 | 仅对本管理器生效的 Codex 目录覆盖 |
-| `PI_PROVIDER_MANAGER_LITELLM` | 依次查找 `~/.local/bin/litellm`、`~/.local/litellm/bin/litellm` 等常见 venv 路径，最后回落到 `PATH` | 启动托管桥使用的可执行文件。只有装在冷僻位置时才需要设置；凭据那一步会显示实际选中的是哪个。 |
-| `PI_PROVIDER_MANAGER_PROJECT_DIR` | 当前匹配仓库，其次 `~/pi-provider-manager-ui` | 项目与构建产物位置 |
-| `PI_PROVIDER_MANAGER_PORT` | 从 `43127-43146` 自动选择 | 严格指定本地服务端口 |
-| `PI_PROVIDER_MANAGER_NODE` | 当前 `node` 可执行文件 | 后台服务使用的 Node 路径 |
-| `PI_PROVIDER_MANAGER_OPEN_BROWSER` | `1` | 设为 `0` 时只启动服务，不自动打开浏览器 |
-| `WSL_DISTRO_NAME` | WSL 自动提供 | Windows 隐藏启动时使用的发行版 |
-
-监听地址固定为 `127.0.0.1`，不会自动开放到局域网或公网。
-
-专用端口段还可以避开 Vite 常用的 `4173` origin 上残留的旧 Service Worker 和站点缓存。
-
-## 安全边界
-
-- 服务只监听 `127.0.0.1`
-- API 请求必须携带白名单内的 loopback `Host`；写请求还必须使用 `application/json`，防止外部网页通过跨域简单请求修改配置
-- 已有 key 不会出现在浏览器响应中
-- 新 key 可以在保存前用于主动发起的 Pi 模型清单请求；保存时以私有权限写入对应的原生凭据／设置文件或私有供应商库，托管桥的上游 key 只留在供应商库。
-- 后端测试全部使用临时目录和假 key
-- 禁止在 GitHub Issue 中上传 `auth.json`、真实 key 或私有供应商导出
-
-漏洞披露方式和完整威胁边界见 [SECURITY.md](SECURITY.md)。
-
-## Pi 与 Codex 兼容性
-
-本管理器验证过的 Pi 版本只记录在一处 —— `package.json` 的 `piValidatedVersion`，并在设置页与实际检测到的 Pi 版本并列显示；两者不一致时设置页会直接说明。`codexValidatedVersion` 对 Codex 是同样的约定。
-
-未知字段会被保留，但 Pi 如果修改配置结构、API 类型、认证格式、模型能力字段或设置名称，本项目仍需要发布对应兼容更新。每个版本都会跑 [docs/compatibility.md](docs/compatibility.md) 里的兼容性清单，并在 release notes 中写明验证过的 Pi 版本。
-
-Codex 侧没有自动监测。需要复核时，按 [docs/compatibility.md](docs/compatibility.md#codex-compatibility) 的 Codex 兼容检查逐条确认，并运行真实二进制测试。
-
-仓库另有一个每日运行的维护 workflow，只比较该基线与 Pi 最新稳定 GitHub Release；需要复核时，它会创建或更新维护 issue。监测不进入应用运行链：启动和构建不会访问上游，不引入 Pi npm 依赖，也不会自动推进兼容性基线。
-
-程序会保留未知字段，但出现以下变化时仍可能需要发布兼容更新：
-
-- 配置文件名或根结构
-- API 类型标识
-- 认证条目格式
-- 模型能力字段或 thinking level 语义
-- 设置项名称或允许值
-
-## 项目结构与维护
-
-[docs/architecture.md](docs/architecture.md) 统一项目术语和事实来源，并说明本地产品、Vite 开发环境、Sites 静态产物和更新监测之间的边界，以及各组件职责、配置所有权、安全约束和验证矩阵。处理 Pi 更新或修改 Pi 配置 schema 前，先读 [docs/compatibility.md](docs/compatibility.md)。
-
-维护者可运行 `npm run check:pi-update` 做一次只读上游比较；监测逻辑的本地测试是 `npm run test:pi-update`。
-
-## 开发
+## 维护者入口
 
 ```bash
 npm ci
-npm run dev -- --host 127.0.0.1 --port 4173 --strictPort
 npm run build
-npm run test:server
-npm run test:codex
-npm run test:ui
-npm run test:sites
-npm run test:pi-update
+npm test
 ```
 
-使用 `/?demo=1` 进入不会写配置的视觉和交互 demo。
+开发服务器会访问真实配置。进行本地开发或测试时，请把 `PI_CODING_AGENT_DIR`、`PI_PROVIDER_MANAGER_CODEX_DIR` 和 `PI_PROVIDER_MANAGER_CLAUDE_DIR` 指向临时目录；`/?demo=1` 只用于不写配置的界面演示。
 
-普通开发命令会启动真实、可写的 API；如果不希望修改日常配置，请先把 `PI_CODING_AGENT_DIR`、`PI_PROVIDER_MANAGER_CODEX_DIR` 和 `PI_PROVIDER_MANAGER_CLAUDE_DIR` 指向各自的临时目录；状态读取会访问三个目标。只有 demo 模式和 Sites 产物是不可写路径。
+兼容性变更前先阅读 [docs/compatibility.md](docs/compatibility.md)，架构和所有权问题见 [docs/architecture.md](docs/architecture.md)。带日期的验证记录在 [design-qa.md](design-qa.md)，发布历史在 [CHANGELOG.md](CHANGELOG.md)。
 
-## 开源状态
+## 开源许可
 
-项目使用 [MIT License](LICENSE) 开源。已完成的首次公开发布与仓库加固记录见 [OPEN_SOURCE_CHECKLIST.md](OPEN_SOURCE_CHECKLIST.md)。
-
-## 支持
-
-如果这个项目对你有帮助，可以在这里支持我的创作：
-
-❤️ [支持作者](https://eigentime.org/support?from=pi-provider-manager)
-
-完全自愿。不解锁任何功能、不设任何门槛，工具始终免费。
-
-## 路线图
-
-- 没有路线图。只做维护：安全修复、真实使用中遇到的缺陷和 Pi / Codex / Claude Code 兼容更新
-- Pi 模型发现和 LiteLLM 托管已经实现；不再计划 CSV/CC-Switch 导入、Codex 模型发现、会话浏览、Skills、用量看板或管理器自建流量代理
-- 更广的一站式工作流交给 CC Switch；本项目保持聚焦于 Pi、Codex 和 Claude Code 的凭据、默认项和原生文件一致性
-
-带日期的交互和兼容验证记录见 [design-qa.md](design-qa.md)；`qa/` 截图是历史参考，不代表当前验收基准。
-
-## Star History
+项目使用 [MIT License](LICENSE) 开源。仓库加固记录见 [OPEN_SOURCE_CHECKLIST.md](OPEN_SOURCE_CHECKLIST.md)。
 
 <a href="https://star-history.com/#wowayou/pi-provider-manager&Date">
   <picture>
