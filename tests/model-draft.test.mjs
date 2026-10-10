@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { changedPersistedModel, draftSignature, duplicateCodexForm, duplicatePiForm, renameSourceId, providerDraftIdentity, selectedNamedModel, suggestCopyId, userAgentSaveIntent, anthropicBetaSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "../src/model-draft.mjs";
+import { changedPersistedModel, demoActivateCodex, draftContentSignature, draftSignature, duplicateCodexForm, duplicatePiForm, piSaveChangesState, renameSourceId, providerDraftIdentity, selectedNamedModel, suggestCopyId, userAgentSaveIntent, anthropicBetaSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "../src/model-draft.mjs";
 
 test("a saved draft remains a rename when its target is occupied", () => {
   const ids = ["router", "other"];
@@ -60,6 +60,55 @@ test("draftSignature ignores rowId churn but tracks real edits", () => {
 
   // A scalar field edit changes the signature.
   assert.notEqual(draftSignature(form), draftSignature({ ...form, userAgent: "custom/1.0" }));
+
+  // The content signature ignores only the default radio: a radio-only change
+  // is what lets a saved provider become Pi's default without rewriting it.
+  assert.equal(draftContentSignature(form), draftContentSignature(editedDefault));
+  assert.equal(draftContentSignature(form), draftContentSignature(reloaded));
+  assert.notEqual(draftContentSignature(form), draftContentSignature(editedTokens));
+  assert.notEqual(draftContentSignature(form), draftContentSignature({ ...form, providerId: "renamed" }));
+  assert.notEqual(draftContentSignature(form), draftContentSignature({ ...form, models: [...form.models, { rowId: "c", id: "new", contextWindow: 1, maxTokens: 1 }] }));
+});
+
+// One fact gates 保存更改 on all three steps and the shared save entry. A
+// radio-only change on a provider that is not Pi's default has nothing a plain
+// save can write; on the current default the radio is the default model.
+test("piSaveChangesState tells a radio-only change from a writable one", () => {
+  assert.equal(piSaveChangesState({ isCurrentDefault: false, dirty: false, contentDirty: false }), "clean");
+  assert.equal(piSaveChangesState({ isCurrentDefault: true, dirty: false, contentDirty: false }), "clean");
+  assert.equal(piSaveChangesState({ isCurrentDefault: false, dirty: true, contentDirty: false }), "default-only");
+  assert.equal(piSaveChangesState({ isCurrentDefault: true, dirty: true, contentDirty: false }), "dirty");
+  assert.equal(piSaveChangesState({ isCurrentDefault: false, dirty: true, contentDirty: true }), "dirty");
+  assert.equal(piSaveChangesState({ isCurrentDefault: true, dirty: true, contentDirty: true }), "dirty");
+});
+
+test("demo activation preserves the owned table, unrelated settings and bridge runtime", () => {
+  const state = {
+    revision: "demo-revision", ownedProviderId: "my-table", activeProviderId: "a",
+    settings: { model: "first", modelProvider: "old-table", reasoningEffort: "high", verbosity: "low", futureSetting: { keep: true } },
+    settingsPresent: ["model_verbosity"], bridge: { running: true, providerId: "a", port: 4011 },
+    providers: [
+      { id: "a", isActive: true, models: [{ id: "first", reasoningEffort: "high" }], defaultModelId: "first" },
+      { id: "b", isActive: false, models: [{ id: "unused", reasoningEffort: "low" }, { id: "second", reasoningEffort: "medium" }], defaultModelId: "second" },
+      { id: "empty", isActive: false, models: [], defaultModelId: "" },
+    ],
+  };
+  const original = structuredClone(state);
+  const activated = demoActivateCodex(state, "b");
+  assert.deepEqual(activated.settings, { ...state.settings, modelProvider: "my-table", model: "second", reasoningEffort: "medium" });
+  assert.deepEqual(activated.settingsPresent, ["model_verbosity", "model_provider", "model", "model_reasoning_effort"]);
+  assert.deepEqual(activated.providers.map((provider) => [provider.id, provider.isActive]), [["a", false], ["b", true], ["empty", false]]);
+  assert.equal(activated.activeProviderId, "b");
+  assert.equal(activated.ownedProviderId, "my-table");
+  assert.equal(activated.bridge, state.bridge);
+  assert.equal(activated.revision, state.revision);
+  assert.deepEqual(state, original, "activation does not mutate its input");
+  const back = demoActivateCodex(activated, "a");
+  assert.equal(back.settings.model, "first");
+  assert.equal(back.settings.reasoningEffort, "high");
+  assert.deepEqual(back.settingsPresent, activated.settingsPresent, "presence flags are not duplicated");
+  const empty = demoActivateCodex(activated, "empty");
+  assert.deepEqual(empty.settings, activated.settings, "like applyActive, no primary model leaves the model fields alone");
 });
 
 test("persisted model identities cannot be renamed or cleared in a draft", () => {

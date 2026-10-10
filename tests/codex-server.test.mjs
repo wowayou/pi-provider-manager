@@ -726,6 +726,31 @@ test("a bridged provider points Codex at the local proxy and keeps the upstream 
   });
 });
 
+// The form has no control for the upstream-ID mapping, and the UI's save never
+// sends it. Omitting it must preserve the stored mapping rather than clear it.
+test("a bridged save that omits the upstream-ID mapping keeps it", async () => {
+  await withServer(null, async (api) => {
+    const bridged = (bridge) => newProvider({
+      providerId: "chatonly", name: "Chat-only gateway", baseUrl: "https://ignored.example/v1",
+      credential: { mode: "keep" }, bridge,
+      models: [{ id: "deepseek-chat", reasoningEffort: "medium" }], defaultModelId: "deepseek-chat",
+    });
+    let response = await api.post("/api/codex/providers", bridged({ upstreamBaseUrl: "https://chatonly.example/v1", apiKey: "sk-upstream-not-a-real-key", models: { "deepseek-chat": "deepseek-v4" } }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(api.store().providers.chatonly.bridge.models, { "deepseek-chat": "deepseek-v4" });
+    // What the UI posts: no models, no key (kept).
+    response = await api.post("/api/codex/providers", bridged({ upstreamBaseUrl: "https://chatonly.example/v1", apiKey: "" }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(api.store().providers.chatonly.bridge.models, { "deepseek-chat": "deepseek-v4" });
+    const yaml = fs.readFileSync(path.join(api.codexDir, "pi-provider-manager-litellm.yaml"), "utf8");
+    assert.match(yaml, /openai\/deepseek-v4/);
+    // An explicit empty mapping still clears it.
+    response = await api.post("/api/codex/providers", bridged({ upstreamBaseUrl: "https://chatonly.example/v1", apiKey: "", models: {} }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(api.store().providers.chatonly.bridge.models, {});
+  });
+});
+
 test("refuses a bridge with no upstream key", async () => {
   await withServer(null, async (api) => {
     const response = await api.post("/api/codex/providers", newProvider({

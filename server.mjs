@@ -1263,6 +1263,35 @@ function saveSettings(payload) {
   writeJsonAtomic(SETTINGS_PATH, settings);
 }
 
+// Makes an already-saved provider/model Pi's default and touches nothing else.
+// The provider save path re-normalizes every model (filling absent keys, and
+// replacing a hand-written thinkingLevelMap), and /api/settings writes all five
+// keys it owns, so neither is a lossless way to flip only the default: this
+// rewrites exactly defaultProvider and defaultModel in settings.json.
+function setDefaultModel(payload) {
+  if (!isObject(payload)) throw new Error("请求内容无效。");
+  const revision = requireCurrentRevision(payload);
+  const providerId = String(payload.providerId || "").trim();
+  const modelId = String(payload.modelId || "").trim();
+  const models = readJson(MODELS_PATH);
+  const settings = readJson(SETTINGS_PATH);
+  const providers = isObject(models.providers) ? models.providers : {};
+  if (!PROVIDER_ID_PATTERN.test(providerId) || !Object.hasOwn(providers, providerId) || !isObject(providers[providerId])) {
+    throw new Error("要设为默认的供应商不存在，请先保存它。");
+  }
+  const providerModels = Array.isArray(providers[providerId].models) ? providers[providerId].models : [];
+  if (!modelId || !providerModels.some((model) => isObject(model) && model.id === modelId)) {
+    throw new Error("默认模型不属于该供应商，请先保存模型列表。");
+  }
+  settings.defaultProvider = providerId;
+  settings.defaultModel = modelId;
+  const current = stableManagedSnapshots();
+  if (revision !== configRevision(current)) {
+    throw new ConflictError("Pi 配置在保存期间发生了变化。默认模型尚未改动，请重新读取配置后再试。");
+  }
+  writeJsonAtomic(SETTINGS_PATH, settings);
+}
+
 // Reads whether anything is listening on a local port. It never sends a
 // credential and never leaves the loopback interface: an endpoint that would
 // reach an arbitrary URL on demand is a probe any page in the browser could aim
@@ -1534,6 +1563,11 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "POST" && request.url === "/api/providers") {
       saveProvider(await readBody(request));
+      sendJson(response, 200, { ok: true, state: publicState() });
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/providers/set-default") {
+      setDefaultModel(await readBody(request));
       sendJson(response, 200, { ok: true, state: publicState() });
       return;
     }

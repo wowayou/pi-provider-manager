@@ -39,7 +39,7 @@ import {
 } from "@phosphor-icons/react";
 import { PROVIDER_ID_PATTERN, normalizeUrl } from "../lib/validation.mjs";
 import { validateUserAgent } from "../lib/pi-user-agent.mjs";
-import { changedPersistedModel, draftSignature, duplicateCodexForm, duplicatePiForm, providerDraftIdentity, selectedNamedModel, userAgentSaveIntent, anthropicBetaSaveIntent, modelBaseUrlSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "./model-draft.mjs";
+import { changedPersistedModel, demoActivateCodex, draftContentSignature, draftSignature, duplicateCodexForm, duplicatePiForm, piSaveChangesState, providerDraftIdentity, selectedNamedModel, userAgentSaveIntent, anthropicBetaSaveIntent, modelBaseUrlSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "./model-draft.mjs";
 import { effectiveModelApi, endpointHint, normalizeModelBaseUrl, piRequestUrl } from "../lib/pi-endpoints.mjs";
 import { normalizeAnthropicBeta } from "../lib/pi-anthropic-beta.mjs";
 import { defaultDiscoveryPath } from "../lib/model-discovery.mjs";
@@ -428,7 +428,7 @@ function sidebarProviders(state, target) {
   if (target === "claude") return (state.claude?.providers || []).map((provider) => ({
     id: provider.id, name: provider.name, keywords: [provider.id, provider.name, provider.baseUrl, provider.model].join(" "),
     subtitle: "Anthropic Messages", ready: provider.credentialConfigured, notReadyLabel: "未配置凭据",
-    badge: provider.isActive ? "全局默认" : "", icon: Asterisk, source: provider,
+    badge: provider.isActive ? "全局默认" : "", activateLabel: "设为全局默认", icon: Asterisk, source: provider,
   }));
   if (target === "codex") {
     return (state.codex?.providers || []).map((provider) => ({
@@ -444,6 +444,7 @@ function sidebarProviders(state, target) {
       ready: provider.credentialConfigured || provider.requiresAuth === false,
       notReadyLabel: "未配置凭据",
       badge: provider.isActive ? "生效中" : "",
+      activateLabel: "设为当前生效",
       icon: provider.bridge || isLocalAddress(provider.baseUrl) ? Plugs : PlugsConnected,
       source: provider,
     }));
@@ -464,6 +465,8 @@ function sidebarProviders(state, target) {
     // "默认", not "生效中": Pi resolves a provider per model, so nothing about the
     // other entries is switched off.
     badge: state.settings.defaultProvider && provider.id === state.settings.defaultProvider ? "默认" : "",
+    // A provider without models has nothing to be the default with.
+    activateLabel: provider.models.length > 0 ? "设为默认…" : "",
     icon: apiMeta(provider.api).icon,
     source: provider,
   }));
@@ -503,7 +506,7 @@ function TargetSwitch({ target, onTarget, disabled = false }) {
 // named confirmation dialog the in-wizard button does, which is where the
 // destructive step and its undo live. Closes on outside click, Escape, or a
 // choice, and returns focus to the trigger.
-function ProviderRowMenu({ provider, onDuplicate, onDelete }) {
+function ProviderRowMenu({ provider, activateLabel, disabled = false, onActivate, onDuplicate, onDelete }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef(null);
   const menuRef = useRef(null);
@@ -535,7 +538,16 @@ function ProviderRowMenu({ provider, onDuplicate, onDelete }) {
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
-  const choose = (action) => { setOpen(false); action(); };
+  const choose = (action) => {
+    setOpen(false);
+    // The menu item is about to unmount. Give a dialog a surviving opener to
+    // restore focus to, instead of the disappearing item (or the document body).
+    triggerRef.current?.focus();
+    action();
+  };
+  // A write that starts while the menu is open closes it: every item writes or
+  // drops a draft.
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   return (
     <span className="row-menu">
       <button
@@ -545,12 +557,14 @@ function ProviderRowMenu({ provider, onDuplicate, onDelete }) {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`${provider.name} 的更多操作`}
+        disabled={disabled}
         onClick={(event) => { event.stopPropagation(); setOpen((value) => !value); }}
       >
         <DotsThree size={20} weight="bold" />
       </button>
       {open && (
         <span className="row-menu-popup" role="menu" ref={menuRef}>
+          {activateLabel && <button type="button" role="menuitem" onClick={(event) => { event.stopPropagation(); choose(() => onActivate(provider.id)); }}><CheckCircle size={16} />{activateLabel}</button>}
           <button type="button" role="menuitem" onClick={(event) => { event.stopPropagation(); choose(() => onDuplicate(provider.id)); }}><Copy size={16} />复制供应商</button>
           <button type="button" role="menuitem" className="is-danger" onClick={(event) => { event.stopPropagation(); choose(() => onDelete(provider.id)); }}><Trash size={16} />删除供应商</button>
         </span>
@@ -559,11 +573,12 @@ function ProviderRowMenu({ provider, onDuplicate, onDelete }) {
   );
 }
 
-function Sidebar({ state, target, loading, loadFailed, onTarget, onReload, onSelect, onAdd, onSettings, onPrompts, activeView, theme, onTheme, onDuplicate, onDelete, canBulkDelete, selectMode, selectedForDelete, onEnterSelect, onExitSelect, onToggleSelect, onReplaceSelection, onBulkDelete, selectedId }) {
+function Sidebar({ state, target, locked = false, loading, loadFailed, onTarget, onReload, onSelect, onAdd, onSettings, onPrompts, activeView, theme, onTheme, onActivate, onDuplicate, onDelete, canBulkDelete, selectMode, selectedForDelete, onEnterSelect, onExitSelect, onToggleSelect, onReplaceSelection, onBulkDelete, selectedId }) {
   const [query, setQuery] = useState("");
   // The shell appears before /api/state. Navigation must not initialise a
   // draft from that empty state or let the late read overwrite a new one.
-  const navigationDisabled = loading || loadFailed;
+  // A pending provider write locks it as well (see runWrite in App).
+  const navigationDisabled = loading || loadFailed || locked;
   const providers = sidebarProviders(state, target);
   const listRef = useRef(null);
   const activeRowRef = useRef(null);
@@ -620,7 +635,7 @@ function Sidebar({ state, target, loading, loadFailed, onTarget, onReload, onSel
         {target === "claude" ? "Claude Code 供应商" : isCodex ? "Codex 供应商" : "我的供应商 / API 网关"}
         {providers.length > 0 && <span className="count-pill">{providers.length}</span>}
         {canBulkDelete && providers.length > 0 && !selectMode && (
-          <button type="button" className="select-toggle" onClick={onEnterSelect}>选择</button>
+          <button type="button" className="select-toggle" disabled={locked} onClick={onEnterSelect}>选择</button>
         )}
       </p>
       {providers.length > 6 && (
@@ -654,6 +669,7 @@ function Sidebar({ state, target, loading, loadFailed, onTarget, onReload, onSel
               <button
                 type="button"
                 className="provider-select"
+                disabled={locked}
                 onClick={selectMode ? () => onToggleSelect(provider.id) : () => onSelect(provider.source)}
                 aria-current={!selectMode && isSelected ? "true" : undefined}
                 role={selectMode ? "checkbox" : undefined}
@@ -672,7 +688,7 @@ function Sidebar({ state, target, loading, loadFailed, onTarget, onReload, onSel
                   {!provider.ready && <span className="status-dot is-warn" role="img" aria-label={provider.notReadyLabel} title={provider.notReadyLabel} />}
                 </span>
               </button>
-              {!selectMode && <ProviderRowMenu provider={provider} onDuplicate={onDuplicate} onDelete={onDelete} />}
+              {!selectMode && <ProviderRowMenu provider={provider} disabled={locked} activateLabel={provider.badge ? "" : provider.activateLabel} onActivate={onActivate} onDuplicate={onDuplicate} onDelete={onDelete} />}
             </div>
           );
         })}
@@ -701,14 +717,14 @@ function Sidebar({ state, target, loading, loadFailed, onTarget, onReload, onSel
         const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedForDelete.has(id));
         return (
           <div className="bulk-action-bar">
-            <button type="button" className="bulk-select-all" onClick={() => onReplaceSelection(allSelected ? [] : visibleIds)}>
+            <button type="button" className="bulk-select-all" disabled={locked} onClick={() => onReplaceSelection(allSelected ? [] : visibleIds)}>
               <span className={`provider-check ${allSelected ? "is-on" : ""}`} aria-hidden="true">{allSelected && <Check size={13} weight="bold" />}</span>
               {allSelected ? "取消全选" : "全选"}
             </button>
             <span className="bulk-action-count" aria-live="polite">已选 {selectedForDelete.size} 个</span>
             <div className="bulk-action-buttons">
-              <button type="button" className="secondary-button button-sm" onClick={onExitSelect}>取消</button>
-              <button type="button" className="danger-button button-sm" disabled={selectedForDelete.size === 0} onClick={onBulkDelete}><Trash size={16} />删除{selectedForDelete.size > 0 ? ` (${selectedForDelete.size})` : "选中"}</button>
+              <button type="button" className="secondary-button button-sm" disabled={locked} onClick={onExitSelect}>取消</button>
+              <button type="button" className="danger-button button-sm" disabled={locked || selectedForDelete.size === 0} onClick={onBulkDelete}><Trash size={16} />删除{selectedForDelete.size > 0 ? ` (${selectedForDelete.size})` : "选中"}</button>
             </div>
           </div>
         );
@@ -749,7 +765,14 @@ function Sidebar({ state, target, loading, loadFailed, onTarget, onReload, onSel
   );
 }
 
-function ProtocolStep({ form, setForm, error, conflict, saving, dirty, onNext, onSave }) {
+// The footer note for a saved Pi draft, from `piSaveChangesState`. A radio-only
+// change on a non-default provider is still an edit, so it is not 没有改动; it
+// says where it does take effect.
+function piSaveNote(saveState) {
+  return saveState === "clean" ? "没有改动" : saveState === "default-only" ? "只改了默认模型，到第 3 步「设为默认」生效" : "有未保存的修改";
+}
+
+function ProtocolStep({ form, setForm, error, conflict, saving, dirty, saveState, onNext, onSave }) {
   const [showHint, setShowHint] = useState(false);
   const cardRefs = useRef([]);
   const selectedIndex = Math.max(0, API_OPTIONS.findIndex((option) => option.id === form.api));
@@ -815,7 +838,7 @@ function ProtocolStep({ form, setForm, error, conflict, saving, dirty, onNext, o
         <div className="safe-note"><ShieldCheck size={22} weight="duotone" />高级参数会自动使用安全默认值，无需在这里配置。</div>
         <ErrorBanner message={error} conflict={conflict} />
       </div>
-      <StepFooter onNext={onNext} onSave={onSave} dirty={dirty} saving={saving} />
+      <StepFooter onNext={onNext} onSave={onSave} dirty={dirty} saving={saving} canSave={saveState === "dirty"} note={piSaveNote(saveState)} />
     </section>
   );
 }
@@ -826,7 +849,7 @@ function EndpointPreview({ api, baseUrl }) {
   return <div className="endpoint-preview"><p>{hint}</p>{endpoint && <p>请求地址：<code>{endpoint}</code></p>}</div>;
 }
 
-function CredentialsStep({ form, setForm, state, error, conflict, saving, dirty, identity, apiFocusRequest, credentialFocus, onBack, onNext, onSave }) {
+function CredentialsStep({ form, setForm, state, error, conflict, saving, dirty, saveState, identity, apiFocusRequest, credentialFocus, onBack, onNext, onSave }) {
   const sources = state.authProviders.filter((id) => id !== form.providerId);
   const providerIdRef = useRef(null);
   const baseUrlRef = useRef(null);
@@ -876,7 +899,7 @@ function CredentialsStep({ form, setForm, state, error, conflict, saving, dirty,
         </div>
         <ErrorBanner message={error} conflict={conflict} id="credential-error-banner" />
       </div>
-      <StepFooter onBack={onBack} onNext={onNext} onSave={onSave} dirty={dirty} saving={saving} />
+      <StepFooter onBack={onBack} onNext={onNext} onSave={onSave} dirty={dirty} saving={saving} canSave={saveState === "dirty"} note={piSaveNote(saveState)} />
     </section>
   );
 }
@@ -1055,7 +1078,7 @@ function ModelEndpoints({ form, setForm, onNotify, focusRequest }) {
   );
 }
 
-function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, onDiscover, onEditProtocol, onEditGateway, canDeleteProvider, isExistingProvider, isCurrentDefault, hasProviders, dirty, liveDefaultModelId, modelHints, userAgentFocusRequest, betaFocusRequest, endpointFocusRequest }) {
+function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, onDiscover, onEditProtocol, onEditGateway, canDeleteProvider, isExistingProvider, isCurrentDefault, hasProviders, dirty, contentDirty, saveState, liveDefaultModelId, modelHints, userAgentFocusRequest, betaFocusRequest, endpointFocusRequest }) {
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [showDiscover, setShowDiscover] = useState(false);
@@ -1398,16 +1421,20 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
         </details>
         <ErrorBanner message={error} conflict={conflict} />
       </div>
-      <WizardFooter onBack={onBack} note={isExistingProvider ? (dirty ? "有未保存的修改" : "没有改动") : undefined}>
+      <WizardFooter onBack={onBack} note={isExistingProvider ? (saveState === "default-only" ? "只改了默认模型，点「设为默认」生效" : piSaveNote(saveState)) : undefined}>
           {isExistingProvider ? (
             isCurrentDefault ? (
               // Already Pi's default: one button, still setDefault:true so the
               // default model follows the selected radio, worded as a plain save.
-              <button type="button" className="primary-button" disabled={saving || !dirty} onClick={() => onSave(true)}>{saving ? <><Spinner />正在保存…</> : "保存更改"}</button>
+              <button type="button" className="primary-button" disabled={saving || saveState !== "dirty"} onClick={() => onSave(true)}>{saving ? <><Spinner />正在保存…</> : "保存更改"}</button>
             ) : (
+              // Making a saved provider the default needs no edit first. Pi keeps
+              // the default model only in settings.json, so a radio-only change
+              // is not something 保存更改 (which leaves the default alone) can
+              // write: that button waits for a real content edit.
               <div className="footer-actions">
-                <button type="button" className="outline-button" disabled={saving || !dirty} onClick={() => onSave(true)}>保存并设为默认</button>
-                <button type="button" className="primary-button" disabled={saving || !dirty} onClick={() => onSave(false)}>{saving ? <><Spinner />正在保存…</> : "保存更改"}</button>
+                <button type="button" className="outline-button" disabled={saving} onClick={() => onSave(true)}>{contentDirty ? "保存并设为默认" : "设为默认"}</button>
+                <button type="button" className="primary-button" disabled={saving || saveState !== "dirty"} onClick={() => onSave(false)}>{saving ? <><Spinner />正在保存…</> : "保存更改"}</button>
               </div>
             )
           ) : hasProviders ? (
@@ -1640,6 +1667,38 @@ function ProviderDeleteDialog({ provider, state, deleting, requestError, conflic
   );
 }
 
+// The sidebar's 设为默认… for Pi. A Pi provider has no default model of its
+// own — settings.json names one model — so the row cannot know which model is
+// meant and asks, with the first model preselected. Confirming writes
+// settings.json alone, through the same path as step 3.
+function PiSetDefaultDialog({ provider, saving, requestError, conflict, onClose, onConfirm }) {
+  const [modelId, setModelId] = useState(provider.models[0]?.id || "");
+  const dialogRef = useRef(null);
+  const selectRef = useRef(null);
+  useDialog({ ref: dialogRef, initialFocusRef: selectRef, onClose, locked: saving });
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}>
+      <section ref={dialogRef} className="provider-delete-dialog set-default-dialog" role="dialog" aria-modal="true" aria-labelledby="set-default-title" aria-describedby="set-default-description">
+        <div className="delete-dialog-heading">
+          <span className="delete-dialog-icon"><CheckCircle size={24} weight="duotone" /></span>
+          <div>
+            <h2 id="set-default-title">将 {provider.name || titleFromId(provider.id)} 设为 Pi 默认</h2>
+            <p id="set-default-description">只改 <code>settings.json</code> 的默认供应商与模型，供应商配置和凭据不动。</p>
+          </div>
+        </div>
+        <div className="replacement-fields">
+          <label><span>默认模型</span><select ref={selectRef} className="mono" value={modelId} disabled={saving} onChange={(event) => setModelId(event.target.value)}>{provider.models.map((model) => <option key={model.id} value={model.id}>{model.id}</option>)}</select></label>
+        </div>
+        <ErrorBanner message={requestError} conflict={conflict} />
+        <div className="modal-actions">
+          <button type="button" className="secondary-button button-md" disabled={saving} onClick={onClose}>取消</button>
+          <button type="button" className="primary-button button-md" disabled={saving || !modelId} onClick={() => onConfirm(modelId)}>{saving ? <><Spinner />正在设为默认…</> : "设为默认"}</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 // The bulk counterpart to ProviderDeleteDialog. It names the whole set, and when
 // Pi's default is among them it asks for a replacement drawn only from the
 // survivors — the server refuses a replacement that is itself being deleted, so
@@ -1743,7 +1802,15 @@ function ProviderBulkDeleteDialog({ providerIds, state, deleting, requestError, 
   );
 }
 
-function SuccessScreen({ result, onCopy, onReturn, onAdd }) {
+// Where a global default does not reach, stated from Pi 1.1.0's own resolution:
+// SettingsManager deep-merges `<cwd>/.pi/settings.json` over the global file,
+// and a continued session restores its own model first. The manager has no
+// working directory of its own, so it says this rather than claiming to check.
+function DefaultScopeNote() {
+  return <p className="success-caveat default-scope-note"><Info size={18} weight="duotone" /><span>全局默认只用于新会话：项目目录的 <code>.pi/settings.json</code> 若设了 <code>defaultProvider</code> / <code>defaultModel</code>，会在该目录覆盖它；继续旧会话时沿用会话自己的模型。要确定用哪个，用 <code>pi --model</code>。</span></p>;
+}
+
+function SuccessScreen({ result, isLiveDefault, saving, error, conflict, onSetDefault, onCopy, onReturn, onAdd }) {
   const [copied, setCopied] = useState(false);
   const commandRef = useRef(null);
   const copy = async () => {
@@ -1771,14 +1838,18 @@ function SuccessScreen({ result, onCopy, onReturn, onAdd }) {
   return (
     <section className="success-page">
       <div className="success-mark"><CheckCircle size={72} weight="fill" /></div>
-      <p className="success-eyebrow">配置已写入 Pi</p>
-      <h1>{titleFromId(result.providerId)} 已保存</h1>
+      <p className="success-eyebrow">{result.defaultOnly ? "已写入 Pi 设置" : "配置已写入 Pi"}</p>
+      <h1>{result.defaultOnly ? <>{titleFromId(result.providerId)} 已设为默认</> : <>{titleFromId(result.providerId)} 已保存</>}</h1>
       <p className="success-summary">
-        {result.setDefault
+        {result.defaultOnly
+          ? <>Pi 默认模型已改为 <code>{result.defaultModelId}</code>，供应商配置没有改动。</>
+          : result.setDefault
           ? <>Pi 已识别 {result.modelCount} 个模型，默认模型是 <code>{result.defaultModelId}</code>。</>
           : <>Pi 已识别 {result.modelCount} 个模型。全局默认模型没有改动。</>}
       </p>
-      <p className="success-caveat"><Info size={18} weight="duotone" />供应商 UA：{userAgentSummary}{result.hasModelUserAgentOverride ? "；模型级配置可能覆盖它" : ""}</p>
+      {!result.defaultOnly && <p className="success-caveat"><Info size={18} weight="duotone" />供应商 UA：{userAgentSummary}{result.hasModelUserAgentOverride ? "；模型级配置可能覆盖它" : ""}</p>}
+      {result.setDefault && <DefaultScopeNote />}
+      <ErrorBanner message={error} conflict={conflict} />
       <div className="next-step-card">
         <div className="next-step-heading"><TerminalWindow size={28} weight="duotone" /><div><h2>下一步：在 Pi 中验证模型</h2><p>无需重启。回到 Pi 打开 <code>/model</code>，或直接运行下面的命令。</p></div></div>
         <div className="command-row">
@@ -1793,6 +1864,9 @@ function SuccessScreen({ result, onCopy, onReturn, onAdd }) {
           <li>发送一句简单测试消息；通道限流或 500 属于上游服务状态，不代表配置文件未保存</li>
         </ol>
       </div>
+      {/* Saved without taking the default: offer it here, as Claude's success
+          screen does, rather than sending the user back into the form. */}
+      {!result.setDefault && !isLiveDefault && <button type="button" className="outline-button success-set-default" disabled={saving} onClick={onSetDefault}>{saving ? <><Spinner />正在设为默认…</> : <>将 <code>{result.defaultModelId}</code> 设为 Pi 默认</>}</button>}
       <div className="success-actions"><button type="button" className="secondary-button" onClick={onAdd}><Plus size={18} />添加另一个网关</button><button type="button" className="primary-button" onClick={onReturn}>返回供应商详情<ArrowRight size={19} /></button></div>
     </section>
   );
@@ -1846,7 +1920,7 @@ function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBa
         <div className="settings-title"><div><p>Pi 全局设置</p><h1>设置与兼容性</h1><span>这里的修改会写入 Pi 的 settings.json。</span></div><button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={18} />返回</button></div>
         <div className="settings-grid">
           <section className="settings-card">
-            <h2>默认模型</h2><p>Pi 启动新会话时优先使用这里的 provider/model。</p>
+            <h2>默认模型</h2><p>Pi 启动新会话时优先使用这里的 provider/model。项目目录的 <code>.pi/settings.json</code> 若设了默认，会在该目录覆盖这里；继续旧会话时沿用会话自己的模型。</p>
             <label><span>默认供应商</span><select value={draft.defaultProvider} onChange={(event) => changeProvider(event.target.value)}>{selectableProviders.map((provider) => <option key={provider.id} value={provider.id}>{titleFromId(provider.id)} · {provider.id}{provider.models.length === 0 ? "（无模型）" : ""}</option>)}</select></label>
             <label><span>默认模型</span><select value={draft.defaultModel} disabled={availableModels.length === 0} onChange={(event) => setDraft((current) => ({ ...current, defaultModel: event.target.value }))}>{availableModels.map((model) => <option key={model.id} value={model.id}>{model.name || model.id}</option>)}</select>{availableModels.length === 0 && <small>该供应商还没有模型。先为它添加模型，才能设为默认。</small>}</label>
             <label><span>默认思考强度</span><select className="mono" value={draft.defaultThinkingLevel} onChange={(event) => setDraft((current) => ({ ...current, defaultThinkingLevel: event.target.value }))}>{["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((level) => <option key={level} value={level}>{level}</option>)}</select></label>
@@ -1911,6 +1985,10 @@ export function App() {
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState(null);
   const [deleteTargetId, setDeleteTargetId] = useState("");
+  // The Pi provider the sidebar's 设为默认… is choosing a model for, and the
+  // refusal it reports in its own banner.
+  const [setDefaultTargetId, setSetDefaultTargetId] = useState("");
+  const [setDefaultError, setSetDefaultError] = useState("");
   const [deletingProvider, setDeletingProvider] = useState(false);
   const [deleteProviderError, setDeleteProviderError] = useState("");
   // Pi-only bulk delete: a selection set the sidebar fills, and the ids handed to
@@ -1932,6 +2010,10 @@ export function App() {
   // loadCodexForm; user edits go through the plain setters and move the draft
   // away from the baseline.
   const [piBaseline, setPiBaseline] = useState(() => draftSignature(demoMode ? providerToForm(DEMO_STATE.providers[0], DEMO_STATE) : blankForm()));
+  // The same baseline without the default-model radio: a draft that matches it
+  // differs from disk at most in which model is the default, which lives only in
+  // settings.json, so it can be made Pi's default without rewriting models.json.
+  const [piContentBaseline, setPiContentBaseline] = useState(() => draftContentSignature(demoMode ? providerToForm(DEMO_STATE.providers[0], DEMO_STATE) : blankForm()));
   const [codexBaseline, setCodexBaseline] = useState(() => draftSignature(blankCodexForm()));
   // A settings or prompts screen reports its own edited state up so the shared
   // leave guard and beforeunload can see it. Only one such screen is mounted at
@@ -2004,15 +2086,58 @@ export function App() {
   }, [showToast]);
   useEffect(() => () => { for (const entry of toastTimers.current.values()) clearTimeout(entry.timeout); }, []);
 
-  const claudeFlow = useClaude({ state, setState, setView, setError, setConflict, setSaving, reportRequestError, showToast, demoMode });
+  // The provider write lock: while a save or a default/active switch is in
+  // flight, nothing may edit the draft it will replace, leave it, or start a
+  // second write. The ref is what refuses a re-entry synchronously — `writing`
+  // only takes effect on the next render, too late for a second call in the
+  // same tick; the state drives the disabled workspace, the sidebar and the
+  // busy note. Blocked input is dropped, never queued: nothing replays after.
+  // The ref is held from entry; the visible lock starts with the request
+  // (`beginWrite`, beside setSaving(true)), so a validation refusal that
+  // focuses its field never meets a disabled workspace.
+  const writeLockRef = useRef(false);
+  const [writing, setWriting] = useState(false);
+  const beginWrite = useCallback(() => { setSaving(true); setWriting(true); }, []);
+  const runWrite = useCallback((work) => async (...args) => {
+    if (writeLockRef.current) return undefined;
+    writeLockRef.current = true;
+    try {
+      return await work(...args);
+    } finally {
+      writeLockRef.current = false;
+      setSaving(false);
+      setWriting(false);
+    }
+  }, []);
+  // An entry the lock simply refuses while a write is pending.
+  const unlessWriting = useCallback((action) => (...args) => (writeLockRef.current ? undefined : action(...args)), []);
+  // Said only once a write is slow enough to see; a local write usually lands
+  // well before this, so the note does not flash on every save.
+  const [writingNotice, setWritingNotice] = useState(false);
+  useEffect(() => {
+    if (!writing) { setWritingNotice(false); return undefined; }
+    const timer = setTimeout(() => setWritingNotice(true), 300);
+    return () => clearTimeout(timer);
+  }, [writing]);
+
+  const claudeFlow = useClaude({ state, setState, setView, setError, setConflict, setSaving, reportRequestError, showToast, demoMode, runWrite, beginWrite, isWriting: () => writeLockRef.current });
 
   // Loading a draft from saved data (or creating a fresh blank/duplicate) sets
   // both the form and its baseline, so the draft reads as unedited until the
   // user changes something. User edits use the plain setters.
-  const loadForm = useCallback((next) => { setForm(next); setPiBaseline(draftSignature(next)); }, []);
+  const loadForm = useCallback((next) => { setForm(next); setPiBaseline(draftSignature(next)); setPiContentBaseline(draftContentSignature(next)); }, []);
   const loadCodexForm = useCallback((next) => { setCodexForm(next); setCodexBaseline(draftSignature(next)); }, []);
+  // What the forms edit through. A pending write replaces the draft with what it
+  // saved, so an edit made meanwhile would be lost without a word: refuse it.
+  const editForm = useCallback((update) => { if (!writeLockRef.current) setForm(update); }, []);
+  const editCodexForm = useCallback((update) => { if (!writeLockRef.current) setCodexForm(update); }, []);
   const piIdentity = providerDraftIdentity(selectedId, form.providerId, state.providers.map((provider) => provider.id), state.authProviders);
   const piDirty = useMemo(() => draftSignature(form) !== piBaseline, [form, piBaseline]);
+  const piContentDirty = useMemo(() => draftContentSignature(form) !== piContentBaseline, [form, piContentBaseline]);
+  // Whether 保存更改 has anything to write: one fact for steps 1–3 and for the
+  // save entry itself, so a disabled button is never the only guard.
+  const piIsCurrentDefault = state.settings.defaultProvider === form.providerId.trim();
+  const piSaveState = piSaveChangesState({ isCurrentDefault: piIsCurrentDefault, dirty: piDirty, contentDirty: piContentDirty });
   const codexDirty = useMemo(() => draftSignature(codexForm) !== codexBaseline, [codexForm, codexBaseline]);
   // The draft the current screen would lose on navigation. Settings and prompts
   // report their own edited state; the wizard's belongs to the active target.
@@ -2025,18 +2150,23 @@ export function App() {
   // first, and only proceeds through the toast's action — the same rule the
   // prompts screen already applied to its own document switches.
   const guardLeave = useCallback((proceed) => {
+    if (writeLockRef.current) return;
     if (!currentDirty) { proceed(); return; }
-    showToast("当前草稿有未保存的修改", "error", { label: "放弃修改并离开", onAction: proceed });
+    // The action re-checks the lock: the toast outlives the click that made it.
+    showToast("当前草稿有未保存的修改", "error", { label: "放弃修改并离开", onAction: () => { if (!writeLockRef.current) proceed(); } });
   }, [currentDirty, showToast]);
   // Any unsaved draft — in either target or in a settings/prompts screen — arms
   // the browser's native leave confirmation, covering a tab close or a reload
   // (including the 409 banner's reload) that the in-app guard cannot intercept.
+  // A pending provider write arms it too, even from an unedited draft: leaving
+  // then would not undo a write the server may already have made, only hide
+  // whether it did.
   useEffect(() => {
-    if (!(piDirty || codexDirty || claudeFlow.dirty || screenDirty)) return undefined;
+    if (!(piDirty || codexDirty || claudeFlow.dirty || screenDirty || writing)) return undefined;
     const handler = (event) => { event.preventDefault(); event.returnValue = ""; };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [piDirty, codexDirty, claudeFlow.dirty, screenDirty]);
+  }, [piDirty, codexDirty, claudeFlow.dirty, screenDirty, writing]);
   // Back to the top when the step or view changes. A layout effect, so the
   // reset happens at commit — before a child effect or animation frame scrolls
   // an error banner or an invalid field into view. Run from a frame, it undid
@@ -2144,6 +2274,12 @@ export function App() {
     setStep(provider.models.length > 0 ? 3 : 1);
     setView("wizard");
     setError("");
+  };
+
+  const openSetDefault = (providerId) => {
+    if (!state.providers.some((provider) => provider.id === providerId)) return;
+    setSetDefaultError("");
+    setSetDefaultTargetId(providerId);
   };
 
   const openDeleteProvider = (providerId = selectedId) => {
@@ -2279,8 +2415,21 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [demoMode, form.baseUrl, form.api, form.credentialMode, form.apiKey, form.migrateFrom, form.providerId, piIdentity.ownerId, piIdentity.conflict, state.authProviders]);
 
-  const save = async (setDefault) => {
+  const saveNow = async (setDefault) => {
     setConflict(false);
+    // Nothing but the default would change: write settings.json alone, so making
+    // a saved provider the default never rewrites its models.json entry.
+    if (setDefault && piIdentity.sourceId && !piIdentity.renameFrom && !piContentDirty) {
+      await setPiDefaultOnlyNow();
+      return;
+    }
+    // A plain save of a stored provider with nothing it can write. Its button is
+    // disabled on every step; this is the same check where the save starts, so
+    // a radio-only change never re-normalizes models.json for nothing.
+    if (!setDefault && piIdentity.sourceId && piSaveState !== "dirty") {
+      setError(piSaveState === "default-only" ? "只改了默认模型。保存更改不会写入默认模型，请在第 3 步点「设为默认」。" : "没有需要保存的改动。");
+      return;
+    }
     const result = validateCredentials();
     if (result) { failCredentials(result); return; }
     // The remaining checks belong to step 3. A save can start on step 1 or 2,
@@ -2329,7 +2478,7 @@ export function App() {
       }
     }
     const userAgentIntent = userAgentSaveIntent(form, intentSourceId, Boolean(targetProvider));
-    setSaving(true);
+    beginWrite();
     setError("");
     const payload = {
       providerId: form.providerId.trim(),
@@ -2459,14 +2608,70 @@ export function App() {
       setView("success");
     } catch (requestError) {
       reportRequestError(requestError, setError);
-    } finally {
-      setSaving(false);
     }
   };
 
   // Step 3's 保存更改 for a saved provider: Pi's default keeps setDefault so the
   // default model follows the radio; any other provider saves without taking it.
-  const savePiChanges = () => save(state.settings.defaultProvider === form.providerId.trim());
+  const save = runWrite(saveNow);
+  const savePiChanges = () => save(piIsCurrentDefault);
+
+  // Makes the open, unedited provider Pi's default with the model its radio
+  // marks. Reached only through save(true) when the draft's content matches disk.
+  const setPiDefaultOnlyNow = async () => {
+    const selectedModel = selectedNamedModel(form.models, form.defaultRowId);
+    await applyPiDefaultNow(piIdentity.sourceId, selectedModel?.id.trim() || "");
+  };
+
+  // The one client path to POST /api/providers/set-default, shared by step 3,
+  // the success screen and the sidebar row menu. It writes settings.json alone
+  // and lands on the success screen; a refusal goes to `setMessage`, which is
+  // the dialog's own banner when the row menu asked. Resolves true on success.
+  const applyPiDefaultNow = async (providerId, modelId, setMessage = setError) => {
+    setConflict(false);
+    const stored = state.providers.find((provider) => provider.id === providerId);
+    if (!stored || !stored.models.some((model) => model.id === modelId)) {
+      setMessage("请选择一个已保存的模型作为默认模型。");
+      if (setMessage === setError && view === "wizard") setStep(3);
+      return false;
+    }
+    beginWrite();
+    setMessage("");
+    try {
+      let nextState;
+      if (demoMode) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        nextState = {
+          ...state,
+          providers: state.providers.map((provider) => ({ ...provider, isDefault: provider.id === providerId })),
+          settings: { ...state.settings, defaultProvider: providerId, defaultModel: modelId },
+        };
+      } else {
+        const response = await fetch("/api/providers/set-default", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ providerId, modelId, revision: state.revision }) });
+        nextState = (await readApiResponse(response, "设为默认失败")).state;
+      }
+      setState(nextState);
+      const saved = nextState.providers.find((provider) => provider.id === providerId);
+      if (saved) { setSelectedId(saved.id); loadForm(providerToForm(saved, nextState)); }
+      setSaveResult({
+        providerId,
+        modelCount: saved?.models.length || stored.models.length,
+        defaultModelId: modelId,
+        setDefault: true,
+        defaultOnly: true,
+        userAgent: saved?.userAgent,
+        hasModelUserAgentOverride: saved?.hasModelUserAgentOverride,
+        command: piModelCommand(providerId, modelId, nextState.settings, nextState.settingsPresent),
+      });
+      setError("");
+      setView("success");
+      return true;
+    } catch (requestError) {
+      reportRequestError(requestError, setMessage);
+      return false;
+    }
+  };
+  const applyPiDefault = runWrite(applyPiDefaultNow);
 
   const saveSettings = async (draft) => {
     setConflict(false);
@@ -2762,7 +2967,51 @@ export function App() {
       : "已停止本地桥");
   };
 
-  const saveCodex = async (setActive) => {
+  // Switches Codex to a stored provider without resubmitting its form, through
+  // /api/codex/activate: the stored entry is applied exactly as saved. Shared by
+  // an unedited step-3 save and the sidebar row menu.
+  const activateCodexNow = async (providerId) => {
+    setConflict(false);
+    beginWrite();
+    setError("");
+    try {
+      let nextState;
+      if (demoMode) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        nextState = { ...state, codex: demoActivateCodex(codex, providerId) };
+      } else {
+        const response = await fetch("/api/codex/activate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ providerId, revision: codex.revision }) });
+        nextState = (await readApiResponse(response, "切换失败")).state;
+      }
+      setState(nextState);
+      const saved = (nextState.codex?.providers || []).find((provider) => provider.id === providerId);
+      if (saved) { setCodexSelectedId(saved.id); loadCodexForm(codexProviderToForm(saved, nextState.codex)); }
+      setCodexSaveResult({
+        providerId,
+        name: saved?.name || titleFromId(providerId),
+        modelCount: saved?.models.length || 0,
+        defaultModelId: saved?.defaultModelId || "",
+        activated: Boolean(saved?.isActive),
+        requiresAuth: saved?.requiresAuth !== false,
+        bridged: Boolean(saved?.bridge),
+        command: "codex",
+        otherModels: (saved?.models || []).map((model) => model.id).filter((id) => id !== saved?.defaultModelId),
+      });
+      setView("success");
+    } catch (requestError) {
+      reportRequestError(requestError, setError);
+    }
+  };
+
+  const activateCodex = runWrite(activateCodexNow);
+
+  const saveCodexNow = async (setActive) => {
+    // Nothing to write but the switch: apply the stored provider as it is,
+    // rather than rebuilding it from the form.
+    if (setActive && codexIdentity.sourceId && !codexIdentity.renameFrom && !codexDirty) {
+      await activateCodexNow(codexIdentity.sourceId);
+      return;
+    }
     setConflict(false);
     const message = validateCodexCredentials();
     if (message) { setError(message); setCodexStep(2); return; }
@@ -2776,7 +3025,7 @@ export function App() {
     // and active marker together, then relabels any matching bridge runtime
     // record separately; the client only names the source.
     const codexRenameFrom = codexIdentity.renameFrom;
-    setSaving(true);
+    beginWrite();
     setError("");
     try {
       if (demoMode) {
@@ -2805,7 +3054,7 @@ export function App() {
           adopted: false,
           isActive: Boolean(setActive || codex.activeProviderId === codexForm.providerId.trim() || (codexRenameFrom && codex.activeProviderId === codexRenameFrom)),
         };
-        const demoCodex = {
+        const savedCodex = {
           ...codex,
           bridge: codexRenameFrom && codex.bridge?.providerId === codexRenameFrom
             ? { ...codex.bridge, providerId: saved.id }
@@ -2822,6 +3071,8 @@ export function App() {
             saved,
           ],
         };
+        // A save that takes the switch moves the settings exactly as a switch does.
+        const demoCodex = setActive ? demoActivateCodex(savedCodex, saved.id) : savedCodex;
         const demoState = { ...state, codex: demoCodex };
         setState(demoState);
         setCodexSelectedId(saved.id);
@@ -2892,10 +3143,9 @@ export function App() {
       setView("success");
     } catch (requestError) {
       reportRequestError(requestError, setError);
-    } finally {
-      setSaving(false);
     }
   };
+  const saveCodex = runWrite(saveCodexNow);
 
   const promptRequest = async (route, payload) => {
     setSaving(true);
@@ -3154,6 +3404,7 @@ export function App() {
       <Sidebar
         state={state}
         target={target}
+        locked={writing}
         loading={loading}
         loadFailed={Boolean(loadError)}
         onReload={() => guardLeave(() => window.location.reload())}
@@ -3166,18 +3417,24 @@ export function App() {
         activeView={view}
         theme={theme}
         onTheme={setTheme}
+        onActivate={(id) => guardLeave(() => (target === "claude" ? claudeFlow.activate(id) : target === "codex" ? activateCodex(id) : openSetDefault(id)))}
         onDuplicate={(id) => guardLeave(() => (target === "claude" ? claudeFlow.duplicate : target === "codex" ? duplicateCodexProviderById : duplicateProviderById)(id))}
-        onDelete={target === "claude" ? (id) => guardLeave(() => claudeFlow.openDelete(id)) : target === "codex" ? (id) => { setDeleteProviderError(""); setCodexDeleteTargetId(id); } : openDeleteProvider}
+        onDelete={unlessWriting(target === "claude" ? (id) => guardLeave(() => claudeFlow.openDelete(id)) : target === "codex" ? (id) => { setDeleteProviderError(""); setCodexDeleteTargetId(id); } : openDeleteProvider)}
         canBulkDelete={target !== "claude"}
         selectMode={selectMode}
         selectedForDelete={selectedForDelete}
-        onEnterSelect={() => { setSelectMode(true); setSelectedForDelete(new Set()); }}
-        onExitSelect={exitSelectMode}
-        onToggleSelect={toggleSelectForDelete}
-        onReplaceSelection={(ids) => setSelectedForDelete(new Set(ids))}
-        onBulkDelete={() => { setDeleteProviderError(""); if (target === "codex") setCodexBulkDeleteIds(Array.from(selectedForDelete)); else setBulkDeleteIds(Array.from(selectedForDelete)); }}
+        onEnterSelect={unlessWriting(() => { setSelectMode(true); setSelectedForDelete(new Set()); })}
+        onExitSelect={unlessWriting(exitSelectMode)}
+        onToggleSelect={unlessWriting(toggleSelectForDelete)}
+        onReplaceSelection={unlessWriting((ids) => setSelectedForDelete(new Set(ids)))}
+        onBulkDelete={unlessWriting(() => { setDeleteProviderError(""); if (target === "codex") setCodexBulkDeleteIds(Array.from(selectedForDelete)); else setBulkDeleteIds(Array.from(selectedForDelete)); })}
       />
-      <section className="workspace">
+      <section className="workspace" aria-busy={writing || undefined}>
+        {/* While a provider write is pending every control in the workspace is
+            really disabled — mouse, keyboard and form semantics alike — yet the
+            content stays readable and scrollable. display: contents keeps the
+            fieldset out of the layout. */}
+        <fieldset className="workspace-lock" disabled={writing}>
         {loading ? (
           <div className="loading-state" role="status" aria-live="polite">
             <span className="skeleton skeleton-title" />
@@ -3222,38 +3479,39 @@ export function App() {
           ) : view === "settings" ? (
             <CodexSettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveCodexSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} />
           ) : view === "success" && codexSaveResult ? (
-            <CodexSuccessScreen result={codexSaveResult} codex={codex} onCopy={copyCommand} onReturn={returnToSavedCodexProvider} onAdd={startNewCodex} onStartBridge={() => bridgeAction("start")} onStopBridge={() => bridgeAction("stop")} onNotify={showToast} />
+            <CodexSuccessScreen result={codexSaveResult} codex={codex} error={error} conflict={conflict} onCopy={copyCommand} onReturn={unlessWriting(returnToSavedCodexProvider)} onAdd={unlessWriting(startNewCodex)} onStartBridge={() => bridgeAction("start")} onStopBridge={() => bridgeAction("stop")} onNotify={showToast} />
           ) : (
             <>
-              <CodexStepper step={codexStep} onStep={goToCodexStep} allowJump={Boolean(codexProvider(codexForm.providerId.trim()))} />
+              <CodexStepper step={codexStep} onStep={unlessWriting(goToCodexStep)} allowJump={Boolean(codexProvider(codexForm.providerId.trim()))} />
               <CodexWizard
                 step={codexStep}
                 form={codexForm}
-                setForm={setCodexForm}
+                setForm={editCodexForm}
                 codex={codex}
                 codexVersion={state.compatibility?.codexVersion}
                 conflict={conflict}
                 error={error}
                 saving={saving}
-                onNext={codexStep === 1 ? () => setCodexStep(2) : goToCodexModels}
-                onBack={() => setCodexStep(codexStep - 1)}
+                onNext={unlessWriting(codexStep === 1 ? () => setCodexStep(2) : goToCodexModels)}
+                onBack={unlessWriting(() => setCodexStep(codexStep - 1))}
                 onSave={saveCodex}
                 dirty={codexDirty}
                 // Step 3's save for a saved provider: the live one stays live,
                 // any other is stored without switching Codex to it.
                 onSaveChanges={codexIdentity.sourceId ? () => saveCodex(Boolean(codexProvider(codexForm.providerId.trim())?.isActive)) : undefined}
                 onNotify={showToast}
-                onDuplicate={duplicateCodexProvider}
+                onDuplicate={unlessWriting(duplicateCodexProvider)}
                 onStartBridge={() => bridgeAction("start")}
                 onStopBridge={() => bridgeAction("stop")}
                 selectedId={codexSelectedId}
-                onDeleteProvider={() => setCodexDeleteTargetId(codexSelectedId)}
+                onDeleteProvider={unlessWriting(() => setCodexDeleteTargetId(codexSelectedId))}
                 canDeleteProvider={Boolean(codexProvider(codexSelectedId))}
                 isActive={Boolean(codexProvider(codexForm.providerId.trim())?.isActive)}
               />
             </>
           )
-        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} onCopy={copyCommand} onReturn={returnToSavedProvider} onAdd={startNew} /> : <><Stepper step={step} onStep={goToStep} allowJump={state.providers.some((provider) => provider.id === form.providerId.trim())} />{step === 1 ? <ProtocolStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} dirty={piDirty} onSave={piIdentity.sourceId ? savePiChanges : undefined} onNext={() => setStep(2)} /> : step === 2 ? <CredentialsStep form={form} setForm={setForm} state={state} error={error} conflict={conflict} saving={saving} dirty={piDirty} identity={piIdentity} apiFocusRequest={apiFocusRequest} credentialFocus={credentialFocus} onBack={() => setStep(1)} onNext={goToModels} onSave={piIdentity.sourceId ? savePiChanges : undefined} /> : <ModelsStep form={form} setForm={setForm} error={error} conflict={conflict} saving={saving} onBack={() => setStep(2)} onSave={save} onNotify={showToast} onDuplicate={duplicateProvider} onDeleteProvider={openDeleteProvider} onDiscover={discoverModels} onEditProtocol={() => goToStep(1)} onEditGateway={editGatewayAddress} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={state.settings.defaultProvider === form.providerId.trim()} hasProviders={state.providers.length > 0} dirty={piDirty} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} modelHints={state.modelHints?.[piIdentity.ownerId]} userAgentFocusRequest={userAgentFocusRequest} betaFocusRequest={betaFocusRequest} endpointFocusRequest={endpointFocusRequest} />}</>}
+        ) : view === "settings" ? <SettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} /> : view === "success" && saveResult ? <SuccessScreen result={saveResult} isLiveDefault={state.settings.defaultProvider === saveResult.providerId && state.settings.defaultModel === saveResult.defaultModelId} saving={saving} error={error} conflict={conflict} onSetDefault={() => applyPiDefault(saveResult.providerId, saveResult.defaultModelId)} onCopy={copyCommand} onReturn={unlessWriting(returnToSavedProvider)} onAdd={unlessWriting(startNew)} /> : <><Stepper step={step} onStep={unlessWriting(goToStep)} allowJump={state.providers.some((provider) => provider.id === form.providerId.trim())} />{step === 1 ? <ProtocolStep form={form} setForm={editForm} error={error} conflict={conflict} saving={saving} dirty={piDirty} saveState={piSaveState} onSave={piIdentity.sourceId ? savePiChanges : undefined} onNext={unlessWriting(() => setStep(2))} /> : step === 2 ? <CredentialsStep form={form} setForm={editForm} state={state} error={error} conflict={conflict} saving={saving} dirty={piDirty} saveState={piSaveState} identity={piIdentity} apiFocusRequest={apiFocusRequest} credentialFocus={credentialFocus} onBack={unlessWriting(() => setStep(1))} onNext={unlessWriting(goToModels)} onSave={piIdentity.sourceId ? savePiChanges : undefined} /> : <ModelsStep form={form} setForm={editForm} error={error} conflict={conflict} saving={saving} onBack={unlessWriting(() => setStep(2))} onSave={save} onNotify={showToast} onDuplicate={unlessWriting(duplicateProvider)} onDeleteProvider={unlessWriting(openDeleteProvider)} onDiscover={discoverModels} onEditProtocol={unlessWriting(() => goToStep(1))} onEditGateway={unlessWriting(editGatewayAddress)} canDeleteProvider={state.providers.some((provider) => provider.id === selectedId)} isExistingProvider={state.providers.some((provider) => provider.id === form.providerId.trim())} isCurrentDefault={piIsCurrentDefault} hasProviders={state.providers.length > 0} dirty={piDirty} contentDirty={piContentDirty} saveState={piSaveState} liveDefaultModelId={form.providerId.trim() && state.settings.defaultProvider === form.providerId.trim() ? state.settings.defaultModel || "" : ""} modelHints={state.modelHints?.[piIdentity.ownerId]} userAgentFocusRequest={userAgentFocusRequest} betaFocusRequest={betaFocusRequest} endpointFocusRequest={endpointFocusRequest} />}</>}
+        </fieldset>
       </section>
       {claudeFlow.deleteId && claudeFlow.provider(claudeFlow.deleteId) && <ClaudeDeleteDialog flow={claudeFlow} saving={saving} conflict={conflict} />}
       {codexDeleteTargetId && codexProvider(codexDeleteTargetId) && (
@@ -3265,6 +3523,16 @@ export function App() {
           conflict={conflict}
           onClose={() => { setCodexDeleteTargetId(""); setDeleteProviderError(""); }}
           onConfirm={deleteCodexProvider}
+        />
+      )}
+      {setDefaultTargetId && state.providers.find((provider) => provider.id === setDefaultTargetId) && (
+        <PiSetDefaultDialog
+          provider={state.providers.find((provider) => provider.id === setDefaultTargetId)}
+          saving={saving}
+          requestError={setDefaultError}
+          conflict={conflict}
+          onClose={() => { if (!saving) setSetDefaultTargetId(""); }}
+          onConfirm={async (modelId) => { if (await applyPiDefault(setDefaultTargetId, modelId, setSetDefaultError)) setSetDefaultTargetId(""); }}
         />
       )}
       {deleteTargetId && state.providers.find((provider) => provider.id === deleteTargetId) && (
@@ -3301,6 +3569,10 @@ export function App() {
         />
       )}
       <div className="toast-region">
+        {/* The live region is always mounted so its message is announced; the
+            visible note appears only for a write slow enough to notice. */}
+        <p className="sr-only" role="status" aria-live="polite">{writing ? "正在写入配置，完成前暂不能编辑或切换" : ""}</p>
+        {writingNotice && <div className="toast is-busy" aria-hidden="true"><Spinner size={19} /><span>正在写入配置，完成前暂不能编辑或切换…</span></div>}
         {toasts.map((toast) => (
           <div
             key={toast.id}
@@ -3318,7 +3590,10 @@ export function App() {
               <button
                 type="button"
                 className="toast-action"
-                onClick={() => { toast.action.onAction(); dismissToast(toast.id); }}
+                // An undo, a discard-and-leave or a reload would each rewrite or
+                // drop the draft a pending write is about to replace.
+                disabled={writing}
+                onClick={() => { if (writeLockRef.current) return; toast.action.onAction(); dismissToast(toast.id); }}
               >
                 {toast.action.label}
               </button>

@@ -19,7 +19,7 @@ in [AGENTS.md](AGENTS.md), and verification requirements in
 
 | Scope | Command / evidence |
 |---|---|
-| Production UI | `npm run build` then `npm run test:ui`; the suite serves `server.mjs` and isolates both agents' directories |
+| Production UI | `npm run build` then `npm run test:ui`; the suite serves `server.mjs` and isolates all three agents' directories |
 | Pi configuration, headers, discovery, update/restart | `npm run test:server`; exercise changed API boundaries against production serving |
 | Codex configuration and bridge supervision | `npm run test:codex` |
 | Global prompt files | `npm run test:prompts` |
@@ -31,10 +31,131 @@ in [AGENTS.md](AGENTS.md), and verification requirements in
 | All local suites | `npm test`; inspect complete totals and skipped count |
 
 Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate temporary
-`PI_CODING_AGENT_DIR` and `PI_PROVIDER_MANAGER_CODEX_DIR` directories. Vite and
+`PI_CODING_AGENT_DIR`, `PI_PROVIDER_MANAGER_CODEX_DIR` and `PI_PROVIDER_MANAGER_CLAUDE_DIR` directories. Vite and
 `?demo=1` supplement these checks; they do not prove the production headers or API.
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
+
+## v0.5.5 Release Candidate — 2026-10-10
+
+- **Authorization/scope.** After the A–E worktree review below, the owner
+  authorized proceeding through PR, required CI, squash merge and release.
+  Candidate `0.5.5` contains that work plus version/release metadata and aligned
+  README summaries; the Pi/Codex baselines and dependencies are unchanged.
+  Independent Dependabot PR #164 is not included.
+- **Candidate run.** `npm ci --ignore-scripts`, then full `npm test` detached
+  with `setsid`, exit 0: **317 tests, 315 passed, 0 failed, 2 Windows-only Claude
+  launcher skips**. Suite counts match the complete table below: browser 45/45,
+  real Codex `0.160.0` 5/5 including the bridge, Pi `1.1.0` 3/3 and Claude Code
+  `2.1.285` 10/10 including the pty cases, all three real suites without skips.
+- **Extracted archive.** `npm run package:linux` succeeded. Extracted outside
+  the checkout without `node_modules`, it passed **12/12** checks: safe versioned
+  members/no local config; production page/CSP/version; credential-free initial
+  state/no read-time write; Pi default-only byte preservation; external-edit 409;
+  real Pi offline model listing without file changes; Codex activation preserving
+  handwritten TOML; omitted bridge mapping preserved; Claude activation keeping
+  permissions/unknown fields; private credential-store modes; Chrome opening the
+  actual packaged page; and that page performing a default-only switch and
+  landing on success. All three agent directories were temporary, all keys dummy
+  and endpoints non-routable. The browser reported no JavaScript errors.
+- **Release boundary.** The read-only Pi check returned baseline/latest `1.1.0`,
+  `current`. All Sites entry files remain present and their protected sources
+  unchanged; `git diff --check` passed. No owner configuration or agent install
+  was changed. CI, tag and published asset results belong to the release PR,
+  Actions runs and GitHub Release rather than a forecast in this candidate record.
+
+## Default-Switch Review Fixes — 2026-10-10
+
+- **Scope/environment.** Continued the 12-file uncommitted default-switch and
+  `bridge.models` work on `110b1ac`, without resetting it. Manager `0.5.4`,
+  Linux/WSL2, Node `24.18.0`, npm `11.16.0`, Chrome for Testing `148.0.7778.96`.
+  The four review fixes and their regressions are in the worktree, not a release.
+  No compatibility baseline, dependency, real user configuration or credential
+  was changed; all server/browser cases named separate temporary Pi/Codex/Claude
+  directories. No live gateway or paid inference was used.
+- **A — Pi saves.** The new two-model fixture contains a hand-written
+  `thinkingLevelMap` and unknown provider/model fields. A radio-only change on a
+  non-default provider leaves ordinary save disabled on all three steps, keeps
+  the leave guard armed, and writes nothing. Setting the default and changing
+  its model from steps 1 and 2 each send only `/api/providers/set-default`, keep
+  models/auth bytes intact and preserve other settings. A content edit still
+  uses `/api/providers` without taking the default. Existing create, duplicate,
+  rename and save-from-any-step cases pass.
+- **B — Codex refusal feedback.** Real activation responses are paused and their
+  status asserted: missing credential returns 400; an external `config.toml`
+  edit returns 409 without changing its bytes. Both leave the last real success
+  result on screen. The 409 banner retains its reload action after the actual
+  seven-second toast expiry; a later 400 has no stale conflict action and a
+  successful retry replaces the result and clears the banner.
+- **C — pending writes.** The browser uses the Chrome DevTools Protocol (CDP) to
+  hold real Pi/Codex responses and a Claude activation request. Mouse, keyboard,
+  DOM events, sidebar/target switches, edits and toast actions cannot change the
+  pending draft. A competing Codex save invoked inside the first fetch, before
+  React disables its button, sends no second POST. Ordinary Pi/Codex saves are
+  covered too. Success, 400, 409 and a network failure unlock; refused actions
+  do not replay. `beforeunload` is armed during a clean switch, clears after
+  success and stays armed for an unsaved edit. The default dialog traps Tab with
+  every control disabled, refuses Escape while pending, restores the menu
+  trigger on close and supports keyboard activation of the persistent reload.
+- **D — demo parity.** Kimi and DeepSeek switches through the row menu and the
+  clean step-3 action agree across sidebar, success and Settings for model and
+  effort; unrelated Plan effort/verbosity remain unchanged. Unit coverage also
+  checks a non-`custom` owned table ID, presence flags, unmodified input and
+  preserved bridge runtime. Pi demo success/row actions and a duplicated Claude
+  demo provider's row action pass with no configuration POST and all three
+  targets' real fixture files unchanged.
+- **Negative checks.** Before A's UI fix, step 2 enabled the no-op save; B timed
+  out waiting for its missing banner; D retained Packy's model/effort after a
+  Kimi switch. Removing the interaction lock made the pending cases fail. A
+  final backed-up mutation run removed A's predicate, B's error props, C's ref
+  guard and D's settings update: all four tests failed at their intended
+  assertions, including two competing Codex POSTs. Source hashes matched the
+  backup after restoration. The added dialog test failed at Tab escaping before
+  its focus fix and passed afterward. No original assertion was weakened.
+- **Issues found during verification.** Locking the fieldset before validation
+  caused the existing invalid-User-Agent focus test to fail. The ref now guards
+  entry but the visible lock begins only after validation; that unchanged test
+  passes. One early run also reported a new Claude browser fixture's startup
+  `ECONNREFUSED` with no server output; it did not recur in targeted, full-browser
+  or either later complete run. Its cause was not established; no retry, timeout
+  increase or skip was added to hide it.
+- **Final full run.** `setsid --wait npm test </dev/null`, exit **0**:
+  **317 tests, 315 passed, 0 failed/cancelled, 2 skipped**. Optional review
+  screenshots were written outside the repository during this run.
+
+  | Suite | Passed | Skipped |
+  |---|---:|---:|
+  | Server, styles and draft/domain units | 108 | 0 |
+  | Codex configuration/bridge | 76 | 0 |
+  | Claude configuration/server/launcher | 32 | 2 |
+  | Prompts | 15 | 0 |
+  | Sites | 4 | 0 |
+  | Pi update monitor | 8 | 0 |
+  | Release staging | 1 | 0 |
+  | Launchers | 8 | 0 |
+  | Production browser | 45 | 0 |
+  | Real Codex `0.160.0`, including LiteLLM bridge | 5 | 0 |
+  | Real Pi `1.1.0` | 3 | 0 |
+  | Real Claude Code `2.1.285`, including interactive pty cases | 10 | 0 |
+
+  The two skips are Windows-only Claude launcher cases: npm-shim/literal-argument
+  execution and force-kill/child-cleanup/snapshot-sweep. They remain for the CI
+  Windows job, not claimed as exercised by this Linux run. All three real-binary
+  suites ran without skips. The preceding complete run also passed before the
+  dialog regression was added (316 tests, 314 passed, the same two skips).
+- **Production preview.** Started `server.mjs` with
+  `PI_PROVIDER_MANAGER_SERVE_UI=1` and opened it in the test browser. Checked
+  1440px and 390px, light/dark: default dialog, Codex error/reload banner and
+  pending/unlocked states, native keyboard controls and no horizontal page
+  overflow or unexpected JavaScript errors. Screenshots were inspected outside
+  the repository; no palette/layout redesign or public screenshot replacement.
+  The narrow busy toast can cover disabled footer controls while pending and
+  disappears on completion; this does not hide the error after unlock.
+- **Exit checks/limits.** `git diff --check` passed; the initial server-side
+  patches remain unchanged. Sites entry files `dist/client/index.html`,
+  `dist/server/index.js`, `dist/.openai/hosting.json` exist, and the four protected
+  Sites source files are unchanged. The existing non-fatal Vite chunk warning
+  remains. No commit, push, release or CI execution was performed.
 
 ## v0.5.4 Release Acceptance — 2026-10-08
 

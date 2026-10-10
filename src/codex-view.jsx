@@ -933,7 +933,10 @@ export function CodexProviderBulkDeleteDialog({ providerIds, codex, deleting, re
   );
 }
 
-export function CodexSuccessScreen({ result, codex, onCopy, onReturn, onAdd, onStartBridge, onStopBridge, onNotify }) {
+// `error` / `conflict` are the shared request error: a switch started from here
+// (the sidebar row menu) that fails leaves this screen showing the last real
+// result, so the refusal, and on a 409 its 重新读取, must be stated on it.
+export function CodexSuccessScreen({ result, codex, error, conflict, onCopy, onReturn, onAdd, onStartBridge, onStopBridge, onNotify }) {
   const [copied, setCopied] = useState(false);
   const commandRef = useRef(null);
   const copy = async () => {
@@ -965,6 +968,7 @@ export function CodexSuccessScreen({ result, codex, onCopy, onReturn, onAdd, onS
             ? <>已写入 <code>config.toml</code> 并换上这个供应商的 key，默认模型是 <code>{result.defaultModelId}</code>。</>
             : <>已写入 <code>config.toml</code>，默认模型是 <code>{result.defaultModelId}</code>。这个供应商不需要凭据，所以 <code>auth.json</code> 保持原样没有改动。</>}
       </p>
+      <ErrorBanner message={error} conflict={conflict} />
       <div className="next-step-card">
         <div className="next-step-heading">
           <TerminalWindow size={28} weight="duotone" />

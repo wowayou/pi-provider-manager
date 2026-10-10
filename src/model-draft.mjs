@@ -6,9 +6,21 @@
 // count, a model id, the default model) changes it. Shared by the Pi and Codex
 // forms: both key their default on a rowId and both carry a `models` array.
 export function draftSignature(form) {
+  return signature(form, true);
+}
+
+// The same fingerprint without the default-model radio. A draft whose content
+// signature still matches its baseline differs at most in which model is picked
+// as default, which models.json does not record: Pi keeps the default only in
+// settings.json, so such a draft can be applied without rewriting the provider.
+export function draftContentSignature(form) {
+  return signature(form, false);
+}
+
+function signature(form, withDefault) {
   if (!form || typeof form !== "object") return "";
   const models = Array.isArray(form.models) ? form.models : [];
-  const defaultModelId = models.find((model) => model.rowId === form.defaultRowId)?.id ?? "";
+  const defaultModelId = withDefault ? models.find((model) => model.rowId === form.defaultRowId)?.id ?? "" : "";
   const { defaultRowId, models: _models, ...rest } = form;
   return JSON.stringify({
     ...rest,
@@ -18,6 +30,42 @@ export function draftSignature(form) {
     // make an otherwise-unchanged draft look edited.
     models: models.map(({ rowId, limitsAuto, ...fields }) => fields),
   });
+}
+
+// What 保存更改 could write for a Pi draft opened from a stored provider:
+//   "clean"        nothing differs from disk;
+//   "default-only" only the default radio moved, on a provider that is not Pi's
+//                  default — models.json does not record it, and a plain save
+//                  leaves settings.json alone, so there is nothing to write;
+//                  only 设为默认 applies it;
+//   "dirty"        a save has something to write.
+// On Pi's current default the radio is the default model, which its save does
+// write (through the settings-only path when nothing else changed), so any
+// change counts. Steps 1, 2 and 3 and the shared save entry all ask this.
+export function piSaveChangesState({ isCurrentDefault, dirty, contentDirty }) {
+  if (!dirty) return "clean";
+  if (isCurrentDefault || contentDirty) return "dirty";
+  return "default-only";
+}
+
+// Demo mode's Codex switch mirrors applyActive in lib/codex-config.mjs: the
+// inventory ID selects the provider; model_provider names the owned TOML table.
+// Keep runtime state and settings not owned by activation untouched.
+export function demoActivateCodex(codex, providerId) {
+  const target = codex.providers.find((provider) => provider.id === providerId);
+  const primary = target?.models.find((model) => model.id === target.defaultModelId);
+  const written = ["model_provider", ...(primary ? ["model", "model_reasoning_effort"] : [])];
+  return {
+    ...codex,
+    activeProviderId: providerId,
+    providers: codex.providers.map((provider) => ({ ...provider, isActive: provider.id === providerId })),
+    settings: {
+      ...codex.settings,
+      modelProvider: codex.ownedProviderId,
+      ...(primary ? { model: primary.id, reasoningEffort: primary.reasoningEffort } : {}),
+    },
+    settingsPresent: [...new Set([...(codex.settingsPresent || []), ...written])],
+  };
 }
 
 // The stored provider a draft renames, or "" when the save is not a rename.
