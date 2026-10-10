@@ -269,9 +269,11 @@ when a Codex wire change needs one:
 edits the same files:
 
 - CC Switch: <https://github.com/farion1231/cc-switch> — Rust, MIT. Manages Pi's
-  native `models.json` while deliberately not touching `auth.json`,
-  `defaultProvider`, or `defaultModel`. That omission is what defines this
-  project's scope, so it is worth re-reading whenever the boundary is questioned.
+  native `models.json`. Its [v4.0.6 native contract](https://github.com/farion1231/cc-switch/blob/v4.0.6/docs/pi-native-contract-zh.md)
+  reads global `defaultProvider` / `defaultModel` for warnings, but does not
+  write them and never reads or writes Pi's `auth.json`. This remaining
+  credential/default-writing boundary defines this project's scope, so it is
+  worth re-reading whenever the boundary is questioned.
 
 **Deliberately not adopted as references.** Recorded so the same evaluation is not
 repeated:

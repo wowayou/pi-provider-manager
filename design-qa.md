@@ -36,6 +36,31 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## v0.5.5 Published Verification — 2026-10-10
+
+- [PR #165](https://github.com/wowayou/pi-provider-manager/pull/165) passed the
+  required [CI aggregate](https://github.com/wowayou/pi-provider-manager/actions/runs/38027663585)
+  and was squash-merged as `400536f`; tag `v0.5.5` points to that single-parent
+  commit. The two Linux-skipped Windows launcher cases passed in the Windows
+  job. Real Windows Claude ran 7 supported cases successfully, with only the
+  3 expected POSIX-pty skips. Post-merge main CI also passed.
+- [Release v0.5.5](https://github.com/wowayou/pi-provider-manager/releases/tag/v0.5.5)
+  is published, not a draft or prerelease. Both jobs in
+  [Release artifacts](https://github.com/wowayou/pi-provider-manager/actions/runs/38028370429)
+  succeeded and uploaded Linux/WSL and Windows archives with SHA-256 sidecars.
+  Both published archives were downloaded: hashes, paths, version `0.5.5`, Pi
+  baseline `1.1.0`, ZIP integrity and exclusion of local config/node_modules
+  were verified. The downloaded Linux/WSL archive passed the same **12/12**
+  isolated API, offline Pi and production-browser checks listed below.
+- The owner then asked whether to archive. Read-only review of CC Switch
+  `v4.0.6`'s native contract, `pi_config::read_pi_native_defaults` and provider
+  preservation tests corrected one old description: defaults are read for
+  warnings but not written; `auth.json` remains untouched. The paired READMEs
+  and compatibility reference now state that distinction. This was source
+  inspection, not a run of CC Switch or a migration of the owner's setup.
+  The publication itself did not archive the repository. Independent
+  development-only `source-map-js` security PR #164 remains outside this release.
+
 ## v0.5.5 Release Candidate — 2026-10-10
 
 - **Authorization/scope.** After the A–E worktree review below, the owner
