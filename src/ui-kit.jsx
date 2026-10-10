@@ -78,11 +78,14 @@ export function WizardFooter({ onBack, backDisabled = false, note, children }) {
 // 下一步), so changing a Base URL does not take a trip to step 3; the save runs
 // every step's validation and lands on the step that refuses. A new draft only
 // moves forward, keeping the three-step flow for first-time setup.
-export function StepFooter({ onBack, onNext, onSave, dirty, saving }) {
+// `canSave` is whether the save has anything to write and defaults to `dirty`;
+// Pi passes its own when a draft can be edited yet hold nothing a plain save
+// writes, with a `note` that says so rather than claiming 没有改动.
+export function StepFooter({ onBack, onNext, onSave, dirty, saving, canSave = dirty, note }) {
   return (
-    <WizardFooter onBack={onBack} backDisabled={saving} note={onSave ? (dirty ? "有未保存的修改" : "没有改动") : undefined}>
+    <WizardFooter onBack={onBack} backDisabled={saving} note={onSave ? (note ?? (dirty ? "有未保存的修改" : "没有改动")) : undefined}>
       <div className="footer-actions">
-        {onSave && <button type="button" className="outline-button" disabled={saving || !dirty} onClick={onSave}>{saving ? <><Spinner />正在保存…</> : "保存更改"}</button>}
+        {onSave && <button type="button" className="outline-button" disabled={saving || !canSave} onClick={onSave}>{saving ? <><Spinner />正在保存…</> : "保存更改"}</button>}
         <button type="button" className="primary-button" disabled={saving} onClick={onNext}>下一步<ArrowRight size={19} /></button>
       </div>
     </WizardFooter>
@@ -240,7 +243,16 @@ export function useDialog({ ref, initialFocusRef, onClose, locked = false }) {
       const focusable = [...(ref.current?.querySelectorAll(
         "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)",
       ) || [])];
-      if (focusable.length === 0) return;
+      if (focusable.length === 0) {
+        // A pending write can disable every control. Keep Tab in the modal
+        // rather than letting it land on still-usable background utilities.
+        event.preventDefault();
+        if (ref.current) {
+          ref.current.tabIndex = -1;
+          ref.current.focus({ preventScroll: true });
+        }
+        return;
+      }
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (event.shiftKey && document.activeElement === first) {

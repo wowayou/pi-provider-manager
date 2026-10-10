@@ -105,8 +105,10 @@ class CdpClient {
     this.sequence = 0;
     this.pending = new Map();
     this.errors = [];
+    this.listeners = new Set();
     socket.addEventListener("message", ({ data }) => {
       const message = JSON.parse(data);
+      if (!message.id) for (const listener of this.listeners) listener(message);
       if (message.id) {
         const waiter = this.pending.get(message.id);
         if (!waiter) return;
@@ -148,6 +150,13 @@ class CdpClient {
       socket.addEventListener("error", reject, { once: true });
     });
     return new CdpClient(socket);
+  }
+
+  // Subscribes to CDP events (Fetch.requestPaused and the like); returns the
+  // unsubscribe function.
+  on(listener) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   send(method, params = {}) {
@@ -3410,6 +3419,67 @@ test("the shared leave guard warns before dropping an edited draft", { timeout: 
   }
 });
 
+// Making an existing provider Pi's default used to need an edit first: the
+// button was disabled on a clean draft. It must work unedited, and must write
+// settings.json alone, leaving models.json byte for byte.
+test("a saved Pi provider can be made the default without editing it", { timeout: 90_000 }, async () => {
+  requireFreshBuiltUi();
+  const chromePath = findChrome();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-ui-setdefault-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-manager-chrome-setdefault-"));
+  writeFixture(agentDir);
+  const settingsPath = path.join(agentDir, "settings.json");
+  const modelsPath = path.join(agentDir, "models.json");
+  const modelsText = fs.readFileSync(modelsPath, "utf8");
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  let server; let chrome; let cdp; let serverOutput = "";
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], { cwd: projectRoot, env: { ...process.env, PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: isolatedCodexDir(agentDir), PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) }, stdio: ["ignore", "pipe", "pipe"] });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; }); server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl("http://127.0.0.1:" + appPort + "/api/state");
+    chrome = spawn(chromePath, ["--headless", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=" + debugPort, "--user-data-dir=" + profileDir, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    await waitForUrl("http://127.0.0.1:" + debugPort + "/json/version", 30_000);
+    const target = await fetch("http://127.0.0.1:" + debugPort + "/json/new?" + encodeURIComponent("http://127.0.0.1:" + appPort), { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl); await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.send("Page.navigate", { url: "http://127.0.0.1:" + appPort });
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
+    const footer = () => cdp.evaluate("[...document.querySelectorAll('.wizard-footer .footer-actions button')].map((node) => ({ text: node.textContent.trim(), disabled: node.disabled }))");
+
+    // Open the non-default provider: unedited, 设为默认 is live and 保存更改 is not.
+    await cdp.evaluate("[...document.querySelectorAll('.provider-select')].find((node) => node.title.includes('single-router')).click()");
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 1 && document.querySelector('.wizard-footer .footer-actions')");
+    assert.deepEqual(await footer(), [{ text: "设为默认", disabled: false }, { text: "保存更改", disabled: true }]);
+    await cdp.evaluate("[...document.querySelectorAll('.wizard-footer .footer-actions button')].find((node) => node.textContent.trim() === '设为默认').click()");
+    await cdp.waitFor("document.querySelector('.success-page')");
+    assert.match(await cdp.evaluate("document.querySelector('.success-page h1').textContent"), /已设为默认/);
+    assert.match(await cdp.evaluate("document.querySelector('.success-page .command-row code').textContent"), /single-router\/only\/model/);
+    assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, "utf8")), { defaultProvider: "single-router", defaultModel: "only/model", defaultThinkingLevel: "high" });
+    assert.equal(fs.readFileSync(modelsPath, "utf8"), modelsText);
+
+    // The former default is now a non-default provider. Moving only its radio is
+    // applied by 设为默认; 保存更改 would leave the default alone, so it stays off.
+    await cdp.evaluate("[...document.querySelectorAll('.provider-select')].find((node) => node.title.includes('review-router')).click()");
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3 && document.querySelector('.wizard-footer .footer-actions')");
+    await cdp.evaluate("document.querySelectorAll('.model-row input[type=radio]')[1].click()");
+    await cdp.waitFor("document.querySelectorAll('.model-row input[type=radio]')[1].checked");
+    assert.deepEqual(await footer(), [{ text: "设为默认", disabled: false }, { text: "保存更改", disabled: true }]);
+    assert.match(await cdp.evaluate("document.querySelector('.wizard-footer .dirty-note').textContent"), /只改了默认模型/);
+    await cdp.evaluate("[...document.querySelectorAll('.wizard-footer .footer-actions button')].find((node) => node.textContent.trim() === '设为默认').click()");
+    await cdp.waitFor("document.querySelector('.success-page')");
+    assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, "utf8")), { defaultProvider: "review-router", defaultModel: "openai/gpt-router", defaultThinkingLevel: "high" });
+    assert.equal(fs.readFileSync(modelsPath, "utf8"), modelsText);
+
+    assert.deepEqual(cdp.errors, []);
+    assert.equal(serverOutput.includes("Error"), false, serverOutput);
+  } finally {
+    if (cdp) { await Promise.race([cdp.send("Browser.close").catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]); cdp.close(); }
+    await stopProcess(chrome, true); await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
 test("the first Pi provider can only be saved as default", { timeout: 90_000 }, async () => {
   requireFreshBuiltUi();
   const chromePath = findChrome();
@@ -4268,6 +4338,81 @@ async function withRenameBrowser(run, { demo = false } = {}) {
   }
 }
 
+// The row menu switches the live selection on every target without opening the
+// form, and a Pi provider saved without taking the default can take it from the
+// success screen. Pi and Codex switches go through their narrow endpoints, so
+// the provider files they do not own stay byte for byte.
+test("the row menu and the success screen switch the default without resaving", { timeout: 90_000 }, async () => {
+  await withRenameBrowser(async ({ cdp, click, back, select, state, agentDir, snapshotFiles }) => {
+    const settingsPath = path.join(agentDir, "settings.json");
+    const openMenu = (id) => cdp.evaluate(`[...document.querySelectorAll('.provider-item')].find((row) => row.querySelector('.provider-select').title.split(' · ').at(-1) === ${JSON.stringify(id)}).querySelector('.row-menu-trigger').click()`);
+    const menuItems = () => cdp.evaluate("[...document.querySelectorAll('.row-menu-popup [role=menuitem]')].map((node) => node.textContent.trim())");
+
+    // The default row offers no switch; another row does.
+    await openMenu("review-router");
+    await cdp.waitFor("document.querySelector('.row-menu-popup')");
+    assert.deepEqual(await menuItems(), ["复制供应商", "删除供应商"]);
+    await cdp.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))");
+    await cdp.waitFor("!document.querySelector('.row-menu-popup')");
+    const [modelsBefore, authBefore] = snapshotFiles("pi");
+    await openMenu("single-router");
+    await cdp.waitFor("document.querySelector('.row-menu-popup')");
+    assert.deepEqual(await menuItems(), ["设为默认…", "复制供应商", "删除供应商"]);
+    await click(".row-menu-popup [role=menuitem]", "设为默认");
+    await cdp.waitFor("document.querySelector('.set-default-dialog')");
+    assert.equal(await cdp.evaluate("document.activeElement === document.querySelector('.set-default-dialog select')"), true, "focus starts on the model picker");
+    await click(".set-default-dialog .primary-button", "设为默认");
+    await cdp.waitFor("!document.querySelector('.set-default-dialog') && document.querySelector('.success-page')");
+    assert.match(await cdp.evaluate("document.querySelector('.success-page h1').textContent"), /已设为默认/);
+    assert.match(await cdp.evaluate("document.querySelector('.default-scope-note').textContent"), /\.pi\/settings\.json/);
+    let settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    assert.deepEqual([settings.defaultProvider, settings.defaultModel], ["single-router", "only/model"]);
+    assert.deepEqual(snapshotFiles("pi").slice(0, 2), [modelsBefore, authBefore]);
+
+    // A content save that leaves the default alone offers it on the success screen.
+    // Step 2's 保存更改 on a non-default provider saves without taking it.
+    await select("review-router");
+    await back();
+    await cdp.evaluate("(() => { const input = document.querySelectorAll('.form-grid input')[1]; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, input.value.replace('/v1', '/v1/')); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+    await cdp.waitFor("[...document.querySelectorAll('.wizard-footer button')].some((node) => node.textContent.includes('保存更改') && !node.disabled)");
+    await click(".wizard-footer button", "保存更改");
+    await cdp.waitFor("document.querySelector('.success-page .success-set-default')");
+    settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    assert.equal(settings.defaultProvider, "single-router", "保存更改 left the default alone");
+    await cdp.evaluate("document.querySelector('.success-page .success-set-default').click()");
+    await cdp.waitFor("document.querySelector('.success-page h1')?.textContent.includes('已设为默认') && !document.querySelector('.success-set-default')");
+    settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    assert.equal(settings.defaultProvider, "review-router");
+
+    // Codex: the row menu switches through /api/codex/activate.
+    await click(".target-switch button", "Codex");
+    await cdp.waitFor("document.querySelector('.model-row.is-codex')");
+    await openMenu("codex-b");
+    await cdp.waitFor("document.querySelector('.row-menu-popup')");
+    assert.equal((await menuItems())[0], "设为当前生效");
+    await click(".row-menu-popup [role=menuitem]", "设为当前生效");
+    await cdp.waitFor("document.querySelector('.success-page')");
+    const codex = (await state()).codex;
+    assert.equal(codex.activeProviderId, "codex-b");
+    const config = snapshotFiles("codex")[0];
+    assert.match(config, /^base_url = "https:\/\/codex-b\.example\/v1"$/m);
+    assert.match(config, /^model = "model-codex-b"$/m);
+
+    // An unedited step-3 保存并设为当前生效 switches through activate rather than
+    // resubmitting the form, and leaves the stored entries as they were.
+    const storeOf = () => JSON.parse(snapshotFiles("codex")[2]);
+    const providersBefore = JSON.stringify(storeOf().providers);
+    await cdp.waitFor(`[...document.querySelectorAll('.provider-item')].find((row) => row.querySelector('.provider-select').title.endsWith(' · codex-b')).querySelector('.provider-badge').textContent === '生效中'`);
+    await select("codex-a");
+    await cdp.evaluate("(() => { window.__posts = []; const original = window.fetch; window.fetch = (url, init) => { if (init?.method === 'POST') window.__posts.push(String(url)); return original(url, init); }; })()");
+    await click(".wizard-footer button", "保存并设为当前生效");
+    await cdp.waitFor(`[...document.querySelectorAll('.provider-item')].find((row) => row.querySelector('.provider-select').title.endsWith(' · codex-a')).querySelector('.provider-badge').textContent === '生效中'`);
+    assert.deepEqual(await cdp.evaluate("window.__posts"), ["/api/codex/activate"]);
+    assert.equal(storeOf().activeProviderId, "codex-a");
+    assert.equal(JSON.stringify(storeOf().providers), providersBefore);
+  });
+});
+
 test("Pi rename keeps credentials through retyping, refuses collisions, and discovers before saving", { timeout: 90_000 }, async () => {
   await withRenameBrowser(async ({ cdp, click, type, back, next, state, agentDir, snapshotFiles, gatewayOutput }) => {
     const before = snapshotFiles("pi");
@@ -4651,7 +4796,23 @@ test("Claude Code production workflow: create, rename, duplicate, switch, delete
     await click(".success-page button", "设为全局默认");
     await cdp.waitFor("document.querySelector('.success-page h1')?.textContent === '已设为 Claude Code 全局默认'");
     assert.equal(stored().env.ANTHROPIC_AUTH_TOKEN, "dummy-browser-copy-key");
-    await click(".success-actions button", "返回配置");
+    // The row menu switches the global default without opening the form; the
+    // live row offers no switch.
+    const claudeRow = (id) => `[...document.querySelectorAll('.provider-item')].find((row) => row.querySelector('.provider-select').title.split(' · ').at(-1) === ${JSON.stringify(id)})`;
+    await cdp.evaluate(`${claudeRow("ui-renamed-copy")}.querySelector('.row-menu-trigger').click()`);
+    await cdp.waitFor("document.querySelector('.row-menu-popup')");
+    assert.equal(await cdp.evaluate("[...document.querySelectorAll('.row-menu-popup [role=menuitem]')].some((node) => node.textContent.includes('设为全局默认'))"), false);
+    await cdp.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))");
+    await cdp.waitFor("!document.querySelector('.row-menu-popup')");
+    await cdp.evaluate(`${claudeRow("ui-renamed")}.querySelector('.row-menu-trigger').click()`);
+    await click(".row-menu-popup [role=menuitem]", "设为全局默认");
+    // The heading already reads 已设为… from the previous switch, so wait on
+    // the badge moving instead; otherwise the next click races the request.
+    await cdp.waitFor(`${claudeRow("ui-renamed")}.querySelector('.provider-badge').textContent === '全局默认'`);
+    assert.equal(stored().env.ANTHROPIC_AUTH_TOKEN, "dummy-browser-claude-key");
+    // Back to the copy, which the flow below deletes while it is not live.
+    await cdp.evaluate(`${claudeRow("ui-renamed-copy")}.querySelector('.provider-select').click()`);
+    await cdp.waitFor("document.querySelector('.gateway-side')");
     await click(".gateway-side button", "删除供应商");
     await cdp.waitFor("document.querySelector('[role=dialog]')");
     await cdp.waitFor("document.activeElement?.textContent === '取消'");
@@ -4717,4 +4878,799 @@ test("Claude Code production workflow: create, rename, duplicate, switch, delete
     cdp?.close(); await stopProcess(chrome, true); await stopProcess(server);
     fs.rmSync(agentDir, { recursive: true, force: true }); fs.rmSync(profileDir, { recursive: true, force: true });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Default-switch review fixes. One production server, one browser, isolated Pi,
+// Codex and Claude directories, and helpers that drive the page the way a user
+// does: CDP mouse and keyboard input rather than DOM .click() alone, and
+// Fetch-domain pauses on real responses rather than fixed sleeps.
+// ---------------------------------------------------------------------------
+async function withReviewBrowser(run, { demo = false, seed } = {}) {
+  requireFreshBuiltUi();
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-ui-review-"));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-chrome-review-"));
+  const claudeDir = path.join(agentDir, "claude");
+  const codexDir = isolatedCodexDir(agentDir);
+  writeFixture(agentDir);
+  // A non-default provider with two models, one of them hand-written: no name,
+  // input or capacities, a custom thinkingLevelMap and a field the manager does
+  // not know. A provider save re-normalizes all of that; nothing but a content
+  // edit may send this entry through it.
+  const modelsPath = path.join(agentDir, "models.json");
+  const fixture = JSON.parse(fs.readFileSync(modelsPath, "utf8"));
+  fixture.providers["pair-router"] = {
+    baseUrl: "https://pair.example/v1",
+    api: "openai-completions",
+    futureProviderField: { keep: true },
+    models: [
+      { id: "pair/first", reasoning: true, thinkingLevelMap: { low: "minimal", high: "high", xhigh: "xhigh" }, futureModelField: 7 },
+      { id: "pair/second", name: "pair/second", reasoning: true, input: ["text"], contextWindow: 128000, maxTokens: 8192 },
+    ],
+  };
+  fs.writeFileSync(modelsPath, JSON.stringify(fixture, null, 2));
+  const authPath = path.join(agentDir, "auth.json");
+  fs.writeFileSync(authPath, JSON.stringify({ ...JSON.parse(fs.readFileSync(authPath, "utf8")), "pair-router": { type: "api_key", key: "dummy-pair-key" } }));
+  const [appPort, debugPort] = await Promise.all([freePort(), freePort()]);
+  const baseUrl = `http://127.0.0.1:${appPort}`;
+  let server; let chrome; let cdp; let serverOutput = "";
+  const state = () => fetch(`${baseUrl}/api/state`).then((response) => response.json());
+  const post = async (route, body, revisionOf) => {
+    const revision = revisionOf(await state());
+    const response = await fetch(`${baseUrl}${route}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, revision }) });
+    assert.equal(response.status, 200, await response.text());
+  };
+  const api = {
+    codex: (body) => post("/api/codex/providers", body, (current) => current.codex.revision),
+    claude: (body) => post("/api/claude/providers", body, (current) => current.claude.revision),
+  };
+  const files = {
+    pi: () => ["models.json", "auth.json", "settings.json"].map((name) => fs.readFileSync(path.join(agentDir, name), "utf8")),
+    codex: () => ["config.toml", "auth.json", "pi-provider-manager-store.json"].map((name) => fs.readFileSync(path.join(codexDir, name), "utf8")),
+    claude: () => fs.readFileSync(path.join(claudeDir, "settings.json"), "utf8"),
+  };
+  try {
+    server = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+      cwd: projectRoot,
+      env: { ...process.env, PI_PROVIDER_MANAGER_CLAUDE_DIR: claudeDir, PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: codexDir, PI_PROVIDER_MANAGER_SERVE_UI: "1", PI_PROVIDER_MANAGER_PORT: String(appPort) },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    server.stdout.on("data", (chunk) => { serverOutput += chunk; });
+    server.stderr.on("data", (chunk) => { serverOutput += chunk; });
+    await waitForUrl(`${baseUrl}/api/state`);
+    if (seed) await seed(api, agentDir);
+    chrome = spawn(findChrome(), ["--headless", "--no-sandbox", "--disable-gpu", `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profileDir}`, "about:blank"], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    chrome.stdout.resume(); chrome.stderr.resume();
+    await waitForUrl(`http://127.0.0.1:${debugPort}/json/version`, 30_000);
+    const target = await fetch(`http://127.0.0.1:${debugPort}/json/new?about:blank`, { method: "PUT" }).then((response) => response.json());
+    cdp = await CdpClient.connect(target.webSocketDebuggerUrl);
+    await cdp.send("Page.enable"); await cdp.send("Runtime.enable");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.send("Page.navigate", { url: `${baseUrl}${demo ? "/?demo=1" : ""}` });
+    await cdp.waitFor("document.querySelector('.model-row') && document.querySelector('.target-switch button:not(:disabled)')");
+
+    // `find` is an expression yielding one element. Real input: scroll it into
+    // view, then press and release the mouse at its centre. A disabled control
+    // receives nothing, exactly as for a user.
+    const byText = (selector, text) => `[...document.querySelectorAll(${JSON.stringify(selector)})].find((node) => node.textContent.trim().includes(${JSON.stringify(text)}))`;
+    // Titles read "name · id", plus " · 未配置凭据" on a row without a key.
+    const row = (id) => `[...document.querySelectorAll('.provider-item')].find((item) => item.querySelector('.provider-select').title.split(' · ')[1] === ${JSON.stringify(id)})`;
+    const mouse = async (find) => {
+      const box = await cdp.evaluate(`(() => { const node = ${find}; if (!node) return null; node.scrollIntoView({ block: 'center', inline: 'center' }); const rect = node.getBoundingClientRect(); const x = rect.left + rect.width / 2; const y = rect.top + rect.height / 2; const hit = document.elementFromPoint(x, y); return { x, y, covered: !(hit && (node === hit || node.contains(hit))) ? (hit?.className || hit?.tagName || 'nothing') : '' }; })()`);
+      assert.ok(box, `no element for ${find}`);
+      // A real click lands on whatever is on top; say so rather than click it.
+      assert.equal(box.covered, "", `${find} is covered by ${box.covered}`);
+      for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) {
+        await cdp.send("Input.dispatchMouseEvent", { type, x: box.x, y: box.y, button: "left", buttons: type === "mousePressed" ? 1 : 0, clickCount: 1 });
+      }
+    };
+    const typeText = (text) => cdp.send("Input.insertText", { text });
+    const key = async (name) => {
+      const codes = { Enter: 13, " ": 32, Backspace: 8, Escape: 27, Tab: 9, End: 35 };
+      const common = { key: name, code: name === " " ? "Space" : name, windowsVirtualKeyCode: codes[name], nativeVirtualKeyCode: codes[name] };
+      await cdp.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...common });
+      if (name === " " || name === "Enter") await cdp.send("Input.dispatchKeyEvent", { type: "char", text: name === "Enter" ? "\r" : " ", ...common });
+      await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...common });
+    };
+    // Every POST the page sends, recorded in the page itself.
+    const recordPosts = () => cdp.evaluate("(() => { window.__posts = []; if (window.__postsWrapped) return; window.__postsWrapped = true; const original = window.fetch; window.fetch = (url, init) => { if (init?.method === 'POST') window.__posts.push(String(url)); return original(url, init); }; })()");
+    const posts = () => cdp.evaluate("window.__posts");
+    const closeToasts = async () => { await cdp.evaluate("document.querySelectorAll('.toast-close').forEach((node) => node.click())"); await cdp.waitFor("!document.querySelector('.toast:not(.is-busy)')"); };
+    // Whether a reload or tab close would be stopped by the page's
+    // beforeunload handler. A synthetic, cancelable event reaches the same
+    // listener and reports whether it called preventDefault.
+    const leaveBlocked = () => cdp.evaluate("(() => { const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; })()");
+    // Holds the next request matching `pattern` at `stage` until the test
+    // releases it: `release()` lets it through (or its response, at the
+    // Response stage); `fail()` turns it into a network error before it reaches
+    // the server.
+    const pause = async (pattern, stage = "Response") => {
+      await cdp.send("Fetch.enable", { patterns: [{ urlPattern: pattern, requestStage: stage }] });
+      let resolvePaused;
+      const paused = new Promise((resolve) => { resolvePaused = resolve; });
+      const off = cdp.on((message) => { if (message.method === "Fetch.requestPaused") { off(); resolvePaused(message.params); } });
+      const done = async (method, params = {}) => {
+        const event = await paused;
+        await cdp.send(method, { requestId: event.requestId, ...params });
+        await cdp.send("Fetch.disable");
+      };
+      return {
+        paused,
+        release: () => done("Fetch.continueRequest"),
+        fail: () => done("Fetch.failRequest", { errorReason: "ConnectionFailed" }),
+      };
+    };
+    await run({ cdp, mouse, typeText, key, byText, row, recordPosts, posts, closeToasts, leaveBlocked, pause, state, files, agentDir, codexDir, claudeDir });
+    assert.deepEqual(cdp.errors, []);
+  } catch (error) {
+    error.message += `\nServer: ${serverOutput}`;
+    throw error;
+  } finally {
+    cdp?.close(); await stopProcess(chrome, true); await stopProcess(server);
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+}
+
+// The action buttons on the footer's right, excluding 上一步.
+const footerButtons = "[...document.querySelectorAll('.wizard-footer .footer-end button')].map((node) => ({ text: node.textContent.trim(), disabled: node.disabled }))";
+
+// A: one fact gates 保存更改 on every step. A radio-only change on a provider
+// that is not Pi's default has nothing a plain save can write — the radio lives
+// in settings.json, which that save leaves alone — so steps 1 and 2 must not
+// offer it either. The old step 2 sent the whole provider through the save,
+// changing no default and replacing the hand-written thinkingLevelMap.
+test("review A: a radio-only change saves from no step except through 设为默认", { timeout: 120_000 }, async () => {
+  await withReviewBrowser(async ({ cdp, mouse, typeText, key, byText, row, recordPosts, posts, leaveBlocked, files }) => {
+    const settingsOf = () => JSON.parse(files.pi()[2]);
+    await mouse(`${row("pair-router")}.querySelector('.provider-select')`);
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 2 && document.querySelector('.wizard-footer .footer-end button')");
+    const [modelsBefore, authBefore, settingsBefore] = files.pi();
+    await recordPosts();
+    await mouse("document.querySelectorAll('.model-row input[type=radio]')[1]");
+    await cdp.waitFor("document.querySelectorAll('.model-row input[type=radio]')[1].checked");
+
+    // Step 3: 设为默认 live, 保存更改 not; the footer says why.
+    assert.deepEqual(await cdp.evaluate(footerButtons), [{ text: "设为默认", disabled: false }, { text: "保存更改", disabled: true }]);
+    assert.match(await cdp.evaluate("document.querySelector('.wizard-footer .dirty-note').textContent"), /设为默认/);
+    // Steps 2 and 1: the same fact, and the same honest note.
+    for (const step of [2, 1]) {
+      await mouse(`document.querySelectorAll('.stepper .step')[${step - 1}]`);
+      await cdp.waitFor(`document.querySelectorAll('.stepper .step')[${step - 1}].classList.contains('is-active')`);
+      assert.deepEqual(await cdp.evaluate(footerButtons), [{ text: "保存更改", disabled: true }, { text: "下一步", disabled: false }], `step ${step}`);
+      assert.match(await cdp.evaluate("document.querySelector('.wizard-footer .dirty-note').textContent"), /第 3 步「设为默认」/, `step ${step} note`);
+      await mouse(byText(".wizard-footer .footer-end button", "保存更改"));
+      await cdp.evaluate(`${byText(".wizard-footer .footer-end button", "保存更改")}.click()`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.deepEqual(await posts(), [], "no step sent a provider save for a radio-only change");
+    assert.deepEqual(files.pi(), [modelsBefore, authBefore, settingsBefore]);
+    // The radio is still an unsaved intent: the leave guards stay armed.
+    assert.equal(await leaveBlocked(), true, "beforeunload still warns");
+    await mouse(`${row("single-router")}.querySelector('.provider-select')`);
+    await cdp.waitFor(`${byText(".toast-action", "放弃修改并离开")}`);
+    assert.equal(await cdp.evaluate(`${row("pair-router")}.classList.contains('is-selected')`), true, "the guard held the draft");
+    await mouse("document.querySelector('.toast .toast-close')");
+    await cdp.waitFor("!document.querySelector('.toast-action')");
+
+    // 设为默认 writes settings.json alone with the second model.
+    await mouse("document.querySelectorAll('.stepper .step')[2]");
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 2");
+    assert.equal(await cdp.evaluate("document.querySelectorAll('.model-row input[type=radio]')[1].checked"), true, "the radio survived the step trip");
+    await mouse(byText(".wizard-footer .footer-end button", "设为默认"));
+    await cdp.waitFor("document.querySelector('.success-page h1')?.textContent.includes('已设为默认')");
+    assert.deepEqual(await posts(), ["/api/providers/set-default"]);
+    assert.deepEqual([settingsOf().defaultProvider, settingsOf().defaultModel], ["pair-router", "pair/second"]);
+    assert.deepEqual(files.pi().slice(0, 2), [modelsBefore, authBefore], "models.json and auth.json byte for byte");
+    assert.equal(await leaveBlocked(), false, "nothing unsaved after the switch");
+
+    // Pi's default now: exercise both early steps, not just their button state.
+    for (const [step, index, modelId] of [[2, 0, "pair/first"], [1, 1, "pair/second"]]) {
+      await cdp.waitFor(unlockedNow);
+      await mouse(byText(".success-actions button", "返回供应商详情"));
+      await cdp.waitFor("document.querySelectorAll('.model-row').length === 2");
+      await recordPosts();
+      await mouse(`document.querySelectorAll('.model-row input[type=radio]')[${index}]`);
+      await cdp.waitFor(`document.querySelectorAll('.model-row input[type=radio]')[${index}].checked`);
+      assert.deepEqual(await cdp.evaluate(footerButtons), [{ text: "保存更改", disabled: false }]);
+      await mouse(`document.querySelectorAll('.stepper .step')[${step - 1}]`);
+      await cdp.waitFor(`document.querySelectorAll('.stepper .step')[${step - 1}].classList.contains('is-active')`);
+      assert.deepEqual(await cdp.evaluate(footerButtons), [{ text: "保存更改", disabled: false }, { text: "下一步", disabled: false }]);
+      const previousSettings = settingsOf();
+      await mouse(byText(".wizard-footer .footer-end button", "保存更改"));
+      await cdp.waitFor("document.querySelector('.success-page h1')?.textContent.includes('已设为默认') && " + unlockedNow);
+      assert.deepEqual(await posts(), ["/api/providers/set-default"]);
+      assert.deepEqual(settingsOf(), { ...previousSettings, defaultModel: modelId });
+      assert.deepEqual(files.pi().slice(0, 2), [modelsBefore, authBefore]);
+    }
+
+    // A real content edit on a non-default provider: 保存更改 works from every
+    // step, goes through the provider save, and does not take the default.
+    await mouse(`${row("review-router")}.querySelector('.provider-select')`);
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 3");
+    await recordPosts();
+    await mouse("document.querySelectorAll('.stepper .step')[1]");
+    await cdp.waitFor("document.querySelectorAll('.form-grid input')[1]");
+    await mouse("document.querySelectorAll('.form-grid input')[1]");
+    await key("End"); await typeText("2");
+    await cdp.waitFor("document.querySelectorAll('.form-grid input')[1].value === 'https://router.example/v12'");
+    for (const step of [2, 1, 3]) {
+      if (step !== 2) {
+        await mouse(`document.querySelectorAll('.stepper .step')[${step - 1}]`);
+        await cdp.waitFor(`document.querySelectorAll('.stepper .step')[${step - 1}].classList.contains('is-active')`);
+      }
+      const save = (await cdp.evaluate(footerButtons)).find((button) => button.text === "保存更改");
+      assert.equal(save?.disabled, false, `step ${step} offers 保存更改 for a content edit`);
+    }
+    await mouse(byText(".wizard-footer .footer-end button", "保存更改"));
+    await cdp.waitFor("document.querySelector('.success-page h1')?.textContent.includes('已保存')");
+    assert.deepEqual(await posts(), ["/api/providers"]);
+    assert.deepEqual([settingsOf().defaultProvider, settingsOf().defaultModel], ["pair-router", "pair/second"], "a non-default save left the default alone");
+    const savedModels = JSON.parse(files.pi()[0]);
+    assert.equal(savedModels.providers["review-router"].baseUrl, "https://router.example/v12");
+    assert.deepEqual(savedModels.providers["pair-router"], JSON.parse(modelsBefore).providers["pair-router"], "the hand-written provider is untouched");
+  });
+});
+
+// Three stored Codex providers with keys, then one key removed from the store
+// by hand: switching to that one is refused with a 400 before any write.
+const seedCodexForReview = async (api, { stripKeyOf = "codex-nokey", agentDir }) => {
+  for (const id of ["codex-a", "codex-b", "codex-nokey"]) {
+    await api.codex({
+      providerId: id, name: id, baseUrl: `https://${id}.example/v1`,
+      models: [{ id: `model-${id}`, reasoningEffort: "high" }], defaultModelId: `model-${id}`,
+      credential: { mode: "new", apiKey: `dummy-${id}-key` }, setActive: id === "codex-a",
+    });
+  }
+  const storePath = path.join(isolatedCodexDir(agentDir), "pi-provider-manager-store.json");
+  const store = JSON.parse(fs.readFileSync(storePath, "utf8"));
+  delete store.providers[stripKeyOf].credential;
+  fs.writeFileSync(storePath, JSON.stringify(store, null, 2));
+};
+
+// B: the Codex success screen reports a failed switch in the shared banner. A
+// 400 used to vanish without a word, and a 409's 重新读取 lived only in a toast
+// that expires; the previous, real result stays on screen either way.
+test("review B: a failed Codex switch from the success screen is reported in its banner", { timeout: 120_000 }, async () => {
+  await withReviewBrowser(async ({ cdp, mouse, byText, row, files, codexDir, pause }) => {
+    const activateFromMenu = async (id, expectedStatus = 200) => {
+      await mouse(`${row(id)}.querySelector('.row-menu-trigger')`);
+      await cdp.waitFor("document.querySelector('.row-menu-popup')");
+      const held = await pause("*/api/codex/activate");
+      const previousHeading = await cdp.evaluate("document.querySelector('.success-page h1')?.textContent || ''");
+      await mouse(byText(".row-menu-popup [role=menuitem]", "设为当前生效"));
+      assert.equal((await held.paused).responseStatusCode, expectedStatus, "the real API returned the expected status");
+      await cdp.waitFor(lockedNow);
+      assert.equal(await cdp.evaluate("document.querySelector('.success-page h1')?.textContent || ''"), previousHeading, "a pending response cannot invent a result");
+      await held.release();
+      await cdp.waitFor(unlockedNow);
+    };
+    const banner = () => cdp.evaluate("(() => { const node = document.querySelector('.success-page .error-banner'); if (!node) return null; const rect = node.getBoundingClientRect(); return { text: node.textContent, reload: Boolean(node.querySelector('.banner-reload')), inView: rect.top >= 0 && rect.bottom <= innerHeight && rect.left >= 0 && rect.right <= innerWidth, width: rect.width }; })()");
+    const storeOf = () => JSON.parse(files.codex()[2]);
+    await mouse(byText(".target-switch button", "Codex"));
+    await cdp.waitFor("document.querySelector('.model-row.is-codex')");
+    await activateFromMenu("codex-b");
+    await cdp.waitFor("document.querySelector('.success-page h1')?.textContent === 'codex-b 已保存'");
+    assert.equal(await banner(), null);
+
+    // 400: no key for the target. The banner says so; nothing switched.
+    const beforeRefusal = files.codex();
+    await activateFromMenu("codex-nokey", 400);
+    await cdp.waitFor("document.querySelector('.success-page .error-banner')");
+    let shown = await banner();
+    assert.match(shown.text, /API Key/);
+    assert.equal(shown.reload, false, "a 400 offers no reload");
+    assert.equal(await cdp.evaluate("document.querySelector('.success-page h1').textContent"), "codex-b 已保存", "the last real result stays");
+    assert.deepEqual(files.codex(), beforeRefusal);
+    assert.equal(storeOf().activeProviderId, "codex-b");
+
+    // 409: config.toml changes behind the page's back. The external bytes stay,
+    // and the banner carries 重新读取 after the toast that also offers it expires.
+    const configPath = path.join(codexDir, "config.toml");
+    const original = fs.readFileSync(configPath, "utf8");
+    const external = original + "\n# edited outside the manager\n";
+    fs.writeFileSync(configPath, external);
+    await activateFromMenu("codex-a", 409);
+    await cdp.waitFor("document.querySelector('.success-page .error-banner .banner-reload')");
+    assert.equal(fs.readFileSync(configPath, "utf8"), external, "the external edit is untouched");
+    await cdp.waitFor(byText(".toast-action", "重新读取"));
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 5, y: 5 });
+    await cdp.waitFor(`!${byText(".toast-action", "重新读取")}`, 12_000);
+    shown = await banner();
+    assert.equal(shown.reload, true, "the banner keeps 重新读取 once the toast is gone");
+    assert.equal(shown.inView, true);
+    assert.equal(await cdp.evaluate("document.querySelector('.success-page h1').textContent"), "codex-b 已保存");
+
+    // Back to the bytes the page read: the revision matches again. A following
+    // non-conflict failure must not inherit the conflict's reload button.
+    fs.writeFileSync(configPath, original);
+    await activateFromMenu("codex-nokey", 400);
+    await cdp.waitFor("document.querySelector('.success-page .error-banner') && !document.querySelector('.success-page .banner-reload')");
+    assert.match((await banner()).text, /API Key/);
+
+    // The banner holds in both themes and at a narrow width.
+    for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+      await cdp.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+      await cdp.evaluate(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
+      await cdp.evaluate("document.querySelector('.success-page .error-banner').scrollIntoView({ block: 'nearest' })");
+      shown = await banner();
+      assert.ok(shown.width > 0 && shown.inView, `banner visible ${theme} ${width}`);
+      assert.equal(await cdp.evaluate("document.documentElement.scrollWidth <= innerWidth"), true, `no horizontal overflow ${theme} ${width}`);
+    }
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.evaluate("document.documentElement.dataset.theme = 'light'");
+
+    // A successful retry replaces the result and clears the error.
+    await activateFromMenu("codex-a");
+    await cdp.waitFor("document.querySelector('.success-page h1')?.textContent === 'codex-a 已保存'");
+    assert.equal(await banner(), null);
+    assert.equal(storeOf().activeProviderId, "codex-a");
+    assert.equal(await cdp.evaluate(`${row("codex-a")}.querySelector('.provider-badge').textContent`), "生效中");
+  }, { seed: (api, agentDir) => seedCodexForReview(api, { agentDir }) });
+});
+
+// The DOM half of "try to change it": a programmatic value change plus the event
+// React listens for, which reaches a handler even where real input cannot.
+// The dialog stays readable while locked; Tab must not escape to the theme or
+// support controls which intentionally remain usable outside ordinary writes.
+test("review C: the default dialog holds keyboard focus while locked and returns it on close", { timeout: 90_000 }, async () => {
+  await withReviewBrowser(async ({ cdp, mouse, key, byText, row, pause, agentDir, files }) => {
+    const opener = `${row("pair-router")}.querySelector('.row-menu-trigger')`;
+    await mouse(opener);
+    await cdp.waitFor("document.activeElement?.getAttribute('role') === 'menuitem'");
+    await key("Enter");
+    await cdp.waitFor("document.activeElement === document.querySelector('.set-default-dialog select')");
+    for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+      await cdp.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+      await cdp.evaluate(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
+      assert.equal(await cdp.evaluate("document.documentElement.scrollWidth <= innerWidth"), true, `dialog fits ${theme} ${width}`);
+      if (process.env.PPM_REVIEW_SCREENSHOT_DIR) {
+        fs.mkdirSync(process.env.PPM_REVIEW_SCREENSHOT_DIR, { recursive: true });
+        const image = await cdp.send("Page.captureScreenshot", { format: "png" });
+        fs.writeFileSync(path.join(process.env.PPM_REVIEW_SCREENSHOT_DIR, `default-dialog-${theme}-${width}.png`), Buffer.from(image.data, "base64"));
+      }
+    }
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp.evaluate("document.documentElement.dataset.theme = 'light'");
+    for (let i = 0; i < 3; i += 1) {
+      await key("Tab");
+      assert.equal(await cdp.evaluate("Boolean(document.activeElement.closest('.set-default-dialog'))"), true);
+    }
+    const settingsPath = path.join(agentDir, "settings.json");
+    fs.appendFileSync(settingsPath, "\n");
+    const before = files.pi();
+    const held = await pause("*/api/providers/set-default");
+    await mouse(byText(".set-default-dialog .primary-button", "设为默认"));
+    assert.equal((await held.paused).responseStatusCode, 409);
+    await cdp.waitFor(lockedNow);
+    await key("Escape");
+    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.set-default-dialog'))"), true, "Escape cannot discard an in-flight result");
+    for (let i = 0; i < 3; i += 1) {
+      await key("Tab");
+      assert.equal(await cdp.evaluate("Boolean(document.activeElement.closest('.set-default-dialog'))"), true, "Tab stays in the dialog even with every control disabled");
+    }
+    await held.release();
+    await cdp.waitFor("document.querySelector('.set-default-dialog .banner-reload') && " + unlockedNow);
+    assert.deepEqual(files.pi(), before);
+    // The persistent reload is an actual keyboard action, not a label. First
+    // close/reopen to verify focus restoration to a surviving menu trigger.
+    await key("Escape");
+    await cdp.waitFor("!document.querySelector('.set-default-dialog')");
+    assert.equal(await cdp.evaluate(`document.activeElement === ${opener}`), true);
+    await mouse(opener);
+    await cdp.waitFor("document.activeElement?.getAttribute('role') === 'menuitem'");
+    await key("Enter");
+    await cdp.waitFor("document.querySelector('.set-default-dialog')");
+    await mouse(byText(".set-default-dialog .primary-button", "设为默认"));
+    await cdp.waitFor("document.querySelector('.set-default-dialog .banner-reload') && " + unlockedNow);
+    await cdp.evaluate("document.querySelector('.set-default-dialog .banner-reload').focus()");
+    await key("Enter");
+    await cdp.waitFor("!document.querySelector('.set-default-dialog') && document.querySelector('.model-row') && " + unlockedNow);
+    assert.deepEqual(files.pi(), before, "reload preserves the externally edited bytes");
+  });
+});
+const domSetSelect = (find, value) => `(() => { const node = ${find}; Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(node, ${JSON.stringify(value)}); node.dispatchEvent(new Event('change', { bubbles: true })); })()`;
+const lockedNow = "document.querySelector('.workspace-lock')?.disabled === true && document.querySelector('.workspace')?.getAttribute('aria-busy') === 'true'";
+const unlockedNow = "document.querySelector('.workspace-lock')?.disabled === false && !document.querySelector('.workspace')?.hasAttribute('aria-busy')";
+
+// C: a pending provider write locks every way to change, leave or re-send the
+// draft it is about to replace, by mouse, keyboard, DOM events and toast
+// actions; one request goes out; success, a 409 and a network failure each
+// release the lock without replaying what was refused.
+test("review C: a pending Pi write locks the draft and releases on success, 409 and network failure", { timeout: 150_000 }, async () => {
+  await withReviewBrowser(async ({ cdp, mouse, typeText, key, byText, row, recordPosts, posts, closeToasts, leaveBlocked, pause, files, agentDir }) => {
+    const settingsPath = path.join(agentDir, "settings.json");
+    const imageSelect = "document.querySelectorAll('.model-row')[0].querySelector('select')";
+    const selectedRow = () => cdp.evaluate("document.querySelector('.provider-item.is-selected .provider-select')?.title.split(' · ')[1] || ''");
+    await mouse(`${row("pair-router")}.querySelector('.provider-select')`);
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 2");
+    // A radio-only change, then a provider switch: the guard toast offers
+    // 放弃修改并离开, an action that outlives the click that made it.
+    await mouse("document.querySelectorAll('.model-row input[type=radio]')[1]");
+    await mouse(`${row("single-router")}.querySelector('.provider-select')`);
+    await cdp.waitFor(byText(".toast-action", "放弃修改并离开"));
+    const imageBefore = await cdp.evaluate(`${imageSelect}.value`);
+
+    await recordPosts();
+    const held = await pause("*/api/providers/set-default");
+    await mouse(byText(".wizard-footer .footer-end button", "设为默认"));
+    await held.paused;
+    await cdp.waitFor(lockedNow);
+    assert.equal(await leaveBlocked(), true, "a pending write arms beforeunload");
+    await cdp.waitFor("document.querySelector('.toast.is-busy')", 3000);
+    // Toast action: disabled, by mouse and by DOM click alike.
+    assert.equal(await cdp.evaluate(`${byText(".toast-action", "放弃修改并离开")}.disabled`), true);
+    await mouse(byText(".toast-action", "放弃修改并离开"));
+    await cdp.evaluate(`${byText(".toast-action", "放弃修改并离开")}.click()`);
+    // Sidebar provider row, by mouse, DOM click and keyboard.
+    await mouse(`${row("single-router")}.querySelector('.provider-select')`);
+    await cdp.evaluate(`${row("single-router")}.querySelector('.provider-select').click()`);
+    await cdp.evaluate(`${row("single-router")}.querySelector('.provider-select').focus()`);
+    await key("Enter"); await key(" ");
+    // Target switch, add, Settings, the row menu (a second write), the stepper.
+    await mouse(byText(".target-switch button", "Codex"));
+    await cdp.evaluate(`${byText(".target-switch button", "Codex")}.click()`);
+    await mouse("document.querySelector('.add-provider')");
+    await mouse("document.querySelector('.nav-settings')");
+    await mouse(`${row("review-router")}.querySelector('.row-menu-trigger')`);
+    await cdp.evaluate(`${row("review-router")}.querySelector('.row-menu-trigger').click()`);
+    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.row-menu-popup'))"), false, "no row menu opens");
+    await mouse("document.querySelectorAll('.stepper .step')[1]");
+    // The draft: the radio and the image select, by mouse and keyboard, and by
+    // DOM events that reach the handler directly.
+    await mouse("document.querySelectorAll('.model-row input[type=radio]')[0]");
+    await cdp.evaluate("document.querySelectorAll('.model-row input[type=radio]')[0].click()");
+    await mouse(imageSelect); await key("Enter");
+    await cdp.evaluate(domSetSelect(imageSelect, imageBefore === "yes" ? "no" : "yes"));
+    assert.equal(await cdp.evaluate(`${imageSelect}.value`), imageBefore, "the guarded change handler retained the draft");
+    const capacityInput = "document.querySelectorAll('.model-row')[0].querySelector('input[aria-label=上下文容量]')";
+    const capacityBefore = await cdp.evaluate(`${capacityInput}.value`);
+    await mouse(capacityInput); await key("End"); await typeText("9");
+    assert.equal(await cdp.evaluate(`${capacityInput}.value`), capacityBefore, "real typing cannot edit the locked model");
+    // A second write by the same button, by mouse and by DOM click.
+    await mouse(byText(".wizard-footer .footer-end button", "设为默认"));
+    await cdp.evaluate(`${byText(".wizard-footer .footer-end button", "设为默认")}.click()`);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.deepEqual(await posts(), ["/api/providers/set-default"], "one write");
+    assert.equal(await selectedRow(), "pair-router");
+    assert.equal(await cdp.evaluate("document.querySelector('.target-switch [aria-checked=true]').textContent"), "Pi");
+    assert.equal(await cdp.evaluate("document.querySelectorAll('.stepper .step')[2].classList.contains('is-active')"), true);
+    assert.equal(await cdp.evaluate("document.querySelectorAll('.model-row input[type=radio]')[1].checked"), true, "the radio did not move");
+    assert.equal(await cdp.evaluate("document.querySelectorAll('.model-row').length"), 2);
+    await held.release();
+
+    // Success: the result lands, the lock lifts, and nothing refused replays.
+    await cdp.waitFor("document.querySelector('.success-page h1')?.textContent.includes('已设为默认')");
+    await cdp.waitFor(unlockedNow);
+    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.toast.is-busy'))"), false);
+    assert.equal(await cdp.evaluate(`${row("pair-router")}.querySelector('.provider-badge').textContent`), "默认");
+    assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, "utf8")).defaultModel, "pair/second");
+    assert.deepEqual(await posts(), ["/api/providers/set-default"]);
+    assert.equal(await cdp.evaluate("document.querySelector('.target-switch [aria-checked=true]').textContent"), "Pi");
+    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.settings-page, .row-menu-popup'))"), false);
+    assert.equal(await leaveBlocked(), false, "a clean, finished write leaves nothing armed");
+
+    // New input after the release is kept and guarded.
+    await mouse(byText(".success-actions button", "返回供应商详情"));
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 2 && " + unlockedNow);
+    const imageAfter = await cdp.evaluate(`${imageSelect}.value`);
+    const flipped = imageAfter === "yes" ? "no" : "yes";
+    await cdp.evaluate(domSetSelect(imageSelect, flipped));
+    await cdp.waitFor(`${imageSelect}.value === ${JSON.stringify(flipped)}`);
+    assert.equal(await leaveBlocked(), true, "an edit after the release arms beforeunload");
+
+    // 409, held: the draft stays, the banner offers 重新读取, the lock lifts.
+    const [modelsBefore] = files.pi();
+    const settingsOriginal = fs.readFileSync(settingsPath, "utf8");
+    const settingsExternal = JSON.stringify({ ...JSON.parse(settingsOriginal), externalEdit: true });
+    fs.writeFileSync(settingsPath, settingsExternal);
+    await recordPosts();
+    const conflictHeld = await pause("*/api/providers");
+    await mouse(byText(".wizard-footer .footer-end button", "保存更改"));
+    await conflictHeld.paused;
+    await cdp.waitFor(lockedNow);
+    await mouse(`${row("single-router")}.querySelector('.provider-select')`);
+    await conflictHeld.release();
+    await cdp.waitFor("document.querySelector('.step-content .error-banner .banner-reload')");
+    await cdp.waitFor(unlockedNow);
+    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.success-page'))"), false, "no success, no forced jump");
+    assert.equal(await cdp.evaluate(`${imageSelect}.value`), flipped, "the draft survived");
+    assert.equal(await selectedRow(), "pair-router");
+    assert.deepEqual(await posts(), ["/api/providers"]);
+    assert.equal(fs.readFileSync(settingsPath, "utf8"), settingsExternal, "the external edit is untouched");
+    assert.equal(files.pi()[0], modelsBefore);
+    assert.equal(await leaveBlocked(), true);
+
+    // Network failure before the server: the lock lifts, the stale conflict
+    // flag does not carry over, and a retry succeeds.
+    fs.writeFileSync(settingsPath, settingsOriginal);
+    await recordPosts();
+    const failHeld = await pause("*/api/providers", "Request");
+    await mouse(byText(".wizard-footer .footer-end button", "保存更改"));
+    await failHeld.paused;
+    await cdp.waitFor(lockedNow);
+    await failHeld.fail();
+    await cdp.waitFor("document.querySelector('.step-content .error-banner') && !document.querySelector('.step-content .banner-reload')");
+    await cdp.waitFor(unlockedNow);
+    assert.equal(await cdp.evaluate(`${imageSelect}.value`), flipped);
+    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.success-page'))"), false);
+    assert.equal(files.pi()[0], modelsBefore, "nothing reached the server");
+    await mouse(byText(".wizard-footer .footer-end button", "保存更改"));
+    await cdp.waitFor("document.querySelector('.success-page h1')?.textContent.includes('已保存') && " + unlockedNow);
+    assert.deepEqual(await posts(), ["/api/providers", "/api/providers"]);
+    assert.equal(await leaveBlocked(), false);
+    // Real typing after all that still edits: the lock is really gone.
+    await closeToasts();
+    await mouse(byText(".success-actions button", "返回供应商详情"));
+    await cdp.waitFor("document.querySelectorAll('.model-row').length === 2 && " + unlockedNow);
+    await mouse("document.querySelectorAll('.stepper .step')[1]");
+    await cdp.waitFor("document.querySelectorAll('.form-grid input')[1]");
+    await mouse("document.querySelectorAll('.form-grid input')[1]");
+    await key("End"); await typeText("9");
+    await cdp.waitFor("document.querySelectorAll('.form-grid input')[1].value.endsWith('9')");
+  });
+});
+
+test("review C: a pending Codex switch or save locks the draft and its toasts", { timeout: 150_000 }, async () => {
+  await withReviewBrowser(async ({ cdp, mouse, typeText, key, byText, row, recordPosts, posts, leaveBlocked, pause, files, codexDir }) => {
+    const storeOf = () => JSON.parse(files.codex()[2]);
+    const effort = "document.querySelectorAll('.model-row.is-codex')[0].querySelector('select')";
+    const selectedRow = () => cdp.evaluate("document.querySelector('.provider-item.is-selected .provider-select')?.title.split(' · ')[1] || ''");
+    await mouse(byText(".target-switch button", "Codex"));
+    await cdp.waitFor("document.querySelector('.model-row.is-codex')");
+    await mouse(`${row("codex-b")}.querySelector('.provider-select')`);
+    await cdp.waitFor(`document.querySelectorAll('.model-row.is-codex').length === 2 && ${byText(".wizard-footer button", "保存并设为当前生效")}`);
+    const effortBefore = await cdp.evaluate(`${effort}.value`);
+
+    // An unedited step-3 switch, held at the response. Invoke the competing
+    // save synchronously inside fetch, before React can disable either button:
+    // this proves the ref guard, not only the fieldset's next-render state.
+    await recordPosts();
+    await cdp.evaluate(`(() => {
+      const original = window.fetch;
+      window.fetch = (url, init) => {
+        if (String(url) === '/api/codex/activate' && init?.method === 'POST') {
+          window.fetch = original;
+          const other = document.querySelector('.wizard-footer .outline-button');
+          window.__reentryEnabled = !other.matches(':disabled');
+          other.click();
+        }
+        return original(url, init);
+      };
+    })()`);
+    const held = await pause("*/api/codex/activate");
+    await mouse(byText(".wizard-footer button", "保存并设为当前生效"));
+    await held.paused;
+    assert.equal(await cdp.evaluate("window.__reentryEnabled"), true, "the second entry was attempted before buttons disabled");
+    assert.deepEqual(await posts(), ["/api/codex/activate"], "the synchronous competing save was refused by the shared guard");
+    await cdp.waitFor(lockedNow);
+    assert.equal(await leaveBlocked(), true, "a pending switch arms beforeunload from a clean draft");
+    await mouse(`${row("codex-a")}.querySelector('.provider-select')`);
+    await cdp.evaluate(`${row("codex-a")}.querySelector('.provider-select').click()`);
+    await mouse(byText(".target-switch button", "Pi"));
+    await mouse(`${row("codex-a")}.querySelector('.row-menu-trigger')`);
+    await mouse(effort); await key("Enter");
+    await cdp.evaluate(domSetSelect(effort, effortBefore === "low" ? "high" : "low"));
+    assert.equal(await cdp.evaluate(`${effort}.value`), effortBefore, "the guarded change handler retained the effort");
+    const modelInput = "document.querySelector('.model-row.is-codex .model-name-cell input')";
+    const modelBefore = await cdp.evaluate(`${modelInput}.value`);
+    await mouse(modelInput); await key("End"); await typeText("-blocked");
+    assert.equal(await cdp.evaluate(`${modelInput}.value`), modelBefore, "real typing cannot edit the locked model ID");
+    await mouse("document.querySelectorAll('.model-row.is-codex')[1].querySelector('.model-action-cell button')");
+    // Held, the primary button reads 正在保存…: a second write by it.
+    await mouse("document.querySelector('.wizard-footer .primary-button')");
+    await cdp.evaluate("document.querySelector('.wizard-footer .primary-button').click()");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.deepEqual(await posts(), ["/api/codex/activate"], "one write");
+    assert.equal(await selectedRow(), "codex-b");
+    assert.equal(await cdp.evaluate("document.querySelector('.target-switch [aria-checked=true]').textContent"), "Codex");
+    assert.equal(await cdp.evaluate("document.querySelectorAll('.model-row.is-codex').length"), 2);
+    await held.release();
+    await cdp.waitFor("document.querySelector('.success-page h1')?.textContent === 'codex-b 已保存'");
+    await cdp.waitFor(unlockedNow);
+    assert.equal(storeOf().activeProviderId, "codex-b");
+    assert.equal(await cdp.evaluate(`${row("codex-b")}.querySelector('.provider-badge').textContent`), "生效中");
+    assert.equal(await leaveBlocked(), false);
+
+    // An ordinary save, held, with an undo toast alive: the undo cannot
+    // rewrite the draft the save will replace.
+    await mouse(byText(".success-actions button", "返回供应商详情"));
+    await cdp.waitFor("document.querySelectorAll('.model-row.is-codex').length === 2 && " + unlockedNow);
+    const removeButton = "document.querySelectorAll('.model-row.is-codex')[1].querySelector('.model-action-cell button')";
+    await mouse(removeButton);
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    await mouse(removeButton);
+    await cdp.waitFor(`document.querySelectorAll('.model-row.is-codex').length === 1 && ${byText(".toast-action", "撤销")}`);
+    await recordPosts();
+    const saveHeld = await pause("*/api/codex/providers");
+    await mouse(byText(".wizard-footer button", "保存更改"));
+    await saveHeld.paused;
+    await cdp.waitFor(lockedNow);
+    assert.equal(await cdp.evaluate(`${byText(".toast-action", "撤销")}.disabled`), true);
+    await mouse(byText(".toast-action", "撤销"));
+    await cdp.evaluate(`${byText(".toast-action", "撤销")}.click()`);
+    await mouse(`${row("codex-a")}.querySelector('.provider-select')`);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(await cdp.evaluate("document.querySelectorAll('.model-row.is-codex').length"), 1, "the undo did not run");
+    assert.deepEqual(await posts(), ["/api/codex/providers"]);
+    await saveHeld.release();
+    await cdp.waitFor("document.querySelector('.success-page h1')?.textContent === 'codex-b 已保存'");
+    await cdp.waitFor(unlockedNow);
+    assert.deepEqual(storeOf().providers["codex-b"].models.map((model) => model.id), ["model-codex-b"]);
+
+    // 409 on a save from step 2: the edited name stays, the step stays, the
+    // external config is untouched, and a retry after the bytes match succeeds.
+    await mouse(byText(".success-actions button", "返回供应商详情"));
+    await cdp.waitFor("document.querySelector('.model-row.is-codex') && " + unlockedNow);
+    await mouse("document.querySelectorAll('.stepper .step')[1]");
+    const nameInput = "document.querySelector('.form-grid input[placeholder=PackyCode]')";
+    await cdp.waitFor(nameInput);
+    await mouse(nameInput); await key("End"); await typeText(" 2");
+    await cdp.waitFor(`${nameInput}.value === 'codex-b 2'`);
+    const configPath = path.join(codexDir, "config.toml");
+    const original = fs.readFileSync(configPath, "utf8");
+    const external = original + "\n# edited outside the manager\n";
+    fs.writeFileSync(configPath, external);
+    await recordPosts();
+    const conflictHeld = await pause("*/api/codex/providers");
+    await mouse(byText(".wizard-footer button", "保存更改"));
+    await conflictHeld.paused;
+    await cdp.waitFor(lockedNow);
+    await mouse(nameInput); await typeText("x");
+    await conflictHeld.release();
+    await cdp.waitFor("document.querySelector('.step-content .error-banner .banner-reload')");
+    await cdp.waitFor(unlockedNow);
+    assert.equal(await cdp.evaluate(`${nameInput}.value`), "codex-b 2", "the draft survived, and nothing typed while locked landed");
+    assert.equal(await cdp.evaluate("document.querySelectorAll('.stepper .step')[1].classList.contains('is-active')"), true);
+    assert.equal(fs.readFileSync(configPath, "utf8"), external);
+    assert.deepEqual(await posts(), ["/api/codex/providers"]);
+    fs.writeFileSync(configPath, original);
+    await mouse(byText(".wizard-footer button", "保存更改"));
+    await cdp.waitFor("document.querySelector('.success-page h1')?.textContent === 'codex-b 2 已保存'");
+    assert.equal(storeOf().providers["codex-b"].name, "codex-b 2");
+  }, { seed: async (api) => {
+    for (const id of ["codex-a", "codex-b"]) {
+      await api.codex({
+        providerId: id, name: id, baseUrl: `https://${id}.example/v1`,
+        models: [{ id: `model-${id}`, reasoningEffort: "high" }, { id: `spare-${id}`, reasoningEffort: "medium" }], defaultModelId: `model-${id}`,
+        credential: { mode: "new", apiKey: `dummy-${id}-key` }, setActive: id === "codex-a",
+      });
+    }
+  } });
+});
+
+test("review C: a pending Claude switch from the row menu locks navigation and the draft", { timeout: 120_000 }, async () => {
+  await withReviewBrowser(async ({ cdp, mouse, typeText, byText, row, recordPosts, posts, leaveBlocked, pause, files }) => {
+    await mouse(byText(".target-switch button", "Claude Code"));
+    await cdp.waitFor("document.querySelector('[name=model]')");
+    assert.equal(await cdp.evaluate("document.querySelector('[name=model]').value"), "sonnet");
+    const settingsBefore = files.claude();
+    await recordPosts();
+    const held = await pause("*/api/claude/activate", "Request");
+    await mouse(`${row("claude-b")}.querySelector('.row-menu-trigger')`);
+    await cdp.waitFor("document.querySelector('.row-menu-popup')");
+    await mouse(byText(".row-menu-popup [role=menuitem]", "设为全局默认"));
+    await held.paused;
+    await cdp.waitFor(lockedNow);
+    assert.equal(await leaveBlocked(), true);
+    await mouse(`${row("claude-b")}.querySelector('.provider-select')`);
+    await mouse(`${row("claude-a")}.querySelector('.row-menu-trigger')`);
+    await mouse(byText(".target-switch button", "Pi"));
+    await mouse("document.querySelector('[name=model]')"); await typeText("x");
+    await cdp.evaluate("(() => { const input = document.querySelector('[name=model]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'dom-edit'); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.deepEqual(await posts(), ["/api/claude/activate"], "one write");
+    assert.equal(await cdp.evaluate("document.querySelector('.target-switch [aria-checked=true]').textContent"), "Claude Code");
+    assert.equal(files.claude(), settingsBefore, "nothing written while held at the request");
+    await held.release();
+    await cdp.waitFor("document.querySelector('.success-page h1')?.textContent === '已设为 Claude Code 全局默认'");
+    await cdp.waitFor(unlockedNow);
+    assert.equal(await cdp.evaluate(`${row("claude-b")}.querySelector('.provider-badge').textContent`), "全局默认");
+    assert.equal(JSON.parse(files.claude()).env.ANTHROPIC_AUTH_TOKEN, "dummy-claude-b-key");
+    assert.equal(await leaveBlocked(), false, "the refused edits did not land in the draft");
+  }, { seed: async (api) => {
+    for (const id of ["claude-a", "claude-b"]) {
+      await api.claude({ providerId: id, name: id, baseUrl: `https://${id}.example`, authType: "token", model: "sonnet", aliases: {}, credential: { mode: "new", value: `dummy-${id}-key` }, setActive: id === "claude-a" });
+    }
+  } });
+});
+
+// D: in demo mode a Codex switch moves what Codex itself would read — model,
+// model_provider and model_reasoning_effort follow the stored provider, the way
+// applyActive writes config.toml — so the sidebar, the success screen and
+// Settings agree. It used to move only the badge.
+test("review D: a demo Codex switch carries the provider's model and effort into Settings", { timeout: 120_000 }, async () => {
+  await withReviewBrowser(async ({ cdp, mouse, key, byText, row, recordPosts, posts, files }) => {
+    const before = { pi: files.pi(), codex: files.codex(), claude: files.claude() };
+    const fillKey = async () => {
+      await cdp.evaluate("(() => { const input = document.querySelector('.key-input input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'dummy-demo-copy-key'); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+    };
+    await recordPosts();
+    const settingsView = async () => {
+      await mouse("document.querySelector('.nav-settings')");
+      await cdp.waitFor("document.querySelector('.settings-page')");
+      const view = await cdp.evaluate("(() => { const cards = document.querySelectorAll('.settings-card'); return { provider: cards[0].querySelector('select').value, model: cards[0].querySelector('input').value, effort: cards[1].querySelector('select').value, table: [...document.querySelectorAll('.compatibility-card dd')].map((node) => node.textContent).find((text) => text.startsWith('model_providers.')) }; })()");
+      assert.deepEqual(await cdp.evaluate("[...document.querySelectorAll('.settings-card')[1].querySelectorAll('select')].slice(1).map((node) => node.value)"), ["xhigh", "medium"], "activation keeps Plan effort and verbosity");
+      assert.match(await cdp.evaluate("document.querySelector('.settings-footer .dirty-note').textContent"), /所有修改已写入/, "the activated model fields are marked present");
+      await mouse(byText(".settings-title button", "返回"));
+      await cdp.waitFor("!document.querySelector('.settings-page')");
+      return view;
+    };
+    await mouse(byText(".target-switch button", "Codex"));
+    await cdp.waitFor("document.querySelector('.model-row.is-codex')");
+    assert.deepEqual(await settingsView(), { provider: "packy", model: "gpt-5.6-sol", effort: "high", table: "model_providers.custom" });
+
+    // Row menu → Kimi (kimi-k2.6 / medium).
+    await mouse(`${row("kimi")}.querySelector('.row-menu-trigger')`);
+    await cdp.waitFor("document.querySelector('.row-menu-popup')");
+    await mouse(byText(".row-menu-popup [role=menuitem]", "设为当前生效"));
+    await cdp.waitFor("document.querySelector('.success-page h1')?.textContent === 'Kimi 已保存'");
+    assert.match(await cdp.evaluate("document.querySelector('.success-page .success-summary').textContent"), /kimi-k2\.6/);
+    assert.equal(await cdp.evaluate(`${row("kimi")}.querySelector('.provider-badge').textContent`), "生效中");
+    assert.deepEqual(await settingsView(), { provider: "kimi", model: "kimi-k2.6", effort: "medium", table: "model_providers.custom" });
+
+    // Unedited step 3 → DeepSeek via relay (deepseek-reasoner / high, no auth).
+    await mouse(`${row("deepseek-relay")}.querySelector('.provider-select')`);
+    await cdp.waitFor(`${byText(".wizard-footer button", "保存并设为当前生效")}`);
+    await mouse(byText(".wizard-footer button", "保存并设为当前生效"));
+    await cdp.waitFor("document.querySelector('.success-page h1')?.textContent === 'DeepSeek via relay 已保存'");
+    assert.equal(await cdp.evaluate(`${row("deepseek-relay")}.querySelector('.provider-badge').textContent`), "生效中");
+    assert.deepEqual(await settingsView(), { provider: "deepseek-relay", model: "deepseek-reasoner", effort: "high", table: "model_providers.custom" });
+
+    // Claude's demo fixture has one provider, the live one: its menu offers no switch.
+    await mouse(byText(".target-switch button", "Claude Code"));
+    await cdp.waitFor("document.querySelector('[name=model]')");
+    await mouse(`${row("claude-gateway")}.querySelector('.row-menu-trigger')`);
+    await cdp.waitFor("document.querySelector('.row-menu-popup')");
+    assert.deepEqual(await cdp.evaluate("[...document.querySelectorAll('.row-menu-popup [role=menuitem]')].map((node) => node.textContent.trim())"), ["复制供应商", "删除供应商"]);
+    await mouse(byText(".row-menu-popup [role=menuitem]", "复制供应商"));
+    await cdp.waitFor("document.querySelector('.key-input input')");
+    await fillKey();
+    await mouse(byText(".wizard-footer button", "下一步"));
+    await mouse(byText(".wizard-footer button", "保存供应商"));
+    await cdp.waitFor("document.querySelector('.success-page h1')?.textContent === '供应商已保存' && " + unlockedNow);
+    await mouse(`${row("claude-gateway-copy")}.querySelector('.row-menu-trigger')`);
+    await cdp.waitFor("document.querySelector('.row-menu-popup')");
+    await mouse(byText(".row-menu-popup [role=menuitem]", "设为全局默认"));
+    await cdp.waitFor(`${row("claude-gateway-copy")}.querySelector('.provider-badge').textContent === '全局默认' && ${unlockedNow}`);
+    // Pi: a provider without models offers no default; the live default takes
+    // a model change through the demo set-default path and Settings follows.
+    await mouse(byText(".target-switch button", "Pi"));
+    await cdp.waitFor("document.querySelector('.model-row')");
+    await mouse(`${row("openai")}.querySelector('.row-menu-trigger')`);
+    await cdp.waitFor("document.querySelector('.row-menu-popup')");
+    assert.equal(await cdp.evaluate(`Boolean(${byText(".row-menu-popup [role=menuitem]", "设为默认")})`), false, "a provider without models offers no default");
+    await key("Escape");
+    await cdp.waitFor("!document.querySelector('.row-menu-popup')");
+    await mouse("document.querySelectorAll('.model-row input[type=radio]')[1]");
+    await mouse(byText(".wizard-footer .footer-end button", "保存更改"));
+    await cdp.waitFor("document.querySelector('.success-page h1')?.textContent.includes('已设为默认')");
+    await mouse("document.querySelector('.nav-settings')");
+    await cdp.waitFor("document.querySelector('.settings-page')");
+    assert.equal(await cdp.evaluate("document.querySelectorAll('.settings-card')[0].querySelectorAll('select')[1].value"), "claude-3-5-haiku");
+    // Make a second saved demo provider; its success action and the original's
+    // row-menu dialog both use the same default-only path without real writes.
+    await mouse(`${row("any-claude")}.querySelector('.row-menu-trigger')`);
+    await cdp.waitFor("document.querySelector('.row-menu-popup')");
+    await mouse(byText(".row-menu-popup [role=menuitem]", "复制供应商"));
+    await cdp.waitFor("document.querySelector('.key-input input')");
+    await fillKey();
+    await mouse(byText(".wizard-footer button", "下一步"));
+    await cdp.waitFor("document.querySelector('.model-row')");
+    await mouse(byText(".wizard-footer button", "只保存"));
+    await cdp.waitFor("document.querySelector('.success-set-default') && " + unlockedNow);
+    await mouse("document.querySelector('.success-set-default')");
+    await cdp.waitFor(`${row("any-claude-copy")}.querySelector('.provider-badge').textContent === '默认' && ${unlockedNow}`);
+    await mouse(`${row("any-claude")}.querySelector('.row-menu-trigger')`);
+    await cdp.waitFor("document.querySelector('.row-menu-popup')");
+    await mouse(byText(".row-menu-popup [role=menuitem]", "设为默认"));
+    await cdp.waitFor("document.querySelector('.set-default-dialog')");
+    await mouse("document.querySelector('.set-default-dialog .primary-button')");
+    await cdp.waitFor(`${row("any-claude")}.querySelector('.provider-badge').textContent === '默认' && !document.querySelector('.set-default-dialog') && ${unlockedNow}`);
+    assert.deepEqual(await posts(), [], "demo mode sends no configuration write");
+    assert.deepEqual({ pi: files.pi(), codex: files.codex(), claude: files.claude() }, before, "all isolated real files are untouched");
+  }, { demo: true, seed: async (api, agentDir) => {
+    await seedCodexForReview(api, { agentDir });
+    await api.claude({ providerId: "real-fixture", name: "Real fixture", baseUrl: "https://fixture.example", authType: "token", model: "sonnet", aliases: {}, credential: { mode: "new", value: "dummy-unused-fixture-key" }, setActive: true });
+  } });
 });

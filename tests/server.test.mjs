@@ -167,6 +167,59 @@ test("a failed capacity-cache write cannot fail a committed provider save", asyn
   }
 });
 
+// Making a saved provider the default must not need an edit, and must not go
+// through the provider save, which re-normalizes every model it writes.
+test("set-default writes only defaultProvider and defaultModel", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-set-default-"));
+  const modelsPath = path.join(agentDir, "models.json");
+  const settingsPath = path.join(agentDir, "settings.json");
+  // A hand-written model: no name/input/contextWindow, and a thinkingLevelMap the
+  // provider save would replace. Both must survive byte for byte.
+  const modelsText = JSON.stringify({ providers: {
+    main: { api: "openai-completions", baseUrl: "https://main.example/v1", models: [{ id: "main-model", contextWindow: 200000, maxTokens: 16000 }] },
+    spare: { api: "anthropic-messages", baseUrl: "https://spare.example", futureField: 1, models: [
+      { id: "spare-a", reasoning: true, thinkingLevelMap: { high: "high", xhigh: "xhigh" } },
+      { id: "spare-b", contextWindow: 100000, maxTokens: 8000 },
+    ] },
+  } }, null, 2);
+  fs.writeFileSync(modelsPath, modelsText);
+  fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({ main: { type: "api_key", key: "dummy-main-key" } }));
+  fs.writeFileSync(settingsPath, JSON.stringify({ defaultProvider: "main", defaultModel: "main-model", futureSetting: { keep: true } }));
+  const authText = fs.readFileSync(path.join(agentDir, "auth.json"), "utf8");
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
+    cwd: projectRoot,
+    env: serverEnv({ PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir, PI_PROVIDER_MANAGER_CODEX_DIR: path.join(agentDir, "codex"), PI_PROVIDER_MANAGER_API_PORT: String(port) }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  try {
+    await waitForServer(`${baseUrl}/api/state`);
+    for (const [body, label] of [
+      [{ providerId: "missing", modelId: "spare-b" }, "unknown provider"],
+      [{ providerId: "__proto__", modelId: "spare-b" }, "prototype name"],
+      [{ providerId: "spare", modelId: "main-model" }, "model of another provider"],
+      [{ providerId: "spare", modelId: "" }, "empty model"],
+    ]) {
+      assert.equal((await postJson(baseUrl, "/api/providers/set-default", body)).status, 400, label);
+    }
+    assert.equal((await postJson(baseUrl, "/api/providers/set-default", { providerId: "spare", modelId: "spare-b" }, "stale")).status, 409);
+    assert.equal(readJson(settingsPath).defaultProvider, "main");
+
+    const response = await postJson(baseUrl, "/api/providers/set-default", { providerId: "spare", modelId: "spare-b" });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.state.settings.defaultProvider, "spare");
+    assert.equal(result.state.providers.find((provider) => provider.id === "spare").isDefault, true);
+    assert.deepEqual(readJson(settingsPath), { defaultProvider: "spare", defaultModel: "spare-b", futureSetting: { keep: true } });
+    assert.equal(fs.readFileSync(modelsPath, "utf8"), modelsText);
+    assert.equal(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"), authText);
+    assert.equal(JSON.stringify(result).includes("dummy-main-key"), false);
+  } finally {
+    await stopAndClean(child, [agentDir]);
+  }
+});
+
 test("writes router-style providers without exposing credentials", async () => {
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-provider-manager-"));
   fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
