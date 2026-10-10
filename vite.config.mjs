@@ -7,6 +7,21 @@ const packageManifest = JSON.parse(readFileSync(new URL("./package.json", import
 export default defineConfig({
   build: {
     outDir: "dist/client",
+    rollupOptions: {
+      output: {
+        // Keep target-specific screens and the icon package out of the entry
+        // chunk. They remain static imports, so startup semantics do not
+        // change; the browser can cache each stable group independently and
+        // no single generated script crosses Vite's warning threshold.
+        manualChunks(id) {
+          if (id.includes("node_modules/@phosphor-icons")) return "vendor-icons";
+          if (id.endsWith("/src/codex-view.jsx")) return "target-codex";
+          if (id.endsWith("/src/claude-view.jsx")) return "target-claude";
+          if (id.endsWith("/src/prompts-view.jsx")) return "target-prompts";
+          return undefined;
+        },
+      },
+    },
   },
   define: {
     __APP_VERSION__: JSON.stringify(packageManifest.version),

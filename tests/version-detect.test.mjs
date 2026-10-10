@@ -108,6 +108,27 @@ test("tries the bare Pi command when the login shell output contains no version"
   assert.deepEqual(attempts, ["/bin/bash", "pi"]);
 });
 
+test("ignores a login-shell OS banner and reads the Pi version that follows it", async () => {
+  assert.equal(await detectPiVersion({
+    platform: "linux",
+    run: () => "Ubuntu 24.04.4 LTS\ndev-proxy: warning\n1.1.0\n",
+  }), "1.1.0");
+});
+
+test("does not treat an OS banner as Pi when the command emits no version", async () => {
+  assert.equal(await detectPiVersion({
+    platform: "linux",
+    run: () => "Ubuntu 24.04.4 LTS\n",
+  }), "unknown");
+});
+
+test("prefers a named Codex version when shell diagnostics contain another semver", async () => {
+  assert.equal(await detectCodexVersion({
+    platform: "linux",
+    run: () => "Node.js v24.18.0\ncodex-cli 0.160.0\n",
+  }), "0.160.0");
+});
+
 test("asks Windows for Pi through the bare command, never through bash or npm manifests", async () => {
   const home = fakeHome({ "v24.18.0": "1.0.2" });
   const attempts = [];
