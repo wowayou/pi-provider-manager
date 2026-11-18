@@ -5704,3 +5704,37 @@ test("review D: a demo Codex switch carries the provider's model and effort into
     await api.claude({ providerId: "real-fixture", name: "Real fixture", baseUrl: "https://fixture.example", authType: "token", model: "sonnet", aliases: {}, credential: { mode: "new", value: "dummy-unused-fixture-key" }, setActive: true });
   } });
 });
+
+test("standby rows switch through the native action on mobile and desktop", { timeout: 90_000 }, async () => {
+  await withReviewBrowser(async ({ cdp, mouse, key, row, byText, recordPosts, posts, state }) => {
+    await recordPosts();
+    const shortcut = id => `${row(id)}.querySelector('.provider-activate')`;
+    for (const [width, codexId, claudeId, piId] of [
+      [390, 'codex-b', 'claude-b', 'pair-router'], [1440, 'codex-a', 'claude-a', 'review-router'],
+    ]) {
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+      await mouse(byText('.target-switch button', 'Codex'));
+      await mouse(shortcut(codexId));
+      await cdp.waitFor(`${row(codexId)}.querySelector('.provider-badge').textContent === '生效中' && ${unlockedNow}`);
+      assert.equal((await state()).codex.activeProviderId, codexId);
+      assert.equal(await cdp.evaluate(`Boolean(${shortcut(codexId)})`), false);
+      await mouse(byText('.target-switch button', 'Claude Code'));
+      await mouse(shortcut(claudeId));
+      await cdp.waitFor(`${row(claudeId)}.querySelector('.provider-badge').textContent === '全局默认' && ${unlockedNow}`);
+      assert.equal((await state()).claude.activeProviderId, claudeId);
+      await mouse(byText('.target-switch button', 'Pi'));
+      await cdp.evaluate(`${shortcut(piId)}.focus()`);
+      await key('Enter');
+      await cdp.waitFor("document.activeElement === document.querySelector('.set-default-dialog select')");
+      await mouse("document.querySelector('.set-default-dialog .primary-button')");
+      await cdp.waitFor(`${row(piId)}.querySelector('.provider-badge').textContent === '默认' && ${unlockedNow}`);
+      assert.equal((await state()).settings.defaultProvider, piId);
+      assert.equal(await cdp.evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    }
+    const switches = ['/api/codex/activate', '/api/claude/activate', '/api/providers/set-default'];
+    assert.deepEqual(await posts(), [...switches, ...switches]);
+  }, { seed: async (api, agentDir) => {
+    await seedCodexForReview(api, { agentDir });
+    for (const id of ['claude-a', 'claude-b']) await api.claude({ providerId: id, name: id, baseUrl: `https://${id}.example`, authType: 'token', model: 'sonnet', aliases: {}, credential: { mode: 'new', value: 'dummy-shortcut-key' }, setActive: id === 'claude-a' });
+  } });
+});

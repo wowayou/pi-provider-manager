@@ -439,6 +439,7 @@ code { color: var(--ink); background: transparent; }
 /* An overflow menu revealed on hover/focus so a long list stays quiet, but kept
    in the tab order — focus reveals it — so keyboard users reach 复制/删除 too. */
 .row-menu { position: relative; flex: none; margin-right: 4px; }
+.provider-item .provider-activate { flex: none; padding-inline: var(--space-2); margin-right: var(--space-1); white-space: nowrap; }
 .row-menu-trigger { width: 30px; height: 30px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--ink-3); display: grid; place-items: center; opacity: 0; cursor: pointer; transition: opacity var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease); }
 .provider-item:hover .row-menu-trigger, .row-menu-trigger:focus-visible, .row-menu-trigger[aria-expanded="true"] { opacity: 1; }
 .row-menu-trigger:hover, .row-menu-trigger[aria-expanded="true"] { background: var(--surface-active); color: var(--ink-2); }
@@ -1144,6 +1145,11 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
   .provider-item { width: auto; flex: none; border: 1px solid var(--line); }
   .provider-select { grid-template-columns: 28px auto auto; padding: 8px 12px 8px 8px; }
   .row-menu { display: none; }
+  .sidebar .sidebar-footer { flex-direction: row; align-items: center; flex-wrap: wrap; gap: var(--space-1); padding-top: var(--space-1); }
+  .sidebar .footer-nav, .sidebar .footer-utility { flex-direction: row; align-items: center; gap: var(--space-1); }
+  .sidebar .footer-utility { margin: 0 0 0 auto; padding: 0; border: 0; }
+  .sidebar .settings-button { margin: 0; padding-inline: var(--space-2); gap: var(--space-1); }
+  .sidebar .sidebar-support { padding-inline: var(--space-1); gap: var(--space-1); }
   /* Horizontal rail: a vertical fade would mask the wrong edge. */
   .provider-list.has-more-above, .provider-list.has-more-below,
   .provider-list.has-more-above.has-more-below { -webkit-mask-image: none; mask-image: none; }

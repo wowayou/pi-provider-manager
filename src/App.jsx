@@ -689,6 +689,17 @@ function Sidebar({ state, target, locked = false, loading, loadFailed, onTarget,
                   {!provider.ready && <span className="status-dot is-warn" role="img" aria-label={provider.notReadyLabel} title={provider.notReadyLabel} />}
                 </span>
               </button>
+              {!selectMode && !provider.badge && provider.activateLabel && (
+                <button type="button" className="provider-activate secondary-button button-sm"
+                  aria-label={`${provider.name} · ${provider.activateLabel}`} disabled={navigationDisabled}
+                  onClick={(event) => {
+                    // This button disappears when its provider becomes the default.
+                    event.currentTarget.parentElement.querySelector('.provider-select')?.focus({ preventScroll: true });
+                    onActivate(provider.id);
+                  }}>
+                  {target === "codex" ? "启用" : "设默认"}
+                </button>
+              )}
               {!selectMode && <ProviderRowMenu provider={provider} disabled={locked} activateLabel={provider.badge ? "" : provider.activateLabel} onActivate={onActivate} onDuplicate={onDuplicate} onDelete={onDelete} />}
             </div>
           );
