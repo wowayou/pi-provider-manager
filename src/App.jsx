@@ -291,7 +291,7 @@ const DEMO_STATE = {
     ownedProviderId: "custom",
     activeProviderId: "packy",
     settings: { model: "gpt-5.6-sol", modelProvider: "custom", reasoningEffort: "high", planModeReasoningEffort: "xhigh", verbosity: "medium", contextWindow: 0, disableResponseStorage: false },
-    settingsPresent: ["model", "model_provider", "model_reasoning_effort"],
+    settingsPresent: ["model", "model_provider", "model_reasoning_effort", "plan_mode_reasoning_effort", "model_verbosity"],
     providers: [
       { id: "packy", name: "PackyCode", baseUrl: "https://api.packycode.com/v1", requiresAuth: true, models: [{ id: "gpt-5.6-sol", reasoningEffort: "high" }, { id: "gpt-5.1-codex", reasoningEffort: "xhigh" }], defaultModelId: "gpt-5.6-sol", credentialConfigured: true, adopted: false, isActive: true },
       { id: "kimi", name: "Kimi", baseUrl: "https://api.moonshot.cn/v1", requiresAuth: true, models: [{ id: "kimi-k2.6", reasoningEffort: "medium" }], defaultModelId: "kimi-k2.6", credentialConfigured: true, adopted: false, isActive: false },
@@ -624,8 +624,8 @@ function Sidebar({ state, target, locked = false, loading, loadFailed, onTarget,
   return (
     <aside className="sidebar">
       <div className="brand">
-        <span className="brand-icon"><img src="/favicon.png" alt="" /></span>
-        <span>Pi Provider Manager</span>
+        <span className="brand-icon"><img src={`${import.meta.env.BASE_URL}favicon.png`} alt="" /></span>
+        <span>Pi Provider Manager{import.meta.env.MODE === "showcase" && <small className="showcase-notice">样例演示 · 请勿输入真实密钥</small>}</span>
       </div>
       <TargetSwitch target={target} disabled={navigationDisabled} onTarget={(value) => { setQuery(""); onTarget(value); }} />
       <button type="button" className="add-provider" disabled={navigationDisabled} onClick={() => { setQuery(""); onAdd(); }}>
@@ -1966,7 +1966,7 @@ function SettingsScreen({ state, saving, error, conflict, demoMode, onSave, onBa
 }
 
 export function App() {
-  const demoMode = useMemo(() => new URLSearchParams(window.location.search).get("demo") === "1", []);
+  const demoMode = useMemo(() => import.meta.env.MODE === "showcase" || new URLSearchParams(window.location.search).get("demo") === "1", []);
   const [theme, setTheme] = useTheme();
   const [state, setState] = useState(demoMode ? DEMO_STATE : { revision: "", providers: [], authProviders: [], settings: {}, compatibility: {}, agentDir: "" });
   const [loading, setLoading] = useState(!demoMode);  const [selectedId, setSelectedId] = useState(demoMode ? "any-claude" : "");
@@ -3350,31 +3350,37 @@ export function App() {
     }
   };
 
-  const saveCodexSettings = async (draft) => {
+  const saveCodexSettings = runWrite(async (draft) => {
     setConflict(false);
-    setSaving(true);
+    beginWrite();
     setError("");
     try {
+      let nextState;
       if (demoMode) {
         await new Promise((resolve) => setTimeout(resolve, 400));
-        setState({ ...state, codex: { ...codex, settings: { ...codex.settings, ...draft } } });
-        showToast("Codex 设置已写入 config.toml；对新开的会话生效");
-        return;
+        const { activeProviderId, ownedProviderId, ...preferences } = draft;
+        let next = { ...codex, ownedProviderId };
+        if (activeProviderId) next = demoActivateCodex(next, activeProviderId);
+        nextState = { ...state, codex: { ...next, settings: { ...next.settings, ...preferences },
+          providers: next.providers.map(p => p.id !== activeProviderId ? p : { ...p, models: p.models.map(m =>
+            m.id === p.defaultModelId ? { ...m, reasoningEffort: preferences.reasoningEffort } : m) }),
+        } };
+      } else {
+        const response = await fetch("/api/codex/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...draft, revision: codex.revision }),
+        });
+        nextState = (await readApiResponse(response, "保存设置失败")).state;
       }
-      const response = await fetch("/api/codex/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...draft, revision: codex.revision }),
-      });
-      const data = await readApiResponse(response, "保存设置失败");
-      setState(data.state);
-      showToast("Codex 设置已写入 config.toml；对新开的会话生效");
+      setState(nextState);
+      const selected = nextState.codex.providers.find(p => p.id === codexSelectedId);
+      if (selected && !codexDirty) loadCodexForm(codexProviderToForm(selected, nextState.codex));
+      showToast(demoMode ? "演示设置已更新，未写入本地文件" : "Codex 设置已写入 config.toml；对新开的会话生效");
     } catch (requestError) {
       reportRequestError(requestError, setError);
-    } finally {
-      setSaving(false);
     }
-  };
+  });
 
   const copyCommand = async (command) => {
     try {

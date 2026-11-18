@@ -4489,6 +4489,7 @@ test("Codex rename refuses collisions and keeps direct and bridge credentials wi
     assert.equal(await cdp.evaluate("document.querySelector('.key-field input').value"), "");
     await next(); await click(".wizard-footer button", "只保存");
     await cdp.waitFor("document.querySelector('.success-page .bridge-control')");
+    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.success-page .command-row'))"), false, "a standby bridge can be managed before activation, but plain codex still uses the live provider");
     saved = (await state()).codex;
     assert.equal(saved.activeProviderId, "codex-renamed", "renaming an inactive bridge must not activate it");
     assert.equal(saved.providers.some((provider) => provider.id === "bridge-a"), false);
@@ -5127,6 +5128,35 @@ const seedCodexForReview = async (api, { stripKeyOf = "codex-nokey", agentDir })
   delete store.providers[stripKeyOf].credential;
   fs.writeFileSync(storePath, JSON.stringify(store, null, 2));
 };
+
+test("Codex Settings preserves the native model and refreshes the wizard after save", { timeout: 90_000 }, async () => {
+  await withReviewBrowser(async ({ cdp, mouse, byText, row, files }) => {
+    await mouse(byText(".target-switch button", "Codex"));
+    await mouse("document.querySelector('.nav-settings')");
+    const model = "document.querySelector('.settings-card input[readonly]')";
+    const select = async (selector, value) => cdp.evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); el.value = ${JSON.stringify(value)}; el.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    await cdp.waitFor(`${model}?.value === 'native-model'`);
+    await select(".settings-card .mono:is(select)", "low");
+    const save = byText(".settings-footer button", "保存设置");
+    await mouse(save);
+    await cdp.waitFor(`${save}?.disabled && !document.querySelector('.workspace-lock:disabled')`);
+    assert.match(files.codex()[0], /^model = "native-model"$/m);
+    await mouse(byText(".settings-title button", "返回"));
+    await cdp.waitFor("document.querySelector('.model-row.is-codex input[type=radio]:checked')?.closest('.model-row').querySelector('select').value === 'low'");
+    await mouse("document.querySelector('.nav-settings')");
+    await select(".settings-card select", "codex-b");
+    await cdp.waitFor(`${model}.value === 'model-codex-b'`);
+    assert.equal(await cdp.evaluate("document.querySelector('.settings-card select.mono').value"), "high");
+    await mouse(save);
+    await cdp.waitFor(`${row("codex-b")}.querySelector('.provider-badge')?.textContent === '生效中'`);
+    assert.match(files.codex()[0], /^model = "model-codex-b"$/m);
+    assert.equal(JSON.parse(files.codex()[1]).OPENAI_API_KEY, "dummy-codex-b-key");
+  }, { seed: async (api, agentDir) => {
+    await seedCodexForReview(api, { agentDir });
+    const config = path.join(isolatedCodexDir(agentDir), "config.toml");
+    fs.writeFileSync(config, fs.readFileSync(config, "utf8").replace('model = "model-codex-a"', 'model = "native-model"'));
+  } });
+});
 
 // B: the Codex success screen reports a failed switch in the shared banner. A
 // 400 used to vanish without a word, and a 409's 重新读取 lived only in a toast

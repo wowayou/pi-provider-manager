@@ -973,8 +973,10 @@ export function CodexSuccessScreen({ result, codex, error, conflict, onCopy, onR
         <div className="next-step-heading">
           <TerminalWindow size={28} weight="duotone" />
           <div>
-            <h2>下一步：开一个新的 codex 会话</h2>
-            <p>配置只在 Codex 启动时读取。<strong>正在运行的会话不受影响</strong>，需要新开一个终端才会生效。</p>
+            <h2>{result.activated ? "下一步：开一个新的 codex 会话" : "已加入备用供应商"}</h2>
+            {result.activated
+              ? <p>在同一配置目录下重新启动 Codex 即可。<strong>正在运行的会话不受影响。</strong></p>
+              : <p>需要使用时，在供应商详情选择「保存并设为当前生效」，再开新的 Codex 会话。</p>}
           </div>
         </div>
         {result.bridged && (
@@ -982,11 +984,11 @@ export function CodexSuccessScreen({ result, codex, error, conflict, onCopy, onR
           // bridge, so the advertised codex command fails until it is running.
           // Get it up first, reusing the same control the credentials step uses.
           <div className="bridge-first-step">
-            <p className="bridge-first-note"><strong>先启动本地桥</strong>：这个供应商通过本地 LiteLLM 桥转发请求，桥没跑起来之前下面的命令会失败。</p>
+            <p className="bridge-first-note"><strong>本地桥</strong>负责向这家供应商转发请求，使用前请确认桥已启动。</p>
             <BridgeControl codex={codex || {}} providerId={result.providerId} onStart={onStartBridge} onStop={onStopBridge} onNotify={onNotify} />
           </div>
         )}
-        <div className="command-row">
+        {result.activated && <><div className="command-row">
           <code ref={commandRef}>{result.command}</code>
           <button type="button" className={`copy-button ${copied ? "is-copied" : ""}`} onClick={copy}>
             {copied ? <><Check size={16} weight="bold" />已复制</> : <><Copy size={16} />复制</>}
@@ -1002,7 +1004,7 @@ export function CodexSuccessScreen({ result, codex, error, conflict, onCopy, onR
             </li>
           )}
           <li>发一句简单消息试通；限流或 5xx 属于上游服务状态，不代表配置没写进去</li>
-        </ol>
+        </ol></>}
       </div>
       <p className="success-caveat">
         <Info size={19} weight="duotone" />
@@ -1022,7 +1024,7 @@ export function CodexSettingsScreen({ state, saving, error, conflict, demoMode, 
   const codex = state.codex || {};
   const providers = codex.providers || [];
   const saved = useMemo(() => ({
-    activeProviderId: codex.activeProviderId || providers[0]?.id || "",
+    activeProviderId: codex.activeProviderId || "",
     reasoningEffort: codex.settings?.reasoningEffort || "medium",
     planModeReasoningEffort: codex.settings?.planModeReasoningEffort || "medium",
     verbosity: codex.settings?.verbosity || "medium",
@@ -1044,7 +1046,13 @@ export function CodexSettingsScreen({ state, saving, error, conflict, demoMode, 
   };
 
   const present = new Set(Array.isArray(codex.settingsPresent) ? codex.settingsPresent : []);
-  const unwritten = ["model", "model_provider", "model_reasoning_effort"].filter((key) => !present.has(key));
+  const unwritten = ["model_reasoning_effort", "plan_mode_reasoning_effort", "model_verbosity"].filter((key) => !present.has(key));
+  const selectedProvider = providers.find(provider => provider.id === draft.activeProviderId);
+  const changeProvider = (id) => {
+    const provider = providers.find(item => item.id === id);
+    const primary = provider?.models.find(model => model.id === provider.defaultModelId);
+    setDraft(current => ({ ...current, activeProviderId: id, reasoningEffort: primary?.reasoningEffort || saved.reasoningEffort }));
+  };
   const edited = JSON.stringify(saved) !== JSON.stringify(draft);
   useEffect(() => {
     onDirtyChange?.(edited);
@@ -1059,7 +1067,7 @@ export function CodexSettingsScreen({ state, saving, error, conflict, demoMode, 
     <section className="settings-page">
       <div className="settings-scroll">
         <div className="settings-title">
-          <div><p>Codex 全局设置</p><h1>设置与兼容性</h1><span>这里的修改会写入 Codex 的 config.toml。</span></div>
+          <div><p>Codex 全局设置</p><h1>设置与兼容性</h1><span>这里修改用户级 config.toml，供同一配置目录下新开的 Codex 会话使用。</span></div>
           <button type="button" className="secondary-button" onClick={onBack}><ArrowLeft size={18} />返回</button>
         </div>
         <div className="settings-grid">
@@ -1067,14 +1075,15 @@ export function CodexSettingsScreen({ state, saving, error, conflict, demoMode, 
             <h2>当前生效的供应商</h2><p>决定直接运行 <code className="mono">codex</code> 时用哪一家。</p>
             <label>
               <span>供应商</span>
-              <select value={draft.activeProviderId} disabled={providers.length === 0} onChange={(event) => setDraft((current) => ({ ...current, activeProviderId: event.target.value }))}>
+              <select value={draft.activeProviderId} disabled={providers.length === 0} onChange={(event) => changeProvider(event.target.value)}>
+                {!saved.activeProviderId && <option value="">保持 Codex 当前选择（{codex.settings?.modelProvider || "内建默认"}）</option>}
                 {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}（{provider.id}）</option>)}
               </select>
               {providers.length === 0 && <small>还没有 Codex 供应商。先添加一个再回来。</small>}
             </label>
             <label>
               <span>默认模型</span>
-              <input className="mono" value={codex.settings?.model || ""} readOnly aria-readonly="true" />
+              <input className="mono" value={selectedProvider?.defaultModelId ?? codex.settings?.model ?? ""} readOnly aria-readonly="true" />
               <small>模型与推理强度属于供应商，在它的「确认模型」一步里选。</small>
             </label>
           </section>

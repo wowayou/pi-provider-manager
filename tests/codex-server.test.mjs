@@ -644,6 +644,47 @@ test("settings keep the reasoning effort the user just chose", async () => {
   });
 });
 
+test("settings and the wizard follow the live Codex model, not a stale store", async () => {
+  await withServer(null, async (api) => {
+    await api.post("/api/codex/providers", newProvider());
+    await api.post("/api/codex/providers", newProvider({ providerId: "other", baseUrl: "https://other.example/v1", setActive: false }));
+    const native = api.config().replace('model = "gpt-5.6-sol"', 'model = "native-model"')
+      .replace('effort = "high"', 'effort = "low"') + 'request_max_retries = 2 # native tweak\n';
+    fs.writeFileSync(api.configPath, native);
+    const before = (await api.state()).codex;
+    assert.equal(before.providers.find(p => p.isActive).defaultModelId, "native-model");
+    assert.equal(api.config(), native);
+    const auth = fs.readFileSync(api.authPath, "utf8");
+    const response = await api.post("/api/codex/settings", { activeProviderId: "packy", reasoningEffort: "medium" });
+    assert.equal(response.status, 200);
+    assert.match(api.config(), /^model = "native-model"$/m);
+    assert.equal(api.config().split("[model_providers.custom]")[1], native.split("[model_providers.custom]")[1]);
+    assert.equal(fs.readFileSync(api.authPath, "utf8"), auth);
+    assert.equal(api.store().providers.packy.defaultModelId, "native-model");
+    for (const id of ["other", "packy"]) assert.equal((await api.post("/api/codex/activate", { providerId: id })).status, 200);
+    assert.match(api.config(), /^model = "native-model"$/m);
+    assert.match(api.config(), /^model_reasoning_effort = "medium"$/m);
+  });
+});
+
+test("an external selection stays selected until the user explicitly switches", async () => {
+  await withServer(HAND_WRITTEN, async (api) => {
+    await api.post("/api/codex/providers", newProvider());
+    fs.writeFileSync(api.configPath, api.config().replace('model_provider = "custom"', 'model_provider = "myown"'));
+    assert.equal((await api.state()).codex.activeProviderId, "");
+    for (const payload of [{ activeProviderId: "missing" }, { ownedProviderId: "myown" }, { ownedProviderId: "fresh" }]) {
+      const before = api.config();
+      assert.equal((await api.post("/api/codex/settings", payload)).status, 400);
+      assert.equal(api.config(), before);
+    }
+    assert.equal((await api.post("/api/codex/settings", { activeProviderId: "", verbosity: "low" })).status, 200);
+    assert.equal((await api.post("/api/codex/providers", newProvider({ setActive: false }))).status, 200);
+    assert.match(api.config(), /^model_provider = "myown"$/m);
+    assert.equal((await api.post("/api/codex/settings", { activeProviderId: "packy" })).status, 200);
+    assert.match(api.config(), /^model_provider = "custom"$/m);
+  });
+});
+
 test("editing settings does not demand a key for the provider already in use", async () => {
   // The adopted provider has no stored credential, because config.toml cannot
   // carry one. Changing an unrelated setting must not be blocked by that.

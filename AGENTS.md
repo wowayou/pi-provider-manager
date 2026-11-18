@@ -10,6 +10,8 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 
 ## Selected Product Direction
 
+- **Owner direction, 2026-11-18:** keep this a personal backup provider manager for Pi, Codex and Claude Code; prioritize reliable native settings, low-friction switching and local automation. A phased refactor plan and static GitHub showcase are in scope, not a wholesale rebuild or permission to publish or start billable automation. See `docs/plans/personal-provider-manager.zh-CN.md`.
+
 - A beginner-friendly three-step flow is the framework, with the provider/model master-detail clarity of a multi-model table plus explicit default-model selection.
 - Keep compatibility flags collapsed and clearly labeled as normally unnecessary.
 - Never return an existing API key to the browser. The UI may show only whether a credential is configured. Prompt text is the one stated exception, below.
