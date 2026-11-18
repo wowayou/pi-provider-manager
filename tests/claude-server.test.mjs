@@ -89,3 +89,17 @@ test("manager startup never follows a symlinked runtime directory", { skip: proc
     }, undefined, (claudeDir) => fs.symlinkSync(elsewhere, path.join(claudeDir, "pi-provider-manager-runs")));
   } finally { fs.rmSync(elsewhere, { recursive: true, force: true }); }
 });
+
+test("writes from independent Codex and Claude tabs retain their own revisions", async () => {
+  await withClaudeServer(async (api) => {
+    const initial = await api.state();
+    const codexSettings = { reasoningEffort: "low" };
+    assert.equal((await api.post("/api/codex/settings", codexSettings, initial.codex.revision)).status, 200);
+    assert.equal((await api.post("/api/claude/providers", body, initial.claude.revision)).status, 200);
+    assert.equal((await api.post("/api/codex/settings", { reasoningEffort: "high" }, initial.codex.revision)).status, 409);
+    const final = await api.state();
+    assert.equal(final.codex.settings.reasoningEffort, "low");
+    assert.equal(final.claude.activeProviderId, body.providerId);
+    assert.equal(final.revision, initial.revision);
+  });
+});

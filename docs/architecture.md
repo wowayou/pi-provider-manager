@@ -64,7 +64,7 @@ Only `server.mjs` writes saved Pi, Codex or Claude configuration, in the first t
 | Path | Responsibility | Explicitly does not own |
 | --- | --- | --- |
 | `src/` | React workflow, validation feedback, demo fixture, theme, and save handoff | filesystem access, stored credentials, provider traffic |
-| `lib/` | dependency-free server modules shipped as source: atomic writes, the shared managed-file guard, TOML document model, Codex and Claude config, LiteLLM bridge, prompt library, Pi and Codex version detection, model discovery, this project's own update lookup and upgrade | local HTTP routing, UI state |
+| `lib/` | dependency-free server modules shipped as source: atomic writes, the shared managed-file guard, TOML document model, Codex and Claude config, LiteLLM bridge, prompt library, Pi and Codex version detection, model discovery, this project's own update lookup and upgrade | HTTP security checks, UI state |
 | `server.mjs` | loopback API, config validation, revision checks, atomic writes, rollback, static production serving, user-requested catalog discovery, replacing itself on restart | inference requests, model execution, scheduled update monitoring |
 | `bin/claude-with-provider.mjs` | launches installed Claude with a private per-run gateway snapshot; terminal IO and cleanup | model traffic, global-default writes, permissions policy |
 | `bin/pi-provider-manager-ui` | WSL/local process discovery, port selection, detached launch, browser opening | configuration schema or UI state |
@@ -75,6 +75,8 @@ Only `server.mjs` writes saved Pi, Codex or Claude configuration, in the first t
 | `design-qa.md`, `qa/` | dated visual, interaction, and compatibility evidence; a bounded verification history with links to archived detail and historical screenshots | current runtime state |
 
 `src/codex-flow.jsx` owns the Codex draft, its storage identity, write actions and success handoff. It stays mounted while the user switches targets. `src/codex-draft.mjs` maps public provider data to an editable draft. `src/codex-view.jsx` renders the wizard and settings from that state.
+
+`src/workspace-writes.mjs` coordinates a single pending configuration write, including settings, prompts and deletions. `src/api-client.mjs` submits the revision supplied by each workflow and decodes the returned snapshot or HTTP error. `server.mjs` checks the HTTP boundary before dispatching to the exact provider routes in `lib/provider-routes.mjs`. Each adapter still commits its own files.
 
 ## Configuration ownership
 

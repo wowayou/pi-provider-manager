@@ -1,3 +1,4 @@
+import { postJson } from "./api-client.mjs";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -46,6 +47,7 @@ import { defaultDiscoveryPath } from "../lib/model-discovery.mjs";
 import { CONSERVATIVE, recommendedDefaults, seedModelLimits } from "./model-catalog.mjs";
 import { USER_AGENT_PRESETS } from "./user-agent-presets.mjs";
 import { PromptsScreen } from "./prompts-view.jsx";
+import { useWorkspaceWrites } from "./workspace-writes.mjs";
 import { useCodexFlow } from "./codex-flow.jsx";
 import { useClaude, ClaudeWizard, ClaudeSuccess, ClaudeSettings, ClaudeDeleteDialog } from "./claude-view.jsx";
 import { ManagerCard } from "./manager-card.jsx";
@@ -1977,11 +1979,6 @@ export function App() {
   // per-action `error`: without it a failed first load fell through to an empty
   // wizard with no hint. Cleared once a state read succeeds.
   const [loadError, setLoadError] = useState("");
-  // Set alongside a 409 request error and cleared at the entry of every save:
-  // it is what lets the persistent banner carry the 重新读取 action after the
-  // toast that also offers it has expired.
-  const [conflict, setConflict] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState(null);
   const [deleteTargetId, setDeleteTargetId] = useState("");
   // The Pi provider the sidebar's 设为默认… is choosing a model for, and the
@@ -2066,59 +2063,17 @@ export function App() {
     });
     armToastTimer(id, action ? 7000 : 3200);
   }, [armToastTimer]);
-  const reportRequestError = useCallback((requestError, setMessage) => {
-    setConflict(requestError.status === 409);
-    setMessage(requestError.message);
-    if (requestError.status === 409) {
-      showToast(requestError.message, "error", {
-        label: "重新读取",
-        onAction: () => window.location.reload(),
-      });
-    }
-  }, [showToast]);
   useEffect(() => () => { for (const entry of toastTimers.current.values()) clearTimeout(entry.timeout); }, []);
 
-  // The provider write lock: while a save or a default/active switch is in
-  // flight, nothing may edit the draft it will replace, leave it, or start a
-  // second write. The ref is what refuses a re-entry synchronously — `writing`
-  // only takes effect on the next render, too late for a second call in the
-  // same tick; the state drives the disabled workspace, the sidebar and the
-  // busy note. Blocked input is dropped, never queued: nothing replays after.
-  // The ref is held from entry; the visible lock starts with the request
-  // (`beginWrite`, beside setSaving(true)), so a validation refusal that
-  // focuses its field never meets a disabled workspace.
-  const writeLockRef = useRef(false);
-  const [writing, setWriting] = useState(false);
-  const beginWrite = useCallback(() => { setSaving(true); setWriting(true); }, []);
-  const runWrite = useCallback((work) => async (...args) => {
-    if (writeLockRef.current) return undefined;
-    writeLockRef.current = true;
-    try {
-      return await work(...args);
-    } finally {
-      writeLockRef.current = false;
-      setSaving(false);
-      setWriting(false);
-    }
-  }, []);
-  // An entry the lock simply refuses while a write is pending.
-  const unlessWriting = useCallback((action) => (...args) => (writeLockRef.current ? undefined : action(...args)), []);
-  // Said only once a write is slow enough to see; a local write usually lands
-  // well before this, so the note does not flash on every save.
-  const [writingNotice, setWritingNotice] = useState(false);
-  useEffect(() => {
-    if (!writing) { setWritingNotice(false); return undefined; }
-    const timer = setTimeout(() => setWritingNotice(true), 300);
-    return () => clearTimeout(timer);
-  }, [writing]);
-
+  const { saving, conflict, reportRequestError, writeLockRef,
+    writing, writingNotice, beginWrite, runWrite, unlessWriting } = useWorkspaceWrites(showToast);
   const exitSelectMode = () => {
     setSelectMode(false);
     setSelectedForDelete(new Set());
   };
-  const codexFlow = useCodexFlow({ state, setState, setView, setError, setConflict, reportRequestError, showToast, demoMode, runWrite, beginWrite, writeLockRef, setDeletingProvider, setDeleteProviderError, exitSelectMode });
+  const codexFlow = useCodexFlow({ state, setState, setView, setError, reportRequestError, showToast, demoMode, runWrite, beginWrite, writeLockRef, setDeletingProvider, setDeleteProviderError, exitSelectMode });
   const { codex } = codexFlow;
-  const claudeFlow = useClaude({ state, setState, setView, setError, setConflict, setSaving, reportRequestError, showToast, demoMode, runWrite, beginWrite, isWriting: () => writeLockRef.current });
+  const claudeFlow = useClaude({ state, setState, setView, setError, reportRequestError, showToast, demoMode, runWrite, beginWrite, isWriting: () => writeLockRef.current });
 
   // Loading a draft from saved data (or creating a fresh blank/duplicate) sets
   // both the form and its baseline, so the draft reads as unedited until the
@@ -2368,10 +2323,7 @@ export function App() {
         endpoint: `${form.baseUrl.trim()}${path.trim() || defaultDiscoveryPath(form.api)}`,
       };
     }
-    const response = await fetch("/api/providers/discover-models", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    return postJson("/api/providers/discover-models", {
         baseUrl: form.baseUrl.trim(),
         api: form.api,
         path,
@@ -2381,15 +2333,12 @@ export function App() {
           fromProvider: form.credentialMode === "migrate" ? form.migrateFrom : undefined,
           providerId: piIdentity.ownerId,
         },
-      }),
-    });
-    return readApiResponse(response, "获取模型列表失败");
+      }, "获取模型列表失败");
     // validateCredentials reads the same form fields listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [demoMode, form.baseUrl, form.api, form.credentialMode, form.apiKey, form.migrateFrom, form.providerId, piIdentity.ownerId, piIdentity.conflict, state.authProviders]);
 
   const saveNow = async (setDefault) => {
-    setConflict(false);
     // Nothing but the default would change: write settings.json alone, so making
     // a saved provider the default never rewrites its models.json entry.
     if (setDefault && piIdentity.sourceId && !piIdentity.renameFrom && !piContentDirty) {
@@ -2564,8 +2513,7 @@ export function App() {
         setView("success");
         return;
       }
-      const response = await fetch("/api/providers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      const data = await readApiResponse(response, "保存失败");
+      const data = await postJson("/api/providers", payload, "保存失败");
       setState(data.state);
       const saved = data.state.providers.find((provider) => provider.id === payload.providerId);
       if (saved) { setSelectedId(saved.id); loadForm(providerToForm(saved, data.state)); }
@@ -2601,7 +2549,6 @@ export function App() {
   // and lands on the success screen; a refusal goes to `setMessage`, which is
   // the dialog's own banner when the row menu asked. Resolves true on success.
   const applyPiDefaultNow = async (providerId, modelId, setMessage = setError) => {
-    setConflict(false);
     const stored = state.providers.find((provider) => provider.id === providerId);
     if (!stored || !stored.models.some((model) => model.id === modelId)) {
       setMessage("请选择一个已保存的模型作为默认模型。");
@@ -2620,8 +2567,7 @@ export function App() {
           settings: { ...state.settings, defaultProvider: providerId, defaultModel: modelId },
         };
       } else {
-        const response = await fetch("/api/providers/set-default", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ providerId, modelId, revision: state.revision }) });
-        nextState = (await readApiResponse(response, "设为默认失败")).state;
+        nextState = (await postJson("/api/providers/set-default", { providerId, modelId, revision: state.revision }, "设为默认失败")).state;
       }
       setState(nextState);
       const saved = nextState.providers.find((provider) => provider.id === providerId);
@@ -2646,9 +2592,8 @@ export function App() {
   };
   const applyPiDefault = runWrite(applyPiDefaultNow);
 
-  const saveSettings = async (draft) => {
-    setConflict(false);
-    setSaving(true);
+  const saveSettings = runWrite(async (draft) => {
+    beginWrite();
     setError("");
     try {
       if (demoMode) {
@@ -2656,22 +2601,19 @@ export function App() {
         setState((current) => ({ ...current, settings: { ...current.settings, ...draft } }));
         showToast("演示模式：设置校验通过");
       } else {
-        const response = await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...draft, revision: state.revision }) });
-        const data = await readApiResponse(response, "保存设置失败");
+        const data = await postJson("/api/settings", { ...draft, revision: state.revision }, "保存设置失败");
         setState(data.state);
         showToast("Pi 设置已保存");
       }
     } catch (requestError) {
       reportRequestError(requestError, setError);
-    } finally {
-      setSaving(false);
     }
-  };
+  });
 
-  const deleteProvider = async (payload) => {
+  const deleteProvider = runWrite(async (payload) => {
+    beginWrite();
     setDeletingProvider(true);
     setDeleteProviderError("");
-    setConflict(false);
     try {
       const deletedProvider = state.providers.find((provider) => provider.id === payload.providerId);
       let nextState;
@@ -2698,12 +2640,7 @@ export function App() {
             : state.settings,
         };
       } else {
-        const response = await fetch("/api/providers/delete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...payload, revision: state.revision }),
-        });
-        const data = await readApiResponse(response, "删除供应商失败");
+        const data = await postJson("/api/providers/delete", { ...payload, revision: state.revision }, "删除供应商失败");
         nextState = data.state;
       }
 
@@ -2735,7 +2672,7 @@ export function App() {
     } finally {
       setDeletingProvider(false);
     }
-  };
+  });
 
   const toggleSelectForDelete = (providerId) => {
     setSelectedForDelete((current) => {
@@ -2745,10 +2682,10 @@ export function App() {
     });
   };
 
-  const deleteProvidersBulk = async (payload) => {
+  const deleteProvidersBulk = runWrite(async (payload) => {
+    beginWrite();
     setDeletingProvider(true);
     setDeleteProviderError("");
-    setConflict(false);
     try {
       const removing = new Set(payload.providerIds);
       let nextState;
@@ -2771,12 +2708,7 @@ export function App() {
             : state.settings,
         };
       } else {
-        const response = await fetch("/api/providers/delete-bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...payload, revision: state.revision }),
-        });
-        const data = await readApiResponse(response, "批量删除供应商失败");
+        const data = await postJson("/api/providers/delete-bulk", { ...payload, revision: state.revision }, "批量删除供应商失败");
         nextState = data.state;
       }
 
@@ -2807,7 +2739,7 @@ export function App() {
     } finally {
       setDeletingProvider(false);
     }
-  };
+  });
 
   const switchTarget = (next) => {
     if (next === target) return;
@@ -2821,10 +2753,9 @@ export function App() {
     if (next === "codex") codexFlow.enter();
   };
 
-  const promptRequest = async (route, payload) => {
-    setSaving(true);
+  const promptRequest = runWrite(async (route, payload) => {
+    beginWrite();
     setError("");
-    setConflict(false);
     try {
       if (demoMode) {
         // Demo mirrors the library's own semantics on the fixture: upsert with
@@ -2874,21 +2805,14 @@ export function App() {
         });
         return true;
       }
-      const response = await fetch(route, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, target, revision: state.prompts?.[target]?.revision }),
-      });
-      const data = await readApiResponse(response, "保存失败");
+      const data = await postJson(route, { ...payload, target, revision: state.prompts?.[target]?.revision }, "保存失败");
       setState(data.state);
       return true;
     } catch (requestError) {
       reportRequestError(requestError, setError);
       return false;
-    } finally {
-      setSaving(false);
     }
-  };
+  });
   const savePrompt = async (payload) => {
     if (await promptRequest("/api/prompts", payload)) {
       showToast(payload.activate ? `已保存并写入 ${payload.slot === "agents" ? "AGENTS.md" : "文件"}` : "已保存");

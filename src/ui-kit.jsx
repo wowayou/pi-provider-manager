@@ -205,13 +205,7 @@ export function createRadioKeyHandler({ refs, values, selectedIndex, onSelect })
   };
 }
 
-export async function readApiResponse(response, fallbackMessage) {
-  const data = await response.json();
-  if (response.ok) return data;
-  const error = new Error(data.error || fallbackMessage);
-  error.status = response.status;
-  throw error;
-}
+export { readApiResponse } from "./api-client.mjs";
 
 // What every dialog owes the keyboard: Escape closes it, Tab stays inside
 // it, and focus goes back to the control that opened it once it is gone.

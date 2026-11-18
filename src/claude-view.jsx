@@ -1,8 +1,9 @@
+import { postJson } from "./api-client.mjs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Asterisk, CaretDown, CheckCircle, Copy, Info, Plus, Trash } from "@phosphor-icons/react";
 import { CLAUDE_ALIASES, CLAUDE_EFFORTS, claudeFollowCommand, claudeLaunchCommand, validateClaudeConnection, validateClaudeProvider, validateClaudeCredential } from "../lib/claude-shared.mjs";
 import { draftSignature, providerDraftIdentity } from "./model-draft.mjs";
-import { ErrorBanner, KeyValueList, PasswordInput, ProviderSummary, Spinner, WizardFooter, readApiResponse, useDialog } from "./ui-kit.jsx";
+import { ErrorBanner, KeyValueList, PasswordInput, ProviderSummary, Spinner, WizardFooter, useDialog } from "./ui-kit.jsx";
 import { ManagerCard } from "./manager-card.jsx";
 
 export const blankClaudeForm = () => ({ providerId: "", name: "", baseUrl: "", authType: "token", model: "sonnet", aliases: {}, credentialMode: "new", apiKey: "" });
@@ -12,7 +13,7 @@ export const claudeProviderToForm = (provider) => ({ ...blankClaudeForm(), provi
 // Codex drafts. Storage state comes only from the server's credential-free view.
 // `runWrite` / `isWriting` are App's provider write lock: a Claude save or
 // switch holds it like Pi's and Codex's, and the draft refuses edits meanwhile.
-export function useClaude({ state, setState, setView, setError, setConflict, setSaving, reportRequestError, showToast, demoMode, runWrite, beginWrite, isWriting }) {
+export function useClaude({ state, setState, setView, setError, reportRequestError, showToast, demoMode, runWrite, beginWrite, isWriting }) {
   const claude = state.claude || { providers: [], settings: {}, credentialProviders: [], revision: "" };
   const [form, setFormState] = useState(blankClaudeForm);
   const setForm = useCallback((update) => { if (!isWriting()) setFormState(update); }, [isWriting]);
@@ -64,11 +65,9 @@ export function useClaude({ state, setState, setView, setError, setConflict, set
   };
   const request = async (route, payload, simulate) => {
     if (demoMode) return simulate();
-    const response = await fetch("/api/claude/" + route, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, revision: claude.revision }) });
-    return readApiResponse(response, "Claude Code 配置操作失败");
+    return postJson("/api/claude/" + route, { ...payload, revision: claude.revision }, "Claude Code 配置操作失败");
   };
   const save = runWrite(async (setActive) => {
-    setConflict(false);
     let config;
     try { validateConnection(); config = validateClaudeProvider(form); } catch (problem) { failValidation(problem); return; }
     beginWrite(); setError("");
@@ -85,7 +84,7 @@ export function useClaude({ state, setState, setView, setError, setConflict, set
     } catch (problem) { reportRequestError(problem, setError); }
   });
   const activate = runWrite(async (id) => {
-    setConflict(false); beginWrite(); setError("");
+    beginWrite(); setError("");
     try {
       const data = await request("activate", { providerId: id }, () => ({ state: { ...state, claude: { ...claude, activeProviderId: id, providers: claude.providers.map((entry) => ({ ...entry, isActive: entry.id === id })) } } }));
       setState(data.state); setResult({ providerId: id, activated: true }); setView("success");
@@ -93,8 +92,8 @@ export function useClaude({ state, setState, setView, setError, setConflict, set
   });
   const openDelete = (id) => { setDeleteId(id); setDeleteError(""); };
   const closeDelete = useCallback(() => { setDeleteId(""); setDeleteError(""); }, []);
-  const remove = async (options) => {
-    setConflict(false); setSaving(true); setDeleteError("");
+  const remove = runWrite(async (options) => {
+    beginWrite(); setDeleteError("");
     try {
       const data = await request("providers/delete", { providerId: deleteId, ...options }, () => {
         const activeId = claude.activeProviderId === deleteId ? options.replacementProviderId : claude.activeProviderId;
@@ -105,16 +104,14 @@ export function useClaude({ state, setState, setView, setError, setConflict, set
       if (next) select(next); else startNew();
       showToast("Claude Code 供应商已删除");
     } catch (problem) { reportRequestError(problem, setDeleteError); }
-    finally { setSaving(false); }
-  };
-  const saveSettings = async (draft) => {
-    setConflict(false); setSaving(true); setError("");
+  });
+  const saveSettings = runWrite(async (draft) => {
+    beginWrite(); setError("");
     try {
       const data = await request("settings", draft, () => ({ state: { ...state, claude: { ...claude, settings: Object.fromEntries(Object.entries(draft).filter(([, value]) => value !== null)) } } }));
       setState(data.state); showToast("Claude Code 用户设置已保存");
     } catch (problem) { reportRequestError(problem, setError); }
-    finally { setSaving(false); }
-  };
+  });
   return { claude, form, setForm, selectedId, step, dirty, focus, identity, result, deleteId, deleteError, provider, select, startNew, enter, duplicate, goStep, save, activate, openDelete, closeDelete, remove, saveSettings };
 }
 

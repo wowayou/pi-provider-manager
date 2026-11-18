@@ -1,11 +1,12 @@
+import { postJson } from "./api-client.mjs";
 import { useCallback, useMemo, useState } from "react";
 import { normalizeUrl } from "../lib/validation.mjs";
 import { demoActivateCodex, draftSignature, duplicateCodexForm, providerDraftIdentity } from "./model-draft.mjs";
-import { readApiResponse, titleFromId } from "./ui-kit.jsx";
+import { titleFromId } from "./ui-kit.jsx";
 import { blankCodexForm, codexProviderToForm } from "./codex-draft.mjs";
 
 // Mounted across target switches so the user can return to a pending Codex draft.
-export function useCodexFlow({ state, setState, setView, setError, setConflict, reportRequestError, showToast,
+export function useCodexFlow({ state, setState, setView, setError, reportRequestError, showToast,
   demoMode, runWrite, beginWrite, writeLockRef, setDeletingProvider, setDeleteProviderError, exitSelectMode }) {
   const [codexForm, setCodexForm] = useState(blankCodexForm);
   const [codexBaseline, setCodexBaseline] = useState(() => draftSignature(blankCodexForm()));
@@ -135,12 +136,7 @@ export function useCodexFlow({ state, setState, setView, setError, setConflict, 
         : "已停止本地桥");
       return;
     }
-    const response = await fetch(`/api/codex/bridge/${action}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ providerId }),
-    });
-    const data = await readApiResponse(response, action === "start" ? "启动桥失败" : "停止桥失败");
+    const data = await postJson(`/api/codex/bridge/${action}`, { providerId }, action === "start" ? "启动桥失败" : "停止桥失败");
     // The bridge is runtime state, not configuration, so refresh it without
     // disturbing a draft: only the codex.bridge slice changes.
     setState((current) => ({ ...current, codex: { ...current.codex, bridge: data.bridge } }));
@@ -171,7 +167,6 @@ export function useCodexFlow({ state, setState, setView, setError, setConflict, 
   // /api/codex/activate: the stored entry is applied exactly as saved. Shared by
   // an unedited step-3 save and the sidebar row menu.
   const activateCodexNow = async (providerId) => {
-    setConflict(false);
     beginWrite();
     setError("");
     try {
@@ -180,8 +175,7 @@ export function useCodexFlow({ state, setState, setView, setError, setConflict, 
         await new Promise((resolve) => setTimeout(resolve, 350));
         nextState = { ...state, codex: demoActivateCodex(codex, providerId) };
       } else {
-        const response = await fetch("/api/codex/activate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ providerId, revision: codex.revision }) });
-        nextState = (await readApiResponse(response, "切换失败")).state;
+        nextState = (await postJson("/api/codex/activate", { providerId, revision: codex.revision }, "切换失败")).state;
       }
       finishSave(nextState, providerId);
     } catch (requestError) {
@@ -198,7 +192,6 @@ export function useCodexFlow({ state, setState, setView, setError, setConflict, 
       await activateCodexNow(codexIdentity.sourceId);
       return;
     }
-    setConflict(false);
     const message = validateCodexCredentials();
     if (message) { setError(message); setCodexStep(2); return; }
     const named = codexForm.models.filter((model) => model.id.trim());
@@ -262,10 +255,7 @@ export function useCodexFlow({ state, setState, setView, setError, setConflict, 
         finishSave({ ...state, codex: demoCodex }, saved.id);
         return;
       }
-      const response = await fetch("/api/codex/providers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const data = await postJson("/api/codex/providers", {
           revision: codex.revision,
           providerId: codexForm.providerId.trim(),
           name: codexForm.name.trim(),
@@ -288,9 +278,7 @@ export function useCodexFlow({ state, setState, setView, setError, setConflict, 
             : undefined,
           setActive,
           ...(codexRenameFrom ? { renameFrom: codexRenameFrom } : {}),
-        }),
-      });
-      const data = await readApiResponse(response, "保存失败");
+        }, "保存失败");
       finishSave(data.state, codexForm.providerId.trim());
     } catch (requestError) {
       reportRequestError(requestError, setError);
@@ -298,8 +286,8 @@ export function useCodexFlow({ state, setState, setView, setError, setConflict, 
   };
   const saveCodex = runWrite(saveCodexNow);
 
-  const deleteCodexProvider = async (payload) => {
-    setConflict(false);
+  const deleteCodexProvider = runWrite(async (payload) => {
+    beginWrite();
     setDeletingProvider(true);
     setDeleteProviderError("");
     try {
@@ -328,12 +316,7 @@ export function useCodexFlow({ state, setState, setView, setError, setConflict, 
           },
         };
       } else {
-        const response = await fetch("/api/codex/providers/delete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...payload, revision: codex.revision }),
-        });
-        data = await readApiResponse(response, "删除失败");
+        data = await postJson("/api/codex/providers/delete", { ...payload, revision: codex.revision }, "删除失败");
       }
       setState(data.state);
       setCodexDeleteTargetId("");
@@ -358,12 +341,12 @@ export function useCodexFlow({ state, setState, setView, setError, setConflict, 
     } finally {
       setDeletingProvider(false);
     }
-  };
+  });
 
-  const deleteCodexProvidersBulk = async (payload) => {
+  const deleteCodexProvidersBulk = runWrite(async (payload) => {
+    beginWrite();
     setDeletingProvider(true);
     setDeleteProviderError("");
-    setConflict(false);
     try {
       const removing = new Set(payload.providerIds);
       let data;
@@ -388,12 +371,7 @@ export function useCodexFlow({ state, setState, setView, setError, setConflict, 
           },
         };
       } else {
-        const response = await fetch("/api/codex/providers/delete-bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...payload, revision: codex.revision }),
-        });
-        data = await readApiResponse(response, "批量删除供应商失败");
+        data = await postJson("/api/codex/providers/delete-bulk", { ...payload, revision: codex.revision }, "批量删除供应商失败");
       }
       const removedCount = payload.providerIds.length;
       setState(data.state);
@@ -420,10 +398,9 @@ export function useCodexFlow({ state, setState, setView, setError, setConflict, 
     } finally {
       setDeletingProvider(false);
     }
-  };
+  });
 
   const saveCodexSettings = runWrite(async (draft) => {
-    setConflict(false);
     beginWrite();
     setError("");
     try {
@@ -438,12 +415,7 @@ export function useCodexFlow({ state, setState, setView, setError, setConflict, 
             m.id === p.defaultModelId ? { ...m, reasoningEffort: preferences.reasoningEffort } : m) }),
         } };
       } else {
-        const response = await fetch("/api/codex/settings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...draft, revision: codex.revision }),
-        });
-        nextState = (await readApiResponse(response, "保存设置失败")).state;
+        nextState = (await postJson("/api/codex/settings", { ...draft, revision: codex.revision }, "保存设置失败")).state;
       }
       setState(nextState);
       const selected = nextState.codex.providers.find(p => p.id === codexSelectedId);
