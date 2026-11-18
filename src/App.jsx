@@ -251,8 +251,9 @@ function demoSlot(id, file, note, documents, activeId) {
 const DEMO_STATE = {
   agentDir: "~/.pi/agent",
   claude: {
-    available: true, dir: "~/.claude", dirSource: "default-home", revision: "", activeProviderId: "claude-gateway", blockers: [], settings: {}, launcher: { node: "node", script: "/path/to/pi-provider-manager/bin/claude-with-provider.mjs", dir: "~/.claude", shell: "posix" }, credentialProviders: ["claude-gateway"],
-    providers: [{ id: "claude-gateway", name: "Claude 网关", baseUrl: "https://gateway.example.com", authType: "token", model: "sonnet", aliases: {}, credentialConfigured: true, isActive: true, adopted: false }],
+    available: true, dir: "~/.claude", dirSource: "default-home", revision: "", activeProviderId: "claude-gateway", blockers: [], settings: {}, launcher: { node: "node", script: "/path/to/pi-provider-manager/bin/claude-with-provider.mjs", dir: "~/.claude", shell: "posix" }, credentialProviders: ["claude-gateway", "claude-backup"],
+    providers: [{ id: "claude-gateway", name: "Claude 网关", baseUrl: "https://gateway.example.com", authType: "token", model: "sonnet", aliases: {}, credentialConfigured: true, isActive: true, adopted: false },
+      { id: "claude-backup", name: "备用 Claude 网关", baseUrl: "https://backup.example.com", authType: "token", model: "sonnet", aliases: {}, credentialConfigured: true, isActive: false, adopted: false }],
   },
   prompts: {
     claude: { dir: "~/.claude", revision: "", limits: DEMO_PROMPT_LIMITS, slots: [{ ...demoSlot("claude", "CLAUDE.md", "用户级全局指令，与项目指令一起读取。", [], ""), path: "~/.claude/CLAUDE.md" }] },
@@ -317,7 +318,7 @@ const DEMO_STATE = {
       ],
     },
     { id: "openai", name: "OpenAI", api: "openai-responses", baseUrl: "https://api.openai.com/v1", credentialConfigured: true, models: [] },
-    { id: "deepseek", name: "DeepSeek", api: "openai-completions", baseUrl: "https://api.deepseek.com/v1", credentialConfigured: true, models: [] },
+    { id: "deepseek", name: "DeepSeek", api: "openai-completions", baseUrl: "https://api.deepseek.com/v1", credentialConfigured: true, models: [{ id: "deepseek-chat", name: "DeepSeek Chat", input: ["text"], contextWindow: 128000, maxTokens: 8192 }] },
     { id: "moonshot", name: "Moonshot", api: "openai-completions", baseUrl: "", credentialConfigured: false, models: [] },
     { id: "qwen", name: "Qwen", api: "openai-completions", baseUrl: "", credentialConfigured: true, models: [] },
     { id: "gemini", name: "Gemini", api: "google-generative-ai", baseUrl: "", credentialConfigured: true, models: [] },

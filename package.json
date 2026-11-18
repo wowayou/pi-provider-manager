@@ -32,6 +32,7 @@
     "test:pi-update": "node --test tests/pi-update-monitor.test.mjs",
     "test:release": "node --test tests/release-artifacts.test.mjs",
     "build": "vite build && node scripts/prepare-sites-build.mjs",
+    "test:showcase": "npm run build:showcase && node --test tests/showcase.test.mjs",
     "build:showcase": "vite build --config vite.showcase.config.mjs --mode showcase",
     "prepare:release": "node scripts/prepare-release-artifacts.mjs",
     "package:linux": "node scripts/prepare-release-artifacts.mjs && tar -czf artifacts/pi-provider-manager-v${npm_package_version}-linux-wsl.tar.gz -C artifacts pi-provider-manager-v${npm_package_version}",
