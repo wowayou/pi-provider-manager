@@ -74,6 +74,8 @@ Only `server.mjs` writes saved Pi, Codex or Claude configuration, in the first t
 | `tests/` | API/security boundary, production-browser flows, real-agent compatibility, release/launcher and Sites packaging, update-monitor behavior | live provider credentials or private fixtures |
 | `design-qa.md`, `qa/` | dated visual, interaction, and compatibility evidence; a bounded verification history with links to archived detail and historical screenshots | current runtime state |
 
+`src/codex-flow.jsx` owns the Codex draft, its storage identity, write actions and success handoff. It stays mounted while the user switches targets. `src/codex-draft.mjs` maps public provider data to an editable draft. `src/codex-view.jsx` renders the wizard and settings from that state.
+
 ## Configuration ownership
 
 | File | Access | Manager-owned behavior |

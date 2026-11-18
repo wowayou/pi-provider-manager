@@ -39,13 +39,14 @@ import {
 } from "@phosphor-icons/react";
 import { PROVIDER_ID_PATTERN, normalizeUrl } from "../lib/validation.mjs";
 import { validateUserAgent } from "../lib/pi-user-agent.mjs";
-import { changedPersistedModel, demoActivateCodex, draftContentSignature, draftSignature, duplicateCodexForm, duplicatePiForm, piSaveChangesState, providerDraftIdentity, selectedNamedModel, userAgentSaveIntent, anthropicBetaSaveIntent, modelBaseUrlSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "./model-draft.mjs";
+import { changedPersistedModel, draftContentSignature, draftSignature, duplicatePiForm, piSaveChangesState, providerDraftIdentity, selectedNamedModel, userAgentSaveIntent, anthropicBetaSaveIntent, modelBaseUrlSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "./model-draft.mjs";
 import { effectiveModelApi, endpointHint, normalizeModelBaseUrl, piRequestUrl } from "../lib/pi-endpoints.mjs";
 import { normalizeAnthropicBeta } from "../lib/pi-anthropic-beta.mjs";
 import { defaultDiscoveryPath } from "../lib/model-discovery.mjs";
 import { CONSERVATIVE, recommendedDefaults, seedModelLimits } from "./model-catalog.mjs";
 import { USER_AGENT_PRESETS } from "./user-agent-presets.mjs";
 import { PromptsScreen } from "./prompts-view.jsx";
+import { useCodexFlow } from "./codex-flow.jsx";
 import { useClaude, ClaudeWizard, ClaudeSuccess, ClaudeSettings, ClaudeDeleteDialog } from "./claude-view.jsx";
 import { ManagerCard } from "./manager-card.jsx";
 import { BulkModal, ConfigEditor, ErrorBanner, KeyValueList, PasswordInput, ProviderSummary, Spinner, StepFooter, WizardFooter, createRadioKeyHandler, readApiResponse, titleFromId, useDialog, useScrollEdges, validateJson, formatJson, formatTokens, parseTokens, isValidTokens } from "./ui-kit.jsx";
@@ -56,8 +57,6 @@ import {
   CodexStepper,
   CodexSuccessScreen,
   CodexWizard,
-  blankCodexForm,
-  codexProviderToForm,
   isLocalAddress,
 } from "./codex-view.jsx";
 
@@ -1997,12 +1996,10 @@ export function App() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState(() => new Set());
   const [bulkDeleteIds, setBulkDeleteIds] = useState([]);
-  const [codexBulkDeleteIds, setCodexBulkDeleteIds] = useState([]);
   const [userAgentFocusRequest, setUserAgentFocusRequest] = useState(0);
   const [betaFocusRequest, setBetaFocusRequest] = useState({ rowId: "", serial: 0 });
   const [endpointFocusRequest, setEndpointFocusRequest] = useState({ rowId: "", serial: 0 });
   const [target, setTarget] = useState("pi");
-  const [codexForm, setCodexForm] = useState(blankCodexForm);
   // Baselines: the signature of the last draft loaded from saved data (or a
   // freshly created blank/duplicate). A draft is dirty when its current
   // signature differs — i.e. the user has edited it since it was loaded. Every
@@ -2014,15 +2011,10 @@ export function App() {
   // differs from disk at most in which model is the default, which lives only in
   // settings.json, so it can be made Pi's default without rewriting models.json.
   const [piContentBaseline, setPiContentBaseline] = useState(() => draftContentSignature(demoMode ? providerToForm(DEMO_STATE.providers[0], DEMO_STATE) : blankForm()));
-  const [codexBaseline, setCodexBaseline] = useState(() => draftSignature(blankCodexForm()));
   // A settings or prompts screen reports its own edited state up so the shared
   // leave guard and beforeunload can see it. Only one such screen is mounted at
   // a time, so a single flag is enough; each screen clears it on unmount.
   const [screenDirty, setScreenDirty] = useState(false);
-  const [codexStep, setCodexStep] = useState(1);
-  const [codexSelectedId, setCodexSelectedId] = useState("");
-  const [codexSaveResult, setCodexSaveResult] = useState(null);
-  const [codexDeleteTargetId, setCodexDeleteTargetId] = useState("");
   // A small toast stack: up to two at once, each on its own timer. A toast that
   // carries an action (an undo, a 重新读取) is never evicted by a plain one, so a
   // burst of arm/notice toasts cannot bury the undo the user still needs.
@@ -2120,17 +2112,21 @@ export function App() {
     return () => clearTimeout(timer);
   }, [writing]);
 
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedForDelete(new Set());
+  };
+  const codexFlow = useCodexFlow({ state, setState, setView, setError, setConflict, reportRequestError, showToast, demoMode, runWrite, beginWrite, writeLockRef, setDeletingProvider, setDeleteProviderError, exitSelectMode });
+  const { codex } = codexFlow;
   const claudeFlow = useClaude({ state, setState, setView, setError, setConflict, setSaving, reportRequestError, showToast, demoMode, runWrite, beginWrite, isWriting: () => writeLockRef.current });
 
   // Loading a draft from saved data (or creating a fresh blank/duplicate) sets
   // both the form and its baseline, so the draft reads as unedited until the
   // user changes something. User edits use the plain setters.
   const loadForm = useCallback((next) => { setForm(next); setPiBaseline(draftSignature(next)); setPiContentBaseline(draftContentSignature(next)); }, []);
-  const loadCodexForm = useCallback((next) => { setCodexForm(next); setCodexBaseline(draftSignature(next)); }, []);
   // What the forms edit through. A pending write replaces the draft with what it
   // saved, so an edit made meanwhile would be lost without a word: refuse it.
   const editForm = useCallback((update) => { if (!writeLockRef.current) setForm(update); }, []);
-  const editCodexForm = useCallback((update) => { if (!writeLockRef.current) setCodexForm(update); }, []);
   const piIdentity = providerDraftIdentity(selectedId, form.providerId, state.providers.map((provider) => provider.id), state.authProviders);
   const piDirty = useMemo(() => draftSignature(form) !== piBaseline, [form, piBaseline]);
   const piContentDirty = useMemo(() => draftContentSignature(form) !== piContentBaseline, [form, piContentBaseline]);
@@ -2138,13 +2134,12 @@ export function App() {
   // save entry itself, so a disabled button is never the only guard.
   const piIsCurrentDefault = state.settings.defaultProvider === form.providerId.trim();
   const piSaveState = piSaveChangesState({ isCurrentDefault: piIsCurrentDefault, dirty: piDirty, contentDirty: piContentDirty });
-  const codexDirty = useMemo(() => draftSignature(codexForm) !== codexBaseline, [codexForm, codexBaseline]);
   // The draft the current screen would lose on navigation. Settings and prompts
   // report their own edited state; the wizard's belongs to the active target.
   const currentDirty = view === "settings" || view === "prompts"
     ? screenDirty
     : view === "wizard"
-      ? (target === "claude" ? claudeFlow.dirty : target === "codex" ? codexDirty : piDirty)
+      ? (target === "claude" ? claudeFlow.dirty : target === "codex" ? codexFlow.dirty : piDirty)
       : false;
   // The shared leave guard: an unedited draft leaves at once; an edited one asks
   // first, and only proceeds through the toast's action — the same rule the
@@ -2162,11 +2157,11 @@ export function App() {
   // then would not undo a write the server may already have made, only hide
   // whether it did.
   useEffect(() => {
-    if (!(piDirty || codexDirty || claudeFlow.dirty || screenDirty || writing)) return undefined;
+    if (!(piDirty || codexFlow.dirty || claudeFlow.dirty || screenDirty || writing)) return undefined;
     const handler = (event) => { event.preventDefault(); event.returnValue = ""; };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [piDirty, codexDirty, claudeFlow.dirty, screenDirty, writing]);
+  }, [piDirty, codexFlow.dirty, claudeFlow.dirty, screenDirty, writing]);
   // Back to the top when the step or view changes. A layout effect, so the
   // reset happens at commit — before a child effect or animation frame scrolls
   // an error banner or an invalid field into view. Run from a frame, it undid
@@ -2174,7 +2169,7 @@ export function App() {
   // the refused field focused but scrolled off screen.
   useLayoutEffect(() => {
     document.querySelector(".step-scroll, .settings-scroll, .success-page")?.scrollTo({ top: 0, behavior: "instant" });
-  }, [view, step, target, codexStep, claudeFlow.step]);
+  }, [view, step, target, codexFlow.step, claudeFlow.step]);
   const firstViewRender = useRef(true);
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -2194,7 +2189,7 @@ export function App() {
       if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [view, step, target, codexStep, claudeFlow.step]);
+  }, [view, step, target, codexFlow.step, claudeFlow.step]);
 
   useEffect(() => {
     if (demoMode) return;
@@ -2258,16 +2253,6 @@ export function App() {
       : "已复制模型与兼容设置；改好 ID 和网关地址，填入新 key 后保存");
   };
 
-  const duplicateCodexProvider = () => {
-    if (!codex.providers.some((provider) => provider.id === codexForm.providerId.trim())) return;
-    loadCodexForm(duplicateCodexForm(codexForm, codex.providers.map((provider) => provider.id)));
-    setCodexSelectedId("");
-    setCodexStep(2);
-    setView("wizard");
-    setError("");
-    showToast("已复制模型与推理强度；改好 ID 和网关地址，填入新 key 后保存");
-  };
-
   const selectProvider = (provider) => {
     loadForm(providerToForm(provider, state));
     setSelectedId(provider.id);
@@ -2307,18 +2292,6 @@ export function App() {
     showToast(copiedExternalUserAgent || copiedExternalBeta || copiedExternalBaseUrl
       ? "已复制模型与兼容设置；外部配置未复制，请在第三步重新填写"
       : "已复制模型与兼容设置；改好 ID 和网关地址，填入新 key 后保存");
-  };
-
-  const duplicateCodexProviderById = (providerId) => {
-    const provider = codex.providers.find((item) => item.id === providerId);
-    if (!provider) return;
-    const sourceForm = codexProviderToForm(provider, codex);
-    loadCodexForm(duplicateCodexForm(sourceForm, codex.providers.map((item) => item.id)));
-    setCodexSelectedId("");
-    setCodexStep(2);
-    setView("wizard");
-    setError("");
-    showToast("已复制模型与推理强度；改好 ID 和网关地址，填入新 key 后保存");
   };
 
   const closeDeleteProvider = useCallback(() => {
@@ -2764,10 +2737,6 @@ export function App() {
     }
   };
 
-  const exitSelectMode = () => {
-    setSelectMode(false);
-    setSelectedForDelete(new Set());
-  };
   const toggleSelectForDelete = (providerId) => {
     setSelectedForDelete((current) => {
       const next = new Set(current);
@@ -2840,10 +2809,6 @@ export function App() {
     }
   };
 
-  const codex = state.codex || { providers: [], settings: {}, revision: "" };
-  const codexProvider = (id) => codex.providers.find((provider) => provider.id === id);
-  const codexIdentity = providerDraftIdentity(codexSelectedId, codexForm.providerId, codex.providers.map((provider) => provider.id));
-
   const switchTarget = (next) => {
     if (next === target) return;
     setTarget(next);
@@ -2851,301 +2816,10 @@ export function App() {
     if (view !== "prompts" && view !== "settings") setView("wizard");
     setError("");
     setSaveResult(null);
-    setCodexSaveResult(null);
+    codexFlow.setResult(null);
     if (next === "claude") claudeFlow.enter();
-    if (next === "codex") {
-      // Switching targets never discards a draft: an edited Codex draft is left
-      // exactly as it is so it survives a round trip to Pi and back. Only when
-      // the Codex draft is clean is it refreshed from the currently
-      // selected/active provider, so it reflects the latest saved state.
-      if (!codexDirty) {
-        const provider = codexProvider(codexSelectedId)
-          || codex.providers.find((item) => item.isActive)
-          || codex.providers[0];
-        if (provider) {
-          setCodexSelectedId(provider.id);
-          loadCodexForm(codexProviderToForm(provider, codex));
-          setCodexStep(3);
-        } else {
-          setCodexSelectedId("");
-          loadCodexForm(blankCodexForm());
-          setCodexStep(1);
-        }
-      }
-    }
+    if (next === "codex") codexFlow.enter();
   };
-
-  const startNewCodex = () => {
-    loadCodexForm(blankCodexForm());
-    setCodexSelectedId("");
-    setCodexStep(1);
-    setView("wizard");
-    setError("");
-  };
-
-  const selectCodexProvider = (provider) => {
-    loadCodexForm(codexProviderToForm(provider, codex));
-    setCodexSelectedId(provider.id);
-    setCodexStep(provider.models.length > 0 ? 3 : 1);
-    setView("wizard");
-    setError("");
-  };
-
-  const validateCodexCredentials = () => {
-    if (!codexForm.providerId.trim()) return "请输入供应商 ID。";
-    if (codexIdentity.conflict) return codexIdentity.conflict;
-    if (!codexForm.name.trim()) return "请填写供应商名称。";
-    if (codexForm.upstream === "bridge") {
-      if (!codexForm.bridgeUpstreamUrl.trim()) return "请输入上游 API 地址。";
-      try { normalizeUrl(codexForm.bridgeUpstreamUrl); } catch (problem) { return problem.message; }
-      const savedBridge = codexProvider(codexIdentity.ownerId)?.bridge;
-      if (!codexForm.bridgeApiKey.trim() && !savedBridge?.credentialConfigured) return "请输入上游 API Key。";
-      return "";
-    }
-    if (!codexForm.baseUrl.trim()) return "请输入 API 地址。";
-    try { normalizeUrl(codexForm.baseUrl); } catch (problem) { return problem.message; }
-    if (codexForm.requiresAuth && codexForm.credentialMode === "new" && !codexForm.apiKey.trim()) return "请输入 API Key。";
-    if (codexForm.requiresAuth && codexForm.credentialMode === "migrate" && !codexForm.migrateFrom) return "请选择要复制的已有凭据。";
-    return "";
-  };
-
-  const goToCodexModels = () => {
-    const message = validateCodexCredentials();
-    if (message) { setError(message); return; }
-    setError("");
-    setCodexStep(3);
-  };
-
-  // Free step-jump for a saved Codex provider, mirroring the Pi side: a jump to
-  // the models step still validates the credentials step and stops there on
-  // failure.
-  const goToCodexStep = (targetStep) => {
-    if (targetStep === codexStep) return;
-    if (targetStep >= 3) {
-      const message = validateCodexCredentials();
-      if (message) { setError(message); setCodexStep(2); return; }
-    }
-    setError("");
-    setCodexStep(targetStep);
-  };
-
-  const bridgeAction = async (action) => {
-    const providerId = codexIdentity.ownerId;
-    if (demoMode) {
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      setState((current) => ({
-        ...current,
-        codex: {
-          ...current.codex,
-          bridge: {
-            providerId,
-            supervisable: true,
-            running: action === "start",
-            port: 4000,
-            binary: "litellm",
-            binarySource: "discovered",
-            version: "1.97.0",
-          },
-        },
-      }));
-      showToast(action === "start"
-        ? "已启动本地桥；几秒后再看状态，首次启动 LiteLLM 会慢一些"
-        : "已停止本地桥");
-      return;
-    }
-    const response = await fetch(`/api/codex/bridge/${action}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ providerId }),
-    });
-    const data = await readApiResponse(response, action === "start" ? "启动桥失败" : "停止桥失败");
-    // The bridge is runtime state, not configuration, so refresh it without
-    // disturbing a draft: only the codex.bridge slice changes.
-    setState((current) => ({ ...current, codex: { ...current.codex, bridge: data.bridge } }));
-    showToast(action === "start"
-      ? "已启动本地桥；几秒后再看状态，首次启动 LiteLLM 会慢一些"
-      : "已停止本地桥");
-  };
-
-  // Switches Codex to a stored provider without resubmitting its form, through
-  // /api/codex/activate: the stored entry is applied exactly as saved. Shared by
-  // an unedited step-3 save and the sidebar row menu.
-  const activateCodexNow = async (providerId) => {
-    setConflict(false);
-    beginWrite();
-    setError("");
-    try {
-      let nextState;
-      if (demoMode) {
-        await new Promise((resolve) => setTimeout(resolve, 350));
-        nextState = { ...state, codex: demoActivateCodex(codex, providerId) };
-      } else {
-        const response = await fetch("/api/codex/activate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ providerId, revision: codex.revision }) });
-        nextState = (await readApiResponse(response, "切换失败")).state;
-      }
-      setState(nextState);
-      const saved = (nextState.codex?.providers || []).find((provider) => provider.id === providerId);
-      if (saved) { setCodexSelectedId(saved.id); loadCodexForm(codexProviderToForm(saved, nextState.codex)); }
-      setCodexSaveResult({
-        providerId,
-        name: saved?.name || titleFromId(providerId),
-        modelCount: saved?.models.length || 0,
-        defaultModelId: saved?.defaultModelId || "",
-        activated: Boolean(saved?.isActive),
-        requiresAuth: saved?.requiresAuth !== false,
-        bridged: Boolean(saved?.bridge),
-        command: "codex",
-        otherModels: (saved?.models || []).map((model) => model.id).filter((id) => id !== saved?.defaultModelId),
-      });
-      setView("success");
-    } catch (requestError) {
-      reportRequestError(requestError, setError);
-    }
-  };
-
-  const activateCodex = runWrite(activateCodexNow);
-
-  const saveCodexNow = async (setActive) => {
-    // Nothing to write but the switch: apply the stored provider as it is,
-    // rather than rebuilding it from the form.
-    if (setActive && codexIdentity.sourceId && !codexIdentity.renameFrom && !codexDirty) {
-      await activateCodexNow(codexIdentity.sourceId);
-      return;
-    }
-    setConflict(false);
-    const message = validateCodexCredentials();
-    if (message) { setError(message); setCodexStep(2); return; }
-    const named = codexForm.models.filter((model) => model.id.trim());
-    // Step-3 checks: a save started on step 1 or 2 moves to the step that owns them.
-    if (named.length === 0) { setError("至少填写一个模型 ID。"); setCodexStep(3); return; }
-    const selected = codexForm.models.find((model) => model.rowId === codexForm.defaultRowId && model.id.trim());
-    if (!selected) { setError("请选择一个已命名模型作为该供应商的默认模型。"); setCodexStep(3); return; }
-    // A draft opened from a stored Codex provider whose ID now differs is a
-    // rename of that provider, not a fork. The server moves its stored config
-    // and active marker together, then relabels any matching bridge runtime
-    // record separately; the client only names the source.
-    const codexRenameFrom = codexIdentity.renameFrom;
-    beginWrite();
-    setError("");
-    try {
-      if (demoMode) {
-        // Demo has no server behind the codex endpoints: the Pi save path has
-        // faked its happy path since V1.1, and without this mirror the Codex
-        // workspace could never leave the wizard — the posted draft revision
-        // is the fixture's "", which the real API refuses with 409.
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        const requiresAuth = codexForm.upstream !== "bridge" && codexForm.requiresAuth;
-        const existing = codexProvider(codexIdentity.ownerId);
-        const bridge = codexForm.upstream === "bridge" ? {
-          ...existing?.bridge,
-          upstreamBaseUrl: codexForm.bridgeUpstreamUrl.trim(),
-          port: existing?.bridge?.port || 4000,
-          credentialConfigured: Boolean(codexForm.bridgeApiKey.trim() || existing?.bridge?.credentialConfigured),
-        } : null;
-        const saved = {
-          id: codexForm.providerId.trim(),
-          name: codexForm.name.trim() || titleFromId(codexForm.providerId.trim()),
-          baseUrl: bridge ? `http://127.0.0.1:${bridge.port}/v1` : codexForm.baseUrl.trim(),
-          bridge,
-          requiresAuth,
-          models: named.map((model) => ({ id: model.id.trim(), reasoningEffort: model.reasoningEffort })),
-          defaultModelId: selected.id.trim(),
-          credentialConfigured: !requiresAuth || codexForm.credentialMode !== "new" || Boolean(codexForm.apiKey.trim()),
-          adopted: false,
-          isActive: Boolean(setActive || codex.activeProviderId === codexForm.providerId.trim() || (codexRenameFrom && codex.activeProviderId === codexRenameFrom)),
-        };
-        const savedCodex = {
-          ...codex,
-          bridge: codexRenameFrom && codex.bridge?.providerId === codexRenameFrom
-            ? { ...codex.bridge, providerId: saved.id }
-            : codex.bridge,
-          activeProviderId: setActive
-            ? saved.id
-            : codexRenameFrom && codex.activeProviderId === codexRenameFrom
-              ? saved.id
-              : codex.activeProviderId,
-          providers: [
-            ...codex.providers
-              .filter((provider) => provider.id !== saved.id && provider.id !== codexRenameFrom)
-              .map((provider) => (setActive ? { ...provider, isActive: false } : provider)),
-            saved,
-          ],
-        };
-        // A save that takes the switch moves the settings exactly as a switch does.
-        const demoCodex = setActive ? demoActivateCodex(savedCodex, saved.id) : savedCodex;
-        const demoState = { ...state, codex: demoCodex };
-        setState(demoState);
-        setCodexSelectedId(saved.id);
-        loadCodexForm(codexProviderToForm(saved, demoCodex));
-        setCodexSaveResult({
-          providerId: saved.id,
-          name: saved.name,
-          modelCount: named.length,
-          defaultModelId: selected.id.trim(),
-          activated: saved.isActive,
-          requiresAuth,
-          bridged: codexForm.upstream === "bridge",
-          command: "codex",
-          otherModels: named.map((model) => model.id.trim()).filter((id) => id !== selected.id.trim()),
-        });
-        setView("success");
-        return;
-      }
-      const response = await fetch("/api/codex/providers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          revision: codex.revision,
-          providerId: codexForm.providerId.trim(),
-          name: codexForm.name.trim(),
-          baseUrl: codexForm.baseUrl.trim(),
-          // A bridged provider carries no credential of its own: the server
-          // forces requires_openai_auth = false, and the upstream key travels
-          // in the bridge block instead.
-          requiresAuth: codexForm.upstream === "bridge" ? false : codexForm.requiresAuth,
-          credential: codexForm.upstream !== "bridge" && codexForm.requiresAuth
-            ? {
-                mode: codexForm.credentialMode,
-                apiKey: codexForm.apiKey,
-                fromProvider: codexForm.migrateFrom,
-              }
-            : { mode: "keep" },
-          models: named.map((model) => ({ id: model.id.trim(), reasoningEffort: model.reasoningEffort })),
-          defaultModelId: selected.id.trim(),
-          bridge: codexForm.upstream === "bridge"
-            ? { upstreamBaseUrl: codexForm.bridgeUpstreamUrl.trim(), apiKey: codexForm.bridgeApiKey }
-            : undefined,
-          setActive,
-          ...(codexRenameFrom ? { renameFrom: codexRenameFrom } : {}),
-        }),
-      });
-      const data = await readApiResponse(response, "保存失败");
-      setState(data.state);
-      const saved = (data.state.codex?.providers || []).find((provider) => provider.id === codexForm.providerId.trim());
-      setCodexSelectedId(codexForm.providerId.trim());
-      if (saved) loadCodexForm(codexProviderToForm(saved, data.state.codex));
-      setCodexSaveResult({
-        providerId: codexForm.providerId.trim(),
-        name: codexForm.name.trim(),
-        modelCount: named.length,
-        defaultModelId: selected.id.trim(),
-        activated: Boolean(saved?.isActive),
-        requiresAuth: saved?.requiresAuth !== false,
-        // Whether the saved provider is bridged decides whether the success
-        // screen must first get the local bridge running: the command it
-        // advertises fails until the bridge is up.
-        bridged: Boolean(saved?.bridge) || codexForm.upstream === "bridge",
-        command: "codex",
-        // The provider's other models, for the `codex -m` hint. Codex sends
-        // whatever string it is given, so these need no slugging.
-        otherModels: named.map((model) => model.id.trim()).filter((id) => id !== selected.id.trim()),
-      });
-      setView("success");
-    } catch (requestError) {
-      reportRequestError(requestError, setError);
-    }
-  };
-  const saveCodex = runWrite(saveCodexNow);
 
   const promptRequest = async (route, payload) => {
     setSaving(true);
@@ -3227,161 +2901,6 @@ export function App() {
     if (await promptRequest("/api/prompts/delete", payload)) showToast("已删除");
   };
 
-  const deleteCodexProvider = async (payload) => {
-    setDeletingProvider(true);
-    setDeleteProviderError("");
-    try {
-      let data;
-      if (demoMode) {
-        // Same demo parity as the Codex save: the fixture's empty revision
-        // would be refused by the real endpoint, so the happy plan is faked
-        // with the same semantics — the active slot moves to the replacement.
-        await new Promise((resolve) => setTimeout(resolve, 400));
-        const isActive = codex.activeProviderId === payload.providerId;
-        const providers = codex.providers
-          .filter((provider) => provider.id !== payload.providerId)
-          .map((provider) => (isActive && payload.replacementProviderId
-            ? { ...provider, isActive: provider.id === payload.replacementProviderId }
-            : provider));
-        data = {
-          state: {
-            ...state,
-            codex: {
-              ...codex,
-              providers,
-              activeProviderId: isActive
-                ? (payload.replacementProviderId || providers[0]?.id || "")
-                : codex.activeProviderId,
-            },
-          },
-        };
-      } else {
-        const response = await fetch("/api/codex/providers/delete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...payload, revision: codex.revision }),
-        });
-        data = await readApiResponse(response, "删除失败");
-      }
-      setState(data.state);
-      setCodexDeleteTargetId("");
-      setCodexSaveResult(null);
-      setView("wizard");
-      setError("");
-      const next = (data.state.codex?.providers || []).find((provider) => provider.id === payload.replacementProviderId)
-        || (data.state.codex?.providers || []).find((provider) => provider.isActive)
-        || (data.state.codex?.providers || [])[0];
-      if (next) {
-        setCodexSelectedId(next.id);
-        loadCodexForm(codexProviderToForm(next, data.state.codex));
-        setCodexStep(3);
-      } else {
-        setCodexSelectedId("");
-        loadCodexForm(blankCodexForm());
-        setCodexStep(1);
-      }
-      showToast(<>已删除 Codex 供应商 <code>{payload.providerId}</code></>);
-    } catch (requestError) {
-      reportRequestError(requestError, setDeleteProviderError);
-    } finally {
-      setDeletingProvider(false);
-    }
-  };
-
-  const deleteCodexProvidersBulk = async (payload) => {
-    setDeletingProvider(true);
-    setDeleteProviderError("");
-    setConflict(false);
-    try {
-      const removing = new Set(payload.providerIds);
-      let data;
-      if (demoMode) {
-        await new Promise((resolve) => setTimeout(resolve, 400));
-        const activeRemoved = removing.has(codex.activeProviderId);
-        const providers = codex.providers
-          .filter((provider) => !removing.has(provider.id))
-          .map((provider) => (activeRemoved && payload.replacementProviderId
-            ? { ...provider, isActive: provider.id === payload.replacementProviderId }
-            : provider));
-        data = {
-          state: {
-            ...state,
-            codex: {
-              ...codex,
-              providers,
-              activeProviderId: activeRemoved
-                ? (payload.replacementProviderId || providers[0]?.id || "")
-                : codex.activeProviderId,
-            },
-          },
-        };
-      } else {
-        const response = await fetch("/api/codex/providers/delete-bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...payload, revision: codex.revision }),
-        });
-        data = await readApiResponse(response, "批量删除供应商失败");
-      }
-      const removedCount = payload.providerIds.length;
-      setState(data.state);
-      setCodexBulkDeleteIds([]);
-      exitSelectMode();
-      setCodexSaveResult(null);
-      setView("wizard");
-      setError("");
-      const next = (data.state.codex?.providers || []).find((provider) => provider.id === payload.replacementProviderId)
-        || (data.state.codex?.providers || []).find((provider) => provider.isActive)
-        || (data.state.codex?.providers || [])[0];
-      if (next) {
-        setCodexSelectedId(next.id);
-        loadCodexForm(codexProviderToForm(next, data.state.codex));
-        setCodexStep(3);
-      } else {
-        setCodexSelectedId("");
-        loadCodexForm(blankCodexForm());
-        setCodexStep(1);
-      }
-      showToast(<>已删除 {removedCount} 个 Codex 供应商</>);
-    } catch (requestError) {
-      reportRequestError(requestError, setDeleteProviderError);
-    } finally {
-      setDeletingProvider(false);
-    }
-  };
-
-  const saveCodexSettings = runWrite(async (draft) => {
-    setConflict(false);
-    beginWrite();
-    setError("");
-    try {
-      let nextState;
-      if (demoMode) {
-        await new Promise((resolve) => setTimeout(resolve, 400));
-        const { activeProviderId, ownedProviderId, ...preferences } = draft;
-        let next = { ...codex, ownedProviderId };
-        if (activeProviderId) next = demoActivateCodex(next, activeProviderId);
-        nextState = { ...state, codex: { ...next, settings: { ...next.settings, ...preferences },
-          providers: next.providers.map(p => p.id !== activeProviderId ? p : { ...p, models: p.models.map(m =>
-            m.id === p.defaultModelId ? { ...m, reasoningEffort: preferences.reasoningEffort } : m) }),
-        } };
-      } else {
-        const response = await fetch("/api/codex/settings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...draft, revision: codex.revision }),
-        });
-        nextState = (await readApiResponse(response, "保存设置失败")).state;
-      }
-      setState(nextState);
-      const selected = nextState.codex.providers.find(p => p.id === codexSelectedId);
-      if (selected && !codexDirty) loadCodexForm(codexProviderToForm(selected, nextState.codex));
-      showToast(demoMode ? "演示设置已更新，未写入本地文件" : "Codex 设置已写入 config.toml；对新开的会话生效");
-    } catch (requestError) {
-      reportRequestError(requestError, setError);
-    }
-  });
-
   const copyCommand = async (command) => {
     try {
       await navigator.clipboard.writeText(command);
@@ -3391,12 +2910,6 @@ export function App() {
       showToast("浏览器拒绝了复制，命令已选中，按 Ctrl/⌘ + C", "error");
       return false;
     }
-  };
-
-  const returnToSavedCodexProvider = () => {
-    const provider = codexProvider(codexSaveResult?.providerId);
-    if (provider) selectCodexProvider(provider);
-    else setView("wizard");
   };
 
   const returnToSavedProvider = () => {
@@ -3415,17 +2928,17 @@ export function App() {
         loadFailed={Boolean(loadError)}
         onReload={() => guardLeave(() => window.location.reload())}
         onTarget={(next) => guardLeave(() => switchTarget(next))}
-        selectedId={target === "claude" ? claudeFlow.selectedId : target === "codex" ? codexSelectedId : selectedId}
-        onSelect={(provider) => guardLeave(() => (target === "claude" ? claudeFlow.select : target === "codex" ? selectCodexProvider : selectProvider)(provider))}
-        onAdd={() => guardLeave(target === "claude" ? claudeFlow.startNew : target === "codex" ? startNewCodex : startNew)}
+        selectedId={target === "claude" ? claudeFlow.selectedId : target === "codex" ? codexFlow.selectedId : selectedId}
+        onSelect={(provider) => guardLeave(() => (target === "claude" ? claudeFlow.select : target === "codex" ? codexFlow.select : selectProvider)(provider))}
+        onAdd={() => guardLeave(target === "claude" ? claudeFlow.startNew : target === "codex" ? codexFlow.startNew : startNew)}
         onSettings={() => guardLeave(() => { setView("settings"); setError(""); })}
         onPrompts={() => guardLeave(() => { setView("prompts"); setError(""); })}
         activeView={view}
         theme={theme}
         onTheme={setTheme}
-        onActivate={(id) => guardLeave(() => (target === "claude" ? claudeFlow.activate(id) : target === "codex" ? activateCodex(id) : openSetDefault(id)))}
-        onDuplicate={(id) => guardLeave(() => (target === "claude" ? claudeFlow.duplicate : target === "codex" ? duplicateCodexProviderById : duplicateProviderById)(id))}
-        onDelete={unlessWriting(target === "claude" ? (id) => guardLeave(() => claudeFlow.openDelete(id)) : target === "codex" ? (id) => { setDeleteProviderError(""); setCodexDeleteTargetId(id); } : openDeleteProvider)}
+        onActivate={(id) => guardLeave(() => (target === "claude" ? claudeFlow.activate(id) : target === "codex" ? codexFlow.activate(id) : openSetDefault(id)))}
+        onDuplicate={(id) => guardLeave(() => (target === "claude" ? claudeFlow.duplicate : target === "codex" ? codexFlow.duplicateById : duplicateProviderById)(id))}
+        onDelete={unlessWriting(target === "claude" ? (id) => guardLeave(() => claudeFlow.openDelete(id)) : target === "codex" ? (id) => { setDeleteProviderError(""); codexFlow.setDeleteId(id); } : openDeleteProvider)}
         canBulkDelete={target !== "claude"}
         selectMode={selectMode}
         selectedForDelete={selectedForDelete}
@@ -3433,7 +2946,7 @@ export function App() {
         onExitSelect={unlessWriting(exitSelectMode)}
         onToggleSelect={unlessWriting(toggleSelectForDelete)}
         onReplaceSelection={unlessWriting((ids) => setSelectedForDelete(new Set(ids)))}
-        onBulkDelete={unlessWriting(() => { setDeleteProviderError(""); if (target === "codex") setCodexBulkDeleteIds(Array.from(selectedForDelete)); else setBulkDeleteIds(Array.from(selectedForDelete)); })}
+        onBulkDelete={unlessWriting(() => { setDeleteProviderError(""); if (target === "codex") codexFlow.setBulkDeleteIds(Array.from(selectedForDelete)); else setBulkDeleteIds(Array.from(selectedForDelete)); })}
       />
       <section className="workspace" aria-busy={writing || undefined}>
         {/* While a provider write is pending every control in the workspace is
@@ -3483,36 +2996,36 @@ export function App() {
               读取 Codex 配置失败：{codex.error || "未知错误"}（{codex.dir}）
             </div>
           ) : view === "settings" ? (
-            <CodexSettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={saveCodexSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} />
-          ) : view === "success" && codexSaveResult ? (
-            <CodexSuccessScreen result={codexSaveResult} codex={codex} error={error} conflict={conflict} onCopy={copyCommand} onReturn={unlessWriting(returnToSavedCodexProvider)} onAdd={unlessWriting(startNewCodex)} onStartBridge={() => bridgeAction("start")} onStopBridge={() => bridgeAction("stop")} onNotify={showToast} />
+            <CodexSettingsScreen state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onSave={codexFlow.saveSettings} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} />
+          ) : view === "success" && codexFlow.result ? (
+            <CodexSuccessScreen result={codexFlow.result} codex={codex} error={error} conflict={conflict} onCopy={copyCommand} onReturn={unlessWriting(codexFlow.returnToSaved)} onAdd={unlessWriting(codexFlow.startNew)} onStartBridge={() => codexFlow.bridgeAction("start")} onStopBridge={() => codexFlow.bridgeAction("stop")} onNotify={showToast} />
           ) : (
             <>
-              <CodexStepper step={codexStep} onStep={unlessWriting(goToCodexStep)} allowJump={Boolean(codexProvider(codexForm.providerId.trim()))} />
+              <CodexStepper step={codexFlow.step} onStep={unlessWriting(codexFlow.goStep)} allowJump={Boolean(codexFlow.provider(codexFlow.form.providerId.trim()))} />
               <CodexWizard
-                step={codexStep}
-                form={codexForm}
-                setForm={editCodexForm}
+                step={codexFlow.step}
+                form={codexFlow.form}
+                setForm={codexFlow.editForm}
                 codex={codex}
                 codexVersion={state.compatibility?.codexVersion}
                 conflict={conflict}
                 error={error}
                 saving={saving}
-                onNext={unlessWriting(codexStep === 1 ? () => setCodexStep(2) : goToCodexModels)}
-                onBack={unlessWriting(() => setCodexStep(codexStep - 1))}
-                onSave={saveCodex}
-                dirty={codexDirty}
+                onNext={unlessWriting(codexFlow.step === 1 ? () => codexFlow.setStep(2) : codexFlow.goToModels)}
+                onBack={unlessWriting(() => codexFlow.setStep(codexFlow.step - 1))}
+                onSave={codexFlow.save}
+                dirty={codexFlow.dirty}
                 // Step 3's save for a saved provider: the live one stays live,
                 // any other is stored without switching Codex to it.
-                onSaveChanges={codexIdentity.sourceId ? () => saveCodex(Boolean(codexProvider(codexForm.providerId.trim())?.isActive)) : undefined}
+                onSaveChanges={codexFlow.identity.sourceId ? () => codexFlow.save(Boolean(codexFlow.provider(codexFlow.form.providerId.trim())?.isActive)) : undefined}
                 onNotify={showToast}
-                onDuplicate={unlessWriting(duplicateCodexProvider)}
-                onStartBridge={() => bridgeAction("start")}
-                onStopBridge={() => bridgeAction("stop")}
-                selectedId={codexSelectedId}
-                onDeleteProvider={unlessWriting(() => setCodexDeleteTargetId(codexSelectedId))}
-                canDeleteProvider={Boolean(codexProvider(codexSelectedId))}
-                isActive={Boolean(codexProvider(codexForm.providerId.trim())?.isActive)}
+                onDuplicate={unlessWriting(codexFlow.duplicateDraft)}
+                onStartBridge={() => codexFlow.bridgeAction("start")}
+                onStopBridge={() => codexFlow.bridgeAction("stop")}
+                selectedId={codexFlow.selectedId}
+                onDeleteProvider={unlessWriting(() => codexFlow.setDeleteId(codexFlow.selectedId))}
+                canDeleteProvider={Boolean(codexFlow.provider(codexFlow.selectedId))}
+                isActive={Boolean(codexFlow.provider(codexFlow.form.providerId.trim())?.isActive)}
               />
             </>
           )
@@ -3520,15 +3033,15 @@ export function App() {
         </fieldset>
       </section>
       {claudeFlow.deleteId && claudeFlow.provider(claudeFlow.deleteId) && <ClaudeDeleteDialog flow={claudeFlow} saving={saving} conflict={conflict} />}
-      {codexDeleteTargetId && codexProvider(codexDeleteTargetId) && (
+      {codexFlow.deleteId && codexFlow.provider(codexFlow.deleteId) && (
         <CodexDeleteDialog
-          provider={codexProvider(codexDeleteTargetId)}
+          provider={codexFlow.provider(codexFlow.deleteId)}
           codex={codex}
           deleting={deletingProvider}
           requestError={deleteProviderError}
           conflict={conflict}
-          onClose={() => { setCodexDeleteTargetId(""); setDeleteProviderError(""); }}
-          onConfirm={deleteCodexProvider}
+          onClose={() => { codexFlow.setDeleteId(""); setDeleteProviderError(""); }}
+          onConfirm={codexFlow.remove}
         />
       )}
       {setDefaultTargetId && state.providers.find((provider) => provider.id === setDefaultTargetId) && (
@@ -3563,15 +3076,15 @@ export function App() {
           onConfirm={deleteProvidersBulk}
         />
       )}
-      {codexBulkDeleteIds.length > 0 && (
+      {codexFlow.bulkDeleteIds.length > 0 && (
         <CodexProviderBulkDeleteDialog
-          providerIds={codexBulkDeleteIds}
+          providerIds={codexFlow.bulkDeleteIds}
           codex={codex}
           deleting={deletingProvider}
           requestError={deleteProviderError}
           conflict={conflict}
-          onClose={() => { setCodexBulkDeleteIds([]); setDeleteProviderError(""); }}
-          onConfirm={deleteCodexProvidersBulk}
+          onClose={() => { codexFlow.setBulkDeleteIds([]); setDeleteProviderError(""); }}
+          onConfirm={codexFlow.removeBulk}
         />
       )}
       <div className="toast-region">

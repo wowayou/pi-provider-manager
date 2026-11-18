@@ -192,13 +192,7 @@ export function PasswordInput({ value, onChange, placeholder, inputRef, ariaInva
   );
 }
 
-export function titleFromId(id) {
-  return String(id)
-    .split(/[-_.]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
+export { titleFromId } from "./model-draft.mjs";
 
 export function createRadioKeyHandler({ refs, values, selectedIndex, onSelect }) {
   return (event) => {
