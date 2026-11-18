@@ -1,6 +1,6 @@
 # 个人供应商管理器：重构方案
 
-2026-11-18。阶段 0–4 已在本地实现并分批验收。静态演示产物可交付，GitHub Pages 公网发布待所有者决定。
+2026-11-18。阶段 0–4 已在本地实现并分批验收。在线演示已于同日发布到 GitHub Pages。
 
 ## 产品决策
 
@@ -64,6 +64,8 @@
 
 本项目可用 `npm run build:showcase` 生成 `artifacts/showcase/`。只发布**这个目录的内容**：不需要也不能部署 `server.mjs`、整个 `artifacts/`、`.env`、上层目录或本机配置。展示构建强制使用内存样例，页上标明不要输入真实密钥；浏览器内容安全策略禁止网络连接和表单提交。刷新丢弃演示编辑，主题偏好仍可保存在浏览器。日常本地版和 Sites 打包命令不变。
 
-**发布是单独的授权点。** 本次不推送、不改 Pages 设置、不开 GitHub Actions。首选一次手动发布；公开前核对仓库可见性、账户计划及 [Pages 限额](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits)，检查文件清单和站点子路径。若以后选择 Actions，应先核对账户剩余额度和计费，再单独批准：仅手动触发、每次一个任务、超时 5 分钟、无自动重试、并发上限 1；发布失败保留旧版，不启用付费回退。未确认成本前不创建工作流。
+2026-11-18，所有者授权以 0 元为费用上限发布一次。`gh-pages` 分支的根提交 `028dade` 含 8 个静态文件，GitHub Pages 从该分支根目录部署。公网取回的 8 个文件均与验收包的 SHA-256 校验值一致。[在线演示](https://wowayou.github.io/pi-provider-manager/) · [部署记录](https://github.com/wowayou/pi-provider-manager/actions/runs/44326438989)
+
+后续发布仍需单独授权并核对 [Pages 限额](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits)。
 
 **停止条件：** 没有真实场景可以证明一个新操作省事，就不加；不能解释某次写入会改谁的原生文件，就不执行；不能保证公开页与本机配置隔离，就不发布。

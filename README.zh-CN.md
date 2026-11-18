@@ -6,6 +6,8 @@ Pi Provider Manager 是一个面向 **Pi、Codex CLI 和 Claude Code** 的本地
 
 它不承载推理流量，也不是 API 聚合网关。Codex 遇到只有 Chat Completions 的上游时，可选用 LiteLLM 作为本机第三方桥接程序；本项目只生成配置并看管进程，仍不经过模型请求。
 
+[打开在线演示](https://wowayou.github.io/pi-provider-manager/)，可试用 Pi、Codex CLI 和 Claude Code 的供应商切换，刷新即可恢复样例。
+
 **使用手册：** [docs/usage.zh-CN.md](docs/usage.zh-CN.md) · **架构：** [docs/architecture.md](docs/architecture.md) · **兼容性：** [docs/compatibility.md](docs/compatibility.md) · **Claude Code：** [docs/claude-code.md](docs/claude-code.md)
 
 ## 项目状态

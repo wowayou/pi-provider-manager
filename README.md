@@ -6,6 +6,8 @@ Pi Provider Manager is a local native-configuration manager for **Pi, the Codex 
 
 It does not carry inference traffic and is not an API aggregation gateway. When Codex needs an upstream that exposes only Chat Completions, an optional local LiteLLM process can bridge it; this project only writes that process's configuration and supervises it.
 
+[Try the interactive demo](https://wowayou.github.io/pi-provider-manager/). Switch sample providers for Pi, Codex CLI, and Claude Code. Refresh the page to restore the examples.
+
 **User guide:** [docs/usage.zh-CN.md](docs/usage.zh-CN.md) · **Architecture:** [docs/architecture.md](docs/architecture.md) · **Compatibility:** [docs/compatibility.md](docs/compatibility.md) · **Claude Code:** [docs/claude-code.md](docs/claude-code.md)
 
 ## Project status
