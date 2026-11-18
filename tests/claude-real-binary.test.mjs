@@ -293,16 +293,27 @@ test("cross-gateway resume fails when the new relay rejects the signature with a
   const { result, turns, requests } = await resumeCase(t, { modelA: "claude-sonnet-4-5", modelB: "claude-sonnet-4-5", reject: (body) => JSON.stringify(body.messages).includes("SIG_FROM_A"), rejectMessage: "Bad request" });
   assert.equal(result.is_error, true);
   assert.match(String(result.result), /400/);
-  // The signature is never dropped here. Since 2.1.287 the first request asks
-  // for thinking.display "updates"; refused, Claude repeats it once without
-  // that field and nothing else changed. Up to 2.1.286 there is one request.
-  assert.ok(turns.length === 1 || turns.length === 2, JSON.stringify(turns));
-  assert.ok(turns.every((turn) => turn.history && turn.signature), JSON.stringify(turns));
-  if (requests.length === 2) {
-    assert.equal(requests[0].body.thinking?.display, "updates");
-    const withoutDisplay = (body) => JSON.parse(JSON.stringify({ ...body, thinking: { ...body.thinking, display: undefined } }));
-    assert.deepEqual(requests[1].body, withoutDisplay(requests[0].body));
+  // Reconstruct each retry from the first wire request. 2.1.322 first
+  // removes the token-count beta, then the display field and its beta.
+  const first = requests[0];
+  const betas = (request) => (request.headers["anthropic-beta"] || "").split(",").filter(Boolean);
+  const tokenCount = "thinking-token-count-2026-05-13";
+  const display = "thinking-display-updates-2026-08-18";
+  let expectedBetas = betas(first);
+  let index = 1;
+  if (expectedBetas.includes(tokenCount)) {
+    expectedBetas = expectedBetas.filter(beta => beta !== tokenCount);
+    assert.deepEqual(requests[index]?.body, first.body);
+    assert.deepEqual(betas(requests[index++]), expectedBetas);
   }
+  if (first.body.thinking?.display === "updates") {
+    assert.ok(expectedBetas.includes(display));
+    const { display: _display, ...thinking } = first.body.thinking;
+    assert.deepEqual(requests[index]?.body, { ...first.body, thinking });
+    assert.deepEqual(betas(requests[index++]), expectedBetas.filter(beta => beta !== display));
+  }
+  assert.equal(requests.length, index);
+  assert.ok(turns.every(turn => turn.history && turn.signature), JSON.stringify(turns));
 });
 
 // A real interactive session in a pseudo-terminal, driven through the copied
