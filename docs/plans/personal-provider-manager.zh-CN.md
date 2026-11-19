@@ -66,6 +66,29 @@
 
 2026-11-18，所有者授权以 0 元为费用上限发布一次。`gh-pages` 分支的根提交 `028dade` 含 8 个静态文件，GitHub Pages 从该分支根目录部署。公网取回的 8 个文件均与验收包的 SHA-256 校验值一致。[在线演示](https://wowayou.github.io/pi-provider-manager/) · [部署记录](https://github.com/wowayou/pi-provider-manager/actions/runs/44326438989)
 
+### 2026-11-19 · UI 打磨、源码与演示同步
+
+所有者明确要求“推送并同步，做好记录”。本次同步包含此前仅在本地的 7 个提交和本轮 UI 修复，经 [PR #170](https://github.com/wowayou/pi-provider-manager/pull/170) 走受保护分支的检查与 squash 合并流程；未直接推送 `main`，也未推送 `local-history`。合并后的唯一提交号以该 PR 的合并记录为准。
+
+- UI 源码：`070476d`；CI 暴露的问题修复：`e84bf73`。390×844 下导航从 372px 降到 306px，表单可视区从 265px 增到 363px；极窄窗口换行、短窗口整页滚动、完整网关地址及键盘焦点的证据见 [验收记录](../../design-qa.md#local-ui-polish--2026-11-19)。
+- [首次 CI](https://github.com/wowayou/pi-provider-manager/actions/runs/44493601456) 正确阻止合并：标题的延迟聚焦抢走了已移动到快捷按钮的焦点；旧版 Claude 测试错误预期了新版的 beta 移除重试。修复聚焦时序并明确旧版断言后，[源码 CI](https://github.com/wowayou/pi-provider-manager/actions/runs/44494821795) 全部通过，包括 Node 18/20/22、生产浏览器、Windows 启动器与真实 Claude。`2.1.285` / `2.1.322` 的三项跨网关恢复测试也分别在本地通过。没有取消失败断言或跳过必需检查。
+- 演示先发布 `2b8c91b`，随后同步焦点修复为 **`826b7ed`**，两次均延续原 `gh-pages` 历史。最终 [Pages 部署](https://github.com/wowayou/pi-provider-manager/actions/runs/44494994132) 成功；仅 8 个静态文件，合计 **632292 字节**。源码之外的最终记录提交只修改文档，不改变已验收的演示包。
+- 最终重新执行 `test:showcase` 与 `test:sites` 通过。HTTPS 客户端从正式站点逐个取回这 8 个文件，SHA-256 全部与本地包一致；再用取回的文件运行浏览器测试，三端切换、刷新恢复、`?demo=0` 的强制样例及零配置网络请求均通过。此项浏览器交互使用本地托管的公网原始字节，不声称是浏览器直连正式站点的网络验收。
+- 成本边界：核实仓库公开，现有 CI 使用标准 Ubuntu/Windows 运行器；GitHub 当前规则对公开仓库的标准运行器和 Pages 免费。缓存使用查询为 0 字节，配置上限 10GB；Pages 包远低于 1GB 上限，发布前最近一次构建是前一天。没有扩大收费计划、缓存额度、自动化范围或新增定时运行；没有调用真实模型网关。规则来源：[Actions 计费](https://docs.github.com/en/billing/concepts/product-billing/github-actions)、[Pages 限额](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits)。这里记录免费类别和发布体积，不把它当作账单结算证明。
+
+最终发布包 SHA-256：
+
+```text
+609fdfc3015fdc70d47011999cd60651cca63f5b601f2b3417913954960eed21  assets/index-CCtiRWTp.css
+96fcde7480aa17388b79e3f2709c9cf735991d3859dea3d889c1854d16511383  assets/index-D4IPdlnW.js
+ecc18ff7146efc384580142b3909a525f4cff07b86aa58f7dffd2655a6c1e243  assets/target-claude-ByT8XJb8.js
+f2e62d5d7f70a419d3bb43858aa09928b5aa6687fa48255c65430ffac269b143  assets/target-codex-BxBiuvdP.js
+4479bc20ec9507ed022d6ae7c847ae4b9033a1bd0535e8b813fcdd54a0535014  assets/target-prompts-CdRQKMJ8.js
+4e9955df8ed7075b32246d64bb8d4e7cb4fe93c1c7fe0f5a07f0d58aac96ec11  assets/vendor-icons-B6YnQFHb.js
+1eb9f28e27b9ebe8b7ba67cb4f2966ce5d818331cc746b902c179a9d4812a83f  favicon.png
+6c9e7310fa753c51abbaa71deaf877044888a2c02cf0cab2f7515bc27c092911  index.html
+```
+
 后续发布仍需单独授权并核对 [Pages 限额](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits)。
 
 **停止条件：** 没有真实场景可以证明一个新操作省事，就不加；不能解释某次写入会改谁的原生文件，就不执行；不能保证公开页与本机配置隔离，就不发布。
