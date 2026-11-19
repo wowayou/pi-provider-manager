@@ -6,6 +6,16 @@ Current behavior belongs in [the usage guide](docs/usage.zh-CN.md), maintenance 
 in [AGENTS.md](AGENTS.md), and verification requirements in
 [the architecture guide](docs/architecture.md#verification-matrix).
 
+## Sidebar footer review · 2026-11-19
+
+The two page links share one row. Support and the current theme share a quieter row with matching column alignment. In a 1440×900 Chromium preview with nine sample providers, the available list height increased from 437px to 502px. At 390×844 all four labelled actions fit in one row with 44px touch targets. At 320px they occupy two rows. Keyboard checks covered both page links, Tab focus on support and appearance, and cycling system → light → dark → system.
+
+## Shared catalogue picker and sidebar · 2026-11-19
+
+Compared production builds in local Chromium using the same nine-provider Pi demo fixture. At 1440×900 the list began at y=204 instead of y=309, with 437px available for rows (previously 332px). At 1024×768 it grew from 200px to 305px. At 390×844 the sidebar height fell from 316px to 287px and the form viewport grew from 353px to 382px. The 320px, 390px, 1024px and 1440px views fit the page width. Visual inspection covered the 390px and 1440px screenshots.
+
+The installed Pi terminal selector provided a layout reference for keeping search adjacent to results. The web picker keeps its native dialog and explicit apply button. A production-browser test exercises the Codex and Claude controls against a loopback server using separate fake credentials, including Codex save and Claude alias undo. Actual inference permissions remain gateway-specific.
+
 ## Local configuration and launcher acceptance · 2026-11-19
 
 - Isolated offline `npm run setup` with npm 11.16.0 produced all three Sites entries and an executable shim despite the esbuild review warning. The launcher workspace and Pi `compat` regressions each failed before the fixes. Launcher 8/8 (including WSL and Windows), server and related suites 91/91, production-browser flows 2/2. Real CLI loopback cases passed for Pi (3), Codex (5) and four selected Claude flows.

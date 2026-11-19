@@ -32,6 +32,7 @@ import { providerDraftIdentity } from "./model-draft.mjs";
 import { TomlDocument } from "../lib/toml-document.mjs";
 import { isLoopbackHostname } from "../lib/validation.mjs";
 import { blankCodexModel } from "./codex-draft.mjs";
+import { ModelDiscovery, requestCatalogue } from "./model-discovery.jsx";
 import { ManagerCard } from "./manager-card.jsx";
 import { BulkModal, ConfigEditor, ErrorBanner, KeyValueList, PasswordInput, ProviderSummary, Spinner, StepFooter, WizardFooter, createRadioKeyHandler, formatJson, isValidTokens, parseTokens, titleFromId, useDialog, validateJson } from "./ui-kit.jsx";
 
@@ -512,7 +513,7 @@ function CodexModelRow({ model, isDefault, isLiveModel, onChange, onDefault, onA
   );
 }
 
-function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, canDeleteProvider, isActive }) {
+function CodexModelsStep({ form, setForm, discoveryOwnerId, demoMode, codex, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, canDeleteProvider, isActive }) {
   const adopted = codex.providers.find((provider) => provider.id === form.providerId.trim())?.adopted;
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState("");
@@ -588,16 +589,18 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
   );
   const existingIds = useMemo(() => new Set(form.models.map((model) => model.id).filter(Boolean)), [form.models]);
   const newBulkIds = bulkIds.filter((id) => !existingIds.has(id));
-  const importModels = () => {
-    if (newBulkIds.length === 0) return;
+  const addModels = (ids) => {
     setForm((current) => {
       const taken = new Set(current.models.map((model) => model.id).filter(Boolean));
-      const additions = bulkIds.filter((id) => !taken.has(id)).map((id) => blankCodexModel(id));
+      const additions = ids.filter((id) => !taken.has(id)).map((id) => blankCodexModel(id));
       const hasOnlyBlank = current.models.length === 1 && !current.models[0].id;
       const models = [...(hasOnlyBlank ? [] : current.models), ...additions];
       const defaultRowId = models.some((model) => model.rowId === current.defaultRowId) ? current.defaultRowId : models[0]?.rowId || "";
       return { ...current, models, defaultRowId };
     });
+  };
+  const importModels = () => {
+    addModels(newBulkIds);
     setBulkText("");
     setShowBulk(false);
   };
@@ -608,7 +611,15 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
   const canDuplicateProvider = codex.providers.some((provider) => provider.id === form.providerId.trim());
   // The step-one choice, not only the saved record: before the first save
   // there is no record, and the summary still has to describe the draft.
-  const isBridge = form.upstream === "bridge" || Boolean(codexProviderOf(codex, form)?.bridge);
+  const isBridge = form.upstream === "bridge";
+  const discoveryUrl = (isBridge ? form.bridgeUpstreamUrl : form.baseUrl).trim();
+  const discover = (path) => {
+    const mode = isBridge ? (form.bridgeApiKey.trim() ? "new" : "keep") : form.credentialMode;
+    return requestCatalogue({ target: "codex", api: "openai-responses", baseUrl: discoveryUrl, path,
+      upstream: form.upstream, requiresAuth: form.requiresAuth,
+      credential: { mode: mode === "migrate" ? "keep" : mode, providerId: mode === "migrate" ? form.migrateFrom : discoveryOwnerId, apiKey: mode === "new" ? (isBridge ? form.bridgeApiKey : form.apiKey) : undefined },
+    }, demoMode);
+  };
   // The advanced JSON editor holds its own text while open, seeded from the
   // current draft. 应用到表单 parses and maps it back so the normal Save still
   // runs every check. The credential never appears — direct key and bridge
@@ -676,6 +687,10 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
         <div className="models-header">
           <div><h2>模型列表<span className="count-pill">{namedModels}</span></h2><p>默认模型会写入 config.toml 的 <code className="mono">model</code>，其余模型留给 <code className="mono">codex -m</code>。</p></div>
           <div className="models-actions">
+            <ModelDiscovery baseUrl={discoveryUrl} api="openai-responses" existingIds={existingIds} onDiscover={discover} onImport={entries => {
+              addModels(entries.map(entry => entry.id));
+              onNotify(`已从网关导入 ${entries.length} 个模型，保存后写入`);
+            }} />
             <button type="button" className="secondary-button button-md" onClick={() => setShowBulk(true)} title="批量添加模型 ID" aria-label="批量添加"><ListPlus size={16} /><span className="button-label">批量添加</span></button>
             <button type="button" className="outline-button button-md" onClick={addModel} title="添加模型" aria-label="添加模型"><Plus size={16} /><span className="button-label">添加模型</span></button>
           </div>

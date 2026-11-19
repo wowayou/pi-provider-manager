@@ -11,7 +11,6 @@ import {
   CheckCircle,
   CircleHalfTilt,
   CircleNotch,
-  CloudArrowDown,
   Copy,
   Cube,
   DotsThree,
@@ -43,7 +42,7 @@ import { validateUserAgent } from "../lib/pi-user-agent.mjs";
 import { changedPersistedModel, draftContentSignature, draftSignature, duplicatePiForm, piSaveChangesState, providerDraftIdentity, selectedNamedModel, userAgentSaveIntent, anthropicBetaSaveIntent, modelBaseUrlSaveIntent, piFormToConfigJson, piConfigJsonToForm } from "./model-draft.mjs";
 import { effectiveModelApi, endpointHint, normalizeModelBaseUrl, piRequestUrl } from "../lib/pi-endpoints.mjs";
 import { normalizeAnthropicBeta } from "../lib/pi-anthropic-beta.mjs";
-import { defaultDiscoveryPath } from "../lib/model-discovery.mjs";
+import { ModelDiscovery, requestCatalogue } from "./model-discovery.jsx";
 import { CONSERVATIVE, recommendedDefaults, seedModelLimits } from "./model-catalog.mjs";
 import { USER_AGENT_PRESETS } from "./user-agent-presets.mjs";
 import { PromptsScreen } from "./prompts-view.jsx";
@@ -169,10 +168,8 @@ function useTheme() {
   return [theme, setTheme];
 }
 
-// The appearance control is a single corner icon that cycles system → light →
-// dark. The icon reflects the current theme (CircleHalfTilt for system, Sun, Moon),
-// so no label is needed; the title/aria-label state the current value and that a
-// click cycles. It shares the settings row rather than taking a row of its own.
+// The visible label identifies the current mode, including when a system
+// preference resolves to the same palette as an explicit choice.
 function ThemeToggle({ theme, onTheme }) {
   const selectedIndex = Math.max(0, THEME_OPTIONS.findIndex((option) => option.value === theme));
   const current = THEME_OPTIONS[selectedIndex];
@@ -183,7 +180,7 @@ function ThemeToggle({ theme, onTheme }) {
   };
   return (
     <button type="button" className="theme-cycle-icon" onClick={cycle} title={`外观：${current.label}，点击切换`} aria-label={`外观：${current.label}，点击切换`}>
-      <CurrentIcon size={18} weight={current.weight} />
+      <CurrentIcon size={17} weight={current.weight} aria-hidden="true" />{current.label}
     </button>
   );
 }
@@ -606,6 +603,7 @@ function Sidebar({ state, target, locked = false, loading, loadFailed, onTarget,
     }
   };
   const keyword = query.trim().toLowerCase();
+  const showSearch = providers.length > 6 || Boolean(query);
   const visible = keyword ? providers.filter((provider) => provider.keywords.toLowerCase().includes(keyword)) : providers;
   // Only auto-locate an unfiltered list: while the user is typing a filter, the
   // scroll position is theirs to control.
@@ -642,18 +640,13 @@ function Sidebar({ state, target, locked = false, loading, loadFailed, onTarget,
       </div>
       <div className="sidebar-actions">
         <TargetSwitch target={target} disabled={navigationDisabled} onTarget={(value) => value === target || onTarget(value)} />
-        <button type="button" className="add-provider" disabled={navigationDisabled} onClick={() => { setQuery(""); onAdd(); }}>
-          <Plus size={22} weight="bold" />添加供应商
+        <button type="button" className="add-provider" title="添加供应商" aria-label="添加供应商" disabled={navigationDisabled} onClick={() => { setQuery(""); onAdd(); }}>
+          <Plus size={18} weight="bold" />添加<span className="add-provider-noun">供应商</span>
         </button>
       </div>
-      <p className="sidebar-label">
-        {target === "claude" ? "Claude Code 供应商" : isCodex ? "Codex 供应商" : "我的供应商 / API 网关"}
-        {providers.length > 0 && <span className="count-pill">{providers.length}</span>}
-        {canBulkDelete && providers.length > 0 && !selectMode && (
-          <button type="button" className="select-toggle" disabled={locked} onClick={onEnterSelect}>选择</button>
-        )}
-      </p>
-      {(providers.length > 6 || query) && (
+      <div className="provider-toolbar">
+        {!showSearch && <strong className="sidebar-label">供应商</strong>}
+        {showSearch && (
         <div className="provider-search">
           <MagnifyingGlass size={16} aria-hidden="true" />
           <input
@@ -665,7 +658,12 @@ function Sidebar({ state, target, locked = false, loading, loadFailed, onTarget,
             spellCheck={false}
           />
         </div>
-      )}
+        )}
+        {providers.length > 0 && <span className="count-pill" aria-label={`共 ${providers.length} 个供应商`}>{providers.length}</span>}
+        {canBulkDelete && providers.length > 0 && !selectMode && (
+          <button type="button" className="select-toggle" disabled={locked} onClick={onEnterSelect}>选择</button>
+        )}
+      </div>
       <nav
         ref={listRef}
         className={`provider-list ${listEdges.above ? "has-more-above" : ""} ${listEdges.below ? "has-more-below" : ""}`}
@@ -767,14 +765,9 @@ function Sidebar({ state, target, locked = false, loading, loadFailed, onTarget,
       )}
       <div className="sidebar-footer">
         <nav className="footer-nav" aria-label="次要导航">
-          <button type="button" className={`settings-button nav-prompts ${activeView === "prompts" ? "is-active" : ""}`} disabled={navigationDisabled} onClick={onPrompts}><FileText size={20} />提示词</button>
-          <button type="button" className={`settings-button nav-settings ${activeView === "settings" ? "is-active" : ""}`} disabled={navigationDisabled} onClick={onSettings}><Gear size={20} />设置与兼容性</button>
+          <button type="button" className="settings-button nav-prompts" aria-current={activeView === "prompts" ? "page" : undefined} disabled={navigationDisabled} onClick={onPrompts}><FileText size={18} aria-hidden="true" />提示词</button>
+          <button type="button" className="settings-button nav-settings" aria-current={activeView === "settings" ? "page" : undefined} disabled={navigationDisabled} onClick={onSettings}><Gear size={18} aria-hidden="true" />设置与兼容性</button>
         </nav>
-        {/* A utility row balanced at the two ends: the voluntary support link on
-            the left, the appearance control on the right. The link leaves for
-            eigentime.org/support — the one place that owns the payment platform
-            — carrying a source so that page can tell this project apart. Nothing
-            is tracked here: a loopback tool with a strict CSP and no analytics. */}
         <div className="footer-utility">
           <a
             className="sidebar-support"
@@ -782,7 +775,7 @@ function Sidebar({ state, target, locked = false, loading, loadFailed, onTarget,
             target="_blank"
             rel="noopener noreferrer"
           >
-            <Heart size={16} weight="fill" />支持作者
+            <Heart size={17} aria-hidden="true" />支持作者
           </a>
           <ThemeToggle theme={theme} onTheme={onTheme} />
         </div>
@@ -1107,7 +1100,6 @@ function ModelEndpoints({ form, setForm, onNotify, focusRequest }) {
 function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, onNotify, onDuplicate, onDeleteProvider, onDiscover, onEditProtocol, onEditGateway, canDeleteProvider, isExistingProvider, isCurrentDefault, hasProviders, dirty, contentDirty, saveState, liveDefaultModelId, modelHints, userAgentFocusRequest, betaFocusRequest, endpointFocusRequest }) {
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState("");
-  const [showDiscover, setShowDiscover] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [jsonDraft, setJsonDraft] = useState(null);
   const advancedRef = useRef(null);
@@ -1262,7 +1254,6 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
     const fresh = entries.filter((entry) => !existingIds.has(entry.id));
     if (fresh.length === 0) return;
     addModelEntries(fresh);
-    setShowDiscover(false);
     onNotify(`已从网关导入 ${fresh.length} 个模型；保存后才会写入`);
   };
   const thinkingAliasModels = form.models.filter((model) => /-(max|xhigh)$/i.test(model.id));
@@ -1366,7 +1357,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
           <div><h2>模型列表<span className="count-pill">{showModelFilter && modelFilterText ? `匹配 ${visibleModels.length} / 共 ${form.models.length}` : namedModels}</span></h2><p>Pi 以 provider/model 选择模型，thinking level 是独立设置。</p>{showModelFilter && <input className="model-filter mono" type="search" value={modelFilter} onChange={(event) => setModelFilter(event.target.value)} placeholder="筛选模型 ID" aria-label="筛选模型 ID" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />}</div>
           <div className="models-actions">
             <button type="button" className="secondary-button button-md" onClick={applySafeToAll} title="把所有模型的上下文容量与最大输出改为安全值，可撤销" aria-label="全部用安全值"><ShieldCheck size={16} /><span className="button-label">全部用安全值</span></button>
-            <button type="button" className="secondary-button button-md" onClick={() => setShowDiscover(true)} title="向网关请求模型清单，勾选后加入列表" aria-label="获取模型"><CloudArrowDown size={16} /><span className="button-label">获取模型</span></button>
+            <ModelDiscovery baseUrl={form.baseUrl.trim()} api={form.api} existingIds={existingIds} onDiscover={onDiscover} onImport={importDiscovered} />
             <button type="button" className="secondary-button button-md" onClick={() => setShowBulk(true)} title="批量添加模型 ID" aria-label="批量添加"><ListPlus size={16} /><span className="button-label">批量添加</span></button>
             <button type="button" className="outline-button button-md" onClick={addModel} title="添加模型" aria-label="添加模型"><Plus size={16} /><span className="button-label">添加模型</span></button>
           </div>
@@ -1478,134 +1469,7 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
           )}
       </WizardFooter>
       {showBulk && <BulkModal text={bulkText} ids={bulkIds} newIds={newBulkIds} onText={setBulkText} onClose={() => setShowBulk(false)} onImport={importModels} />}
-      {showDiscover && <DiscoverModal baseUrl={form.baseUrl.trim()} defaultPath={defaultDiscoveryPath(form.api)} existingIds={existingIds} onDiscover={onDiscover} onClose={() => setShowDiscover(false)} onImport={importDiscovered} />}
     </section>
-  );
-}
-
-// The gateway's own catalogue, offered as checkboxes. The request runs on the
-// server with the credential the draft would save with — a key typed at step
-// two or the one already stored — so nothing secret passes through here; the
-// dialog only ever sees IDs and display names.
-function DiscoverModal({ baseUrl, defaultPath, existingIds, onDiscover, onClose, onImport }) {
-  const dialogRef = useRef(null);
-  const filterRef = useRef(null);
-  const [status, setStatus] = useState("loading");
-  const [models, setModels] = useState([]);
-  const [message, setMessage] = useState("");
-  const [filter, setFilter] = useState("");
-  const [selected, setSelected] = useState(() => new Set());
-  const [attempt, setAttempt] = useState(0);
-  // The override the next attempt will use, and the one the current result came
-  // from. Kept apart so editing the field does not relabel a list already shown.
-  const [pathDraft, setPathDraft] = useState("");
-  const [askedPath, setAskedPath] = useState("");
-  const [endpoint, setEndpoint] = useState("");
-  const pathRef = useRef(null);
-  useDialog({ ref: dialogRef, initialFocusRef: filterRef, onClose, locked: status === "loading" });
-  useEffect(() => {
-    let cancelled = false;
-    setStatus("loading");
-    setMessage("");
-    onDiscover(askedPath)
-      .then((result) => {
-        if (cancelled) return;
-        setModels(result.models);
-        setEndpoint(result.endpoint || "");
-        setSelected(new Set());
-        setStatus("ready");
-      })
-      .catch((problem) => {
-        if (cancelled) return;
-        setMessage(problem.message);
-        setStatus("error");
-      });
-    return () => { cancelled = true; };
-    // askedPath only changes together with attempt, via retry.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attempt, onDiscover]);
-  // The filter is not in the tree while the request runs, so it is focused
-  // once the list exists rather than by the dialog's first-focus rule.
-  useEffect(() => { if (status === "ready") filterRef.current?.focus(); }, [status]);
-  // A failure is most often the path being wrong for this relay, and the field
-  // that fixes it is the one thing worth having the caret in.
-  useEffect(() => { if (status === "error") pathRef.current?.focus(); }, [status]);
-  const needle = filter.trim().toLowerCase();
-  const visible = needle ? models.filter((model) => model.id.toLowerCase().includes(needle) || (model.name || "").toLowerCase().includes(needle)) : models;
-  const selectable = visible.filter((model) => !existingIds.has(model.id));
-  const chosen = models.filter((model) => selected.has(model.id) && !existingIds.has(model.id));
-  const toggle = (id) => setSelected((current) => {
-    const next = new Set(current);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    return next;
-  });
-  const retry = () => { setAskedPath(pathDraft.trim()); setAttempt((current) => current + 1); };
-  const selectVisible = () => setSelected((current) => new Set([...current, ...selectable.map((model) => model.id)]));
-  const clearSelection = () => setSelected(new Set());
-  return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && status !== "loading") onClose(); }}>
-      <section ref={dialogRef} className="bulk-modal discover-modal" role="dialog" aria-modal="true" aria-labelledby="discover-title">
-        <div className="modal-heading">
-          <div><h2 id="discover-title">从网关获取模型列表</h2><p>向 <code>{endpoint || `${baseUrl || "（尚未填写地址）"}${askedPath || defaultPath}`}</code> 请求模型清单。key 只在本机服务里使用，不会回传浏览器；勾选后加入列表，保存后才会写入。</p></div>
-          <button type="button" className="icon-button" onClick={onClose} disabled={status === "loading"} aria-label="关闭"><X size={20} /></button>
-        </div>
-        {status === "loading" && <div className="discover-status" role="status"><Spinner />正在向网关请求模型列表…</div>}
-        {status === "error" && <ErrorBanner message={message} />}
-        {status !== "loading" && (
-          <label className="discover-path">
-            <span>模型列表路径</span>
-            <small id="discover-path-help">留空使用协议默认值 <code>{defaultPath}</code>。相对于 API 地址，必须同源。</small>
-            <span className="discover-path-row">
-              <input
-                ref={pathRef}
-                className="mono"
-                value={pathDraft}
-                onChange={(event) => setPathDraft(event.target.value)}
-                onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); retry(); } }}
-                placeholder={defaultPath}
-                aria-describedby="discover-path-help"
-                spellCheck={false}
-                autoCapitalize="off"
-                autoCorrect="off"
-                autoComplete="off"
-              />
-              <button type="button" className="outline-button button-md" onClick={retry}><ArrowsClockwise size={16} />用这个路径重试</button>
-            </span>
-          </label>
-        )}
-        {status === "ready" && (
-          <>
-            <div className="discover-filter"><MagnifyingGlass size={17} aria-hidden="true" /><input ref={filterRef} className="mono" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="筛选模型 ID" aria-label="筛选模型 ID" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" /></div>
-            <div className="discover-list" role="group" aria-label="网关返回的模型">
-              {visible.length === 0 && <p className="discover-empty">{models.length === 0 ? "网关没有返回任何模型。请手动填写模型 ID。" : "没有匹配的模型 ID。"}</p>}
-              {visible.map((model) => {
-                const exists = existingIds.has(model.id);
-                return (
-                  <label key={model.id} className={`checkbox-row discover-row ${exists ? "is-existing" : ""}`}>
-                    <input type="checkbox" checked={exists || selected.has(model.id)} disabled={exists} onChange={() => toggle(model.id)} aria-label={model.id} />
-                    <span className="mono">{model.id}</span>
-                    <small>{exists ? "已在列表中" : model.name || ""}</small>
-                  </label>
-                );
-              })}
-            </div>
-          </>
-        )}
-        <div className="modal-actions">
-          {status === "ready" && (
-            <div className="discover-bulk-actions">
-              <button type="button" className="outline-button button-sm" onClick={selectVisible} disabled={selectable.length === 0}>全选{needle ? "匹配项" : ""}</button>
-              <button type="button" className="outline-button button-sm" onClick={clearSelection} disabled={chosen.length === 0}>清空</button>
-            </div>
-          )}
-          <span className="modal-count" aria-live="polite">
-            {status === "ready" ? (models.length === 0 ? "没有可导入的模型" : `网关返回 ${models.length} 个模型，已选 ${chosen.length} 个`) : ""}
-          </span>
-          <button type="button" className="secondary-button button-md" onClick={onClose} disabled={status === "loading"}>取消</button>
-          <button type="button" className="primary-button button-md" disabled={chosen.length === 0} onClick={() => onImport(chosen)}>{chosen.length > 0 ? `导入 ${chosen.length} 个模型` : "导入模型"}</button>
-        </div>
-      </section>
-    </div>
   );
 }
 
@@ -2346,19 +2210,7 @@ export function App() {
   const discoverModels = useCallback(async (path = "") => {
     const result = validateCredentials();
     if (result) throw new Error(`${result.message} 请先回到第二步补全。`);
-    if (demoMode) {
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      return {
-        models: [
-          { id: "anthropic/claude-opus-4-1", name: "Claude Opus 4.1" },
-          { id: "anthropic/claude-sonnet-4-5", name: "Claude Sonnet 4.5" },
-          { id: "openai/gpt-5.6-sol" },
-          { id: "google/gemini-2.5-pro", name: "Gemini 2.5 Pro" },
-        ],
-        endpoint: `${form.baseUrl.trim()}${path.trim() || defaultDiscoveryPath(form.api)}`,
-      };
-    }
-    return postJson("/api/providers/discover-models", {
+    return requestCatalogue({
         baseUrl: form.baseUrl.trim(),
         api: form.api,
         path,
@@ -2368,7 +2220,7 @@ export function App() {
           fromProvider: form.credentialMode === "migrate" ? form.migrateFrom : undefined,
           providerId: piIdentity.ownerId,
         },
-      }, "获取模型列表失败");
+      }, demoMode);
     // validateCredentials reads the same form fields listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [demoMode, form.baseUrl, form.api, form.credentialMode, form.apiKey, form.migrateFrom, form.providerId, piIdentity.ownerId, piIdentity.conflict, state.authProviders]);
@@ -2947,7 +2799,7 @@ export function App() {
           claudeFlow.claude.available === false ? <ErrorBanner message={"读取 Claude Code 配置失败：" + claudeFlow.claude.error} />
           : view === "settings" ? <ClaudeSettings flow={claudeFlow} state={state} saving={saving} error={error} conflict={conflict} demoMode={demoMode} onBack={() => guardLeave(() => setView("wizard"))} onDirtyChange={setScreenDirty} />
           : view === "success" && claudeFlow.result ? <ClaudeSuccess flow={claudeFlow} saving={saving} error={error} conflict={conflict} onCopy={copyCommand} />
-          : <ClaudeWizard flow={{ ...claudeFlow, duplicate: (id) => guardLeave(() => claudeFlow.duplicate(id)), openDelete: (id) => guardLeave(() => claudeFlow.openDelete(id)) }} saving={saving} error={error} conflict={conflict} onCopy={copyCommand} />
+          : <ClaudeWizard demoMode={demoMode} onNotify={showToast} flow={{ ...claudeFlow, duplicate: (id) => guardLeave(() => claudeFlow.duplicate(id)), openDelete: (id) => guardLeave(() => claudeFlow.openDelete(id)) }} saving={saving} error={error} conflict={conflict} onCopy={copyCommand} />
         ) : target === "codex" ? (
           codex.available === false ? (
             <div className="error-banner is-standalone" role="alert">
@@ -2962,6 +2814,8 @@ export function App() {
             <>
               <CodexStepper step={codexFlow.step} onStep={unlessWriting(codexFlow.goStep)} allowJump={Boolean(codexFlow.provider(codexFlow.form.providerId.trim()))} />
               <CodexWizard
+                discoveryOwnerId={codexFlow.identity.ownerId}
+                demoMode={demoMode}
                 step={codexFlow.step}
                 form={codexFlow.form}
                 setForm={codexFlow.editForm}

@@ -140,6 +140,8 @@ reach the browser.
 
 ## Codex compatibility
 
+The shared catalogue endpoint also accepts `target: "codex"` or `target: "claude"`. Codex reads `/models` under the direct or bridge upstream base URL. Claude Code reads `/v1/models` under its Messages base URL and applies the draft’s Bearer or `x-api-key` authentication. A stored credential for either target is resolved from that target’s configuration and restricted to its saved gateway origin. A Codex gateway configured for direct access without authentication receives no credential.
+
 Codex is a second adapter target with its own invariants. Five of them are the ones a Codex upgrade is most likely to break, so check each after bumping `codexValidatedVersion`:
 
 1. **`wire_api` values.** Codex accepted `"chat"` until February 2026 and now accepts only `"responses"`; an unknown value makes the whole `config.toml` fail to load. Verify the accepted set in `codex-rs/model-provider-info/src/lib.rs`.
