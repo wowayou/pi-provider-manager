@@ -2158,6 +2158,7 @@ export function App() {
   }, [view, step, target, codexFlow.step, claudeFlow.step]);
   const firstViewRender = useRef(true);
   useEffect(() => {
+    const focusAtNavigation = document.activeElement;
     const frame = window.requestAnimationFrame(() => {
       // Moving between steps and views unmounts the control that was focused, so
       // focus falls back to <body> and a screen reader announces nothing. Send
@@ -2169,6 +2170,9 @@ export function App() {
       // focus trap owns focus now; do not move Cancel back into the workspace.
       if (document.querySelector('[role="dialog"]')) return;
       const active = document.activeElement;
+      // A user may already have tabbed to a sidebar shortcut before this
+      // frame. Do not take that focus away between keydown and keyup.
+      if (active !== focusAtNavigation && active !== document.body) return;
       const alreadyPlaced = active?.closest(".workspace, .target-switch");
       if (alreadyPlaced) return;
       const heading = document.querySelector(".workspace h1");

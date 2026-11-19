@@ -111,7 +111,7 @@ gateway if immediate revocation is required.
 
 This manager carries no traffic and cannot rewrite history; whether a resumed
 conversation continues is decided by Claude Code and the new gateway. Measured
-with fake gateways on 2.1.284, 2.1.287 and 2.1.322.
+with fake gateways on 2.1.284, 2.1.285, 2.1.287 and 2.1.322.
 
 - Different model ID on the new gateway: Claude Code drops the previous signed
   thinking blocks and continues.
@@ -119,7 +119,9 @@ with fake gateways on 2.1.284, 2.1.287 and 2.1.322.
   the standard invalid-signature error, Claude Code retries without thinking
   blocks and continues.
 - If the new gateway rejects it with a non-standard error (for example a bare
-  `400 Bad request`), the turn fails. On 2.1.287 Claude Code retries after
+  `400 Bad request`), the turn fails. CI's pinned 2.1.285 sends the token-count
+  beta but does not retry to remove it: the header's presence alone does not
+  imply support for that fallback. On 2.1.287 Claude Code retries after
   removing `thinking.display` and its `thinking-display-updates-2026-08-18`
   beta. On 2.1.322 it first retries with the identical body and removes only
   `thinking-token-count-2026-05-13` from the beta header. Its final retry then

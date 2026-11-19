@@ -36,7 +36,7 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
-## Local UI polish — 2026-11-19 (unpublished)
+## Local UI polish — 2026-11-19
 
 - Retains the existing light orange / dark neutral themes. At 390×844 with the
   showcase fixture, navigation height fell from 372px to 306px and the form's
@@ -55,6 +55,14 @@ terminal stops a browser suite before it prints a complete summary.
   new short-window/keyboard regressions. An earlier run exposed delayed list
   positioning moving a shortcut between pointer events; positioning now runs at
   commit and the final complete run passed.
+- The first remote PR run then exposed a second focus race: the scheduled
+  heading announcement could take focus from a sidebar shortcut after the user
+  had already moved there. It now yields when focus has changed since navigation.
+  Targeted production cases cover step announcements, real shortcut clicks and
+  dirty target-switch refusals. Windows also exposed that Claude 2.1.285 sends
+  the token-count beta without implementing 2.1.322's removal retry; the wire
+  test explicitly retains the pinned version's one-request expectation. Both
+  versions passed all three cross-gateway resume cases locally after correction.
 - Showcase, style-token and Sites tests passed **9/9**, no skips. The static
   showcase still switches all targets offline and resets its fixtures on refresh.
 - Chromium previews inspected at 320, 390, 1024 and 1440×844, plus 667×375, in
@@ -64,7 +72,8 @@ terminal stops a browser suite before it prints a complete summary.
   log are in ignored `artifacts/ui-polish-2026-11-19/`.
 - This is browser/layout and functional evidence, not physical touchscreen or
   usability validation. No CLI/backend behavior changed; real CLI wire tests
-  were not rerun. These changes have not been published to GitHub Pages.
+  were not rerun. Publication and source synchronization are recorded in
+  [the delivery plan](docs/plans/personal-provider-manager.zh-CN.md).
 
 ## v0.5.5 Published Verification — 2026-10-10
 

@@ -301,7 +301,10 @@ test("cross-gateway resume fails when the new relay rejects the signature with a
   const display = "thinking-display-updates-2026-08-18";
   let expectedBetas = betas(first);
   let index = 1;
-  if (expectedBetas.includes(tokenCount)) {
+  // CI pins 2.1.285: it sends this beta but has no removal retry. Presence
+  // on the wire alone cannot tell us that a client implements its fallback.
+  const pinnedLegacy = /^2\.1\.285\b/.test(installed);
+  if (expectedBetas.includes(tokenCount) && !pinnedLegacy) {
     expectedBetas = expectedBetas.filter(beta => beta !== tokenCount);
     assert.deepEqual(requests[index]?.body, first.body);
     assert.deepEqual(betas(requests[index++]), expectedBetas);
