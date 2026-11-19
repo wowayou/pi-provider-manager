@@ -1,221 +1,16 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { CdpClient, findChrome, freePort, waitForUrl, stopProcess } from "./helpers/browser.mjs";
 import { requireFreshBuiltUi } from "./helpers/built-ui.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-
-function findChrome() {
-  const playwrightRoot = process.env.PLAYWRIGHT_BROWSERS_PATH
-    || path.join(os.homedir(), ".cache", "ms-playwright");
-  const playwrightCandidates = fs.existsSync(playwrightRoot)
-    ? fs.readdirSync(playwrightRoot).flatMap((directory) => [
-        path.join(playwrightRoot, directory, "chrome-headless-shell-linux64", "chrome-headless-shell"),
-        path.join(playwrightRoot, directory, "chrome-linux", "chrome"),
-        path.join(playwrightRoot, directory, "chrome-headless-shell-win64", "chrome-headless-shell.exe"),
-        path.join(playwrightRoot, directory, "chrome-win", "chrome.exe"),
-      ])
-    : [];
-  // The install locations are per-platform, and a suite that can only find
-  // Chrome on Linux fails eight tests at once on a Windows checkout — which
-  // reads as eight defects rather than as one missing path.
-  const windowsCandidates = process.platform === "win32"
-    ? [process.env.PROGRAMFILES, process.env["PROGRAMFILES(X86)"], process.env.LOCALAPPDATA]
-        .filter(Boolean)
-        .flatMap((root) => [
-          path.join(root, "Google", "Chrome", "Application", "chrome.exe"),
-          path.join(root, "Microsoft", "Edge", "Application", "msedge.exe"),
-        ])
-    : [];
-  const candidates = [
-    process.env.CHROME_BIN,
-    "/usr/bin/google-chrome",
-    "/usr/bin/google-chrome-stable",
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser",
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    ...windowsCandidates,
-    ...playwrightCandidates,
-  ].filter(Boolean);
-  const executable = candidates.find((candidate) => fs.existsSync(candidate));
-  if (!executable) {
-    throw new Error("Chrome was not found. Set CHROME_BIN to a Chrome or Chromium executable.");
-  }
-  return executable;
-}
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.unref();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const { port } = server.address();
-      server.close(() => resolve(port));
-    });
-  });
-}
-
-async function waitForUrl(url, timeout = 10_000) {
-  const started = Date.now();
-  let lastError;
-  while (Date.now() - started < timeout) {
-    try {
-      const response = await fetch(url, { cache: "no-store" });
-      if (response.ok) return response;
-      lastError = new Error(`${url} returned ${response.status}`);
-    } catch (error) {
-      lastError = error;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw lastError || new Error(`Timed out waiting for ${url}`);
-}
-
-async function stopProcess(child, processGroup = false) {
-  if (!child) return;
-  const signal = (name) => {
-    try {
-      if (processGroup && process.platform !== "win32") process.kill(-child.pid, name);
-      else if (child.exitCode === null) child.kill(name);
-    } catch (error) {
-      if (error.code !== "ESRCH") throw error;
-    }
-  };
-  signal("SIGTERM");
-  if (child.exitCode === null) {
-    await Promise.race([
-      new Promise((resolve) => child.once("exit", resolve)),
-      new Promise((resolve) => setTimeout(resolve, 2_000)),
-    ]);
-  }
-  if (child.exitCode === null) signal("SIGKILL");
-}
-
-class CdpClient {
-  constructor(socket) {
-    this.socket = socket;
-    this.sequence = 0;
-    this.pending = new Map();
-    this.errors = [];
-    this.listeners = new Set();
-    socket.addEventListener("message", ({ data }) => {
-      const message = JSON.parse(data);
-      if (!message.id) for (const listener of this.listeners) listener(message);
-      if (message.id) {
-        const waiter = this.pending.get(message.id);
-        if (!waiter) return;
-        this.pending.delete(message.id);
-        if (message.error) waiter.reject(new Error(message.error.message));
-        else waiter.resolve(message.result);
-        return;
-      }
-      if (message.method === "Runtime.exceptionThrown") this.errors.push(message);
-      if (message.method === "Runtime.consoleAPICalled" && ["error", "warning"].includes(message.params.type)) {
-        this.errors.push(message);
-      }
-      // A dirty draft now arms window.beforeunload, so a programmatic reload or
-      // navigation raises a native leave prompt that would otherwise stall the
-      // headless page. Auto-accepting models the user choosing to leave — the
-      // same outcome the in-app discard toast produces.
-      if (message.method === "Page.javascriptDialogOpening") {
-        this.send("Page.handleJavaScriptDialog", { accept: true }).catch(() => {});
-      }
-    });
-  }
-
-  static async connect(webSocketUrl) {
-    // Node gained a global WebSocket in 22. On 18 and 20 every case here fails with
-    // a bare "WebSocket is not defined" from this line, which reads as eight
-    // defects in the product rather than one unmet requirement of the harness.
-    // `engines.node` allows 18 because the server and `lib/` do run there — this
-    // suite does not, and CI's ui job is why nobody noticed. Thrown, never skipped:
-    // a skip would report success for a browser that was never opened.
-    if (typeof WebSocket === "undefined") {
-      throw new Error(
-        `the browser suite needs a global WebSocket, added in Node 22; this is ${process.version}.`
-        + " Run it on the version CI's ui job uses.",
-      );
-    }
-    const socket = new WebSocket(webSocketUrl);
-    await new Promise((resolve, reject) => {
-      socket.addEventListener("open", resolve, { once: true });
-      socket.addEventListener("error", reject, { once: true });
-    });
-    return new CdpClient(socket);
-  }
-
-  // Subscribes to CDP events (Fetch.requestPaused and the like); returns the
-  // unsubscribe function.
-  on(listener) {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-
-  send(method, params = {}) {
-    const id = ++this.sequence;
-    this.socket.send(JSON.stringify({ id, method, params }));
-    return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
-  }
-
-  async evaluate(expression) {
-    const result = await this.send("Runtime.evaluate", {
-      expression,
-      awaitPromise: true,
-      returnByValue: true,
-    });
-    // exceptionDetails.text is just "Uncaught" for a thrown Error. The message and
-    // stack live on the exception object, so a bare text throw hides the failure.
-    if (result.exceptionDetails) {
-      const { text, exception, lineNumber, columnNumber } = result.exceptionDetails;
-      const detail = exception?.description || exception?.value || text;
-      throw new Error(`${detail} (evaluating at ${lineNumber}:${columnNumber})\n${expression}`);
-    }
-    return result.result.value;
-  }
-
-  async waitFor(expression, timeout = 10_000) {
-    const started = Date.now();
-    let lastError;
-    while (Date.now() - started < timeout) {
-      try {
-        if (await this.evaluate(`Boolean(${expression})`)) return;
-      } catch (error) {
-        // A reload destroys the old execution context before the new document is
-        // ready. Treat that brief CDP error like any other not-ready state.
-        lastError = error;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    const page = await Promise.race([
-      this.evaluate(`({
-        readyState: document.readyState,
-        loading: Boolean(document.querySelector('.loading-state')),
-        loadFailed: Boolean(document.querySelector('.load-error')),
-        target: document.querySelector('.target-switch [aria-checked=true]')?.textContent,
-        heading: document.querySelector('.workspace h1')?.textContent,
-        protocolStep: Boolean(document.querySelector('.protocol-grid')),
-        modelRows: document.querySelectorAll('.model-row').length
-      })`).catch(() => null),
-      new Promise((resolve) => setTimeout(() => resolve(null), 500)),
-    ]);
-    throw new Error(`Timed out waiting for ${expression}${lastError ? `: ${lastError.message}` : ""}`
-      + `\nPage: ${JSON.stringify(page)}\nBrowser errors: ${JSON.stringify(this.errors.slice(-3)).slice(0, 4000)}`);
-  }
-
-  close() {
-    for (const waiter of this.pending.values()) waiter.reject(new Error("CDP connection closed."));
-    this.pending.clear();
-    this.socket.close();
-  }
-}
 
 // The server resolves a Codex directory on every /api/state, so a test that never
 // opens the Codex side still has to name one. Left unset it reads the developer's
@@ -4489,6 +4284,7 @@ test("Codex rename refuses collisions and keeps direct and bridge credentials wi
     assert.equal(await cdp.evaluate("document.querySelector('.key-field input').value"), "");
     await next(); await click(".wizard-footer button", "只保存");
     await cdp.waitFor("document.querySelector('.success-page .bridge-control')");
+    assert.equal(await cdp.evaluate("Boolean(document.querySelector('.success-page .command-row'))"), false, "a standby bridge can be managed before activation, but plain codex still uses the live provider");
     saved = (await state()).codex;
     assert.equal(saved.activeProviderId, "codex-renamed", "renaming an inactive bridge must not activate it");
     assert.equal(saved.providers.some((provider) => provider.id === "bridge-a"), false);
@@ -5128,6 +4924,35 @@ const seedCodexForReview = async (api, { stripKeyOf = "codex-nokey", agentDir })
   fs.writeFileSync(storePath, JSON.stringify(store, null, 2));
 };
 
+test("Codex Settings preserves the native model and refreshes the wizard after save", { timeout: 90_000 }, async () => {
+  await withReviewBrowser(async ({ cdp, mouse, byText, row, files }) => {
+    await mouse(byText(".target-switch button", "Codex"));
+    await mouse("document.querySelector('.nav-settings')");
+    const model = "document.querySelector('.settings-card input[readonly]')";
+    const select = async (selector, value) => cdp.evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); el.value = ${JSON.stringify(value)}; el.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    await cdp.waitFor(`${model}?.value === 'native-model'`);
+    await select(".settings-card .mono:is(select)", "low");
+    const save = byText(".settings-footer button", "保存设置");
+    await mouse(save);
+    await cdp.waitFor(`${save}?.disabled && !document.querySelector('.workspace-lock:disabled')`);
+    assert.match(files.codex()[0], /^model = "native-model"$/m);
+    await mouse(byText(".settings-title button", "返回"));
+    await cdp.waitFor("document.querySelector('.model-row.is-codex input[type=radio]:checked')?.closest('.model-row').querySelector('select').value === 'low'");
+    await mouse("document.querySelector('.nav-settings')");
+    await select(".settings-card select", "codex-b");
+    await cdp.waitFor(`${model}.value === 'model-codex-b'`);
+    assert.equal(await cdp.evaluate("document.querySelector('.settings-card select.mono').value"), "high");
+    await mouse(save);
+    await cdp.waitFor(`${row("codex-b")}.querySelector('.provider-badge')?.textContent === '生效中'`);
+    assert.match(files.codex()[0], /^model = "model-codex-b"$/m);
+    assert.equal(JSON.parse(files.codex()[1]).OPENAI_API_KEY, "dummy-codex-b-key");
+  }, { seed: async (api, agentDir) => {
+    await seedCodexForReview(api, { agentDir });
+    const config = path.join(isolatedCodexDir(agentDir), "config.toml");
+    fs.writeFileSync(config, fs.readFileSync(config, "utf8").replace('model = "model-codex-a"', 'model = "native-model"'));
+  } });
+});
+
 // B: the Codex success screen reports a failed switch in the shared banner. A
 // 400 used to vanish without a word, and a 409's 重新读取 lived only in a toast
 // that expires; the previous, real result stays on screen either way.
@@ -5617,7 +5442,7 @@ test("review D: a demo Codex switch carries the provider's model and effort into
     assert.equal(await cdp.evaluate(`${row("deepseek-relay")}.querySelector('.provider-badge').textContent`), "生效中");
     assert.deepEqual(await settingsView(), { provider: "deepseek-relay", model: "deepseek-reasoner", effort: "high", table: "model_providers.custom" });
 
-    // Claude's demo fixture has one provider, the live one: its menu offers no switch.
+    // The live Claude provider's menu offers no switch.
     await mouse(byText(".target-switch button", "Claude Code"));
     await cdp.waitFor("document.querySelector('[name=model]')");
     await mouse(`${row("claude-gateway")}.querySelector('.row-menu-trigger')`);
@@ -5672,5 +5497,127 @@ test("review D: a demo Codex switch carries the provider's model and effort into
   }, { demo: true, seed: async (api, agentDir) => {
     await seedCodexForReview(api, { agentDir });
     await api.claude({ providerId: "real-fixture", name: "Real fixture", baseUrl: "https://fixture.example", authType: "token", model: "sonnet", aliases: {}, credential: { mode: "new", value: "dummy-unused-fixture-key" }, setActive: true });
+  } });
+});
+
+test("standby rows switch through the native action on mobile and desktop", { timeout: 90_000 }, async () => {
+  await withReviewBrowser(async ({ cdp, mouse, key, row, byText, recordPosts, posts, state }) => {
+    await recordPosts();
+    const shortcut = id => `${row(id)}.querySelector('.provider-activate')`;
+    for (const [width, codexId, claudeId, piId] of [
+      [390, 'codex-b', 'claude-b', 'pair-router'], [1440, 'codex-a', 'claude-a', 'review-router'],
+    ]) {
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+      await mouse(byText('.target-switch button', 'Codex'));
+      await mouse(shortcut(codexId));
+      await cdp.waitFor(`${row(codexId)}.querySelector('.provider-badge').textContent === '生效中' && ${unlockedNow}`);
+      assert.equal((await state()).codex.activeProviderId, codexId);
+      assert.equal(await cdp.evaluate(`Boolean(${shortcut(codexId)})`), false);
+      await mouse(byText('.target-switch button', 'Claude Code'));
+      await mouse(shortcut(claudeId));
+      await cdp.waitFor(`${row(claudeId)}.querySelector('.provider-badge').textContent === '全局默认' && ${unlockedNow}`);
+      assert.equal((await state()).claude.activeProviderId, claudeId);
+      await mouse(byText('.target-switch button', 'Pi'));
+      await cdp.evaluate(`${shortcut(piId)}.focus()`);
+      await key('Enter');
+      await cdp.waitFor("document.activeElement === document.querySelector('.set-default-dialog select')");
+      await mouse("document.querySelector('.set-default-dialog .primary-button')");
+      await cdp.waitFor(`${row(piId)}.querySelector('.provider-badge').textContent === '默认' && ${unlockedNow}`);
+      assert.equal((await state()).settings.defaultProvider, piId);
+      assert.equal(await cdp.evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    }
+    const switches = ['/api/codex/activate', '/api/claude/activate', '/api/providers/set-default'];
+    assert.deepEqual(await posts(), [...switches, ...switches]);
+  }, { seed: async (api, agentDir) => {
+    await seedCodexForReview(api, { agentDir });
+    for (const id of ['claude-a', 'claude-b']) await api.claude({ providerId: id, name: id, baseUrl: `https://${id}.example`, authType: 'token', model: 'sonnet', aliases: {}, credential: { mode: 'new', value: 'dummy-shortcut-key' }, setActive: id === 'claude-a' });
+  } });
+});
+
+test("short viewports keep provider search, the full gateway address and wizard actions reachable", { timeout: 60_000 }, async () => {
+  const longUrl = `https://router.example/${"gateway-segment".repeat(10)}/v1`;
+  await withReviewBrowser(async ({ cdp, key, byText, mouse, typeText, recordPosts, posts }) => {
+    await recordPosts();
+    for (const width of [320, 390]) {
+      await cdp.send("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: false });
+      assert.ok(await cdp.evaluate(`(() => {
+        const buttons = [...document.querySelectorAll('.sidebar-actions button')].map(e => e.getBoundingClientRect());
+        return buttons.every((r, i) => r.left >= 0 && r.right <= innerWidth && buttons.slice(i + 1).every(b => r.right <= b.left || r.left >= b.right || r.bottom <= b.top || r.top >= b.bottom));
+      })()`), `target and add buttons do not overlap at ${width}px`);
+    }
+    const fullAddressFits = await cdp.evaluate(`(() => {
+      const address = document.querySelector('.gateway-address-button');
+      const line = address.parentElement.getBoundingClientRect();
+      const text = document.createRange(); text.selectNodeContents(address);
+      return address.textContent === ${JSON.stringify(longUrl)} && [...text.getClientRects()].every(r => r.left >= line.left - 1 && r.right <= line.right + 1);
+    })()`);
+    assert.ok(fullAddressFits, "every line of the gateway URL fits inside its summary");
+
+    await mouse("document.querySelector('.provider-search input')");
+    await typeText("missing-gateway");
+    await cdp.waitFor("document.querySelector('.provider-list .list-empty')");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 667, height: 375, deviceScaleFactor: 1, mobile: false });
+    assert.ok(await cdp.evaluate("document.querySelector('.provider-search input').getBoundingClientRect().height > 0"), "an applied filter stays reachable after rotation");
+    await key("Escape");
+    await cdp.waitFor("document.querySelectorAll('.provider-item').length === 7");
+
+    // Scroll as a user would. scrollIntoView() alone also scrolls overflow:hidden
+    // ancestors, so a scripted click could pass while the footer was clipped.
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: 4, y: 350, deltaX: 0, deltaY: 3000 });
+    await cdp.waitFor(`(() => {
+      const back = document.querySelector('.wizard-footer > button');
+      const r = back.getBoundingClientRect();
+      return r.top >= 0 && r.bottom <= innerHeight && back.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+    })()`);
+    await mouse(byText(".wizard-footer button", "上一步"));
+    await cdp.waitFor("document.querySelector('.form-step')");
+    assert.ok(await cdp.evaluate("document.querySelector('.workspace h1').getBoundingClientRect().top >= 0 && document.querySelector('.workspace h1').getBoundingClientRect().bottom <= innerHeight"), "Back brings the new step into view");
+    assert.deepEqual(await posts(), []);
+  }, { seed: async (_api, agentDir) => {
+    const file = path.join(agentDir, "models.json");
+    const data = JSON.parse(fs.readFileSync(file, "utf8"));
+    data.providers['review-router'].baseUrl = longUrl;
+    for (const id of ['extra-a', 'extra-b', 'extra-c', 'extra-d']) data.providers[id] = data.providers['single-router'];
+    fs.writeFileSync(file, JSON.stringify(data));
+  } });
+});
+
+test("returning to a target reveals its live row on the horizontal rail and keeps arrow navigation", { timeout: 60_000 }, async () => {
+  await withReviewBrowser(async ({ cdp, key, row, mouse, typeText, recordPosts, posts }) => {
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
+    await recordPosts();
+    const checked = "document.querySelector('.target-switch [aria-checked=true]')";
+    await cdp.evaluate(`${checked}.focus()`);
+    for (const target of ['Codex', 'Claude Code', 'Pi']) {
+      await key('ArrowRight');
+      await cdp.waitFor(`${checked}.textContent === ${JSON.stringify(target)}`);
+      // The screen heading normally takes focus on the next animation frame.
+      await cdp.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+      assert.ok(await cdp.evaluate(`document.activeElement === ${checked}`), `${target} keeps focus for the next arrow`);
+    }
+    const inRail = await cdp.evaluate(`(() => {
+      const rail = document.querySelector('.provider-list');
+      const box = rail.getBoundingClientRect();
+      const live = ${row('zz-last')}.getBoundingClientRect();
+      return rail.scrollWidth > rail.clientWidth && live.left >= box.left - 1 && live.right <= box.right + 1;
+    })()`);
+    assert.ok(inRail, "the returning target reveals its off-screen default without a swipe");
+    await mouse("document.querySelector('.gateway-address-button')");
+    await cdp.waitFor("document.querySelector('.form-step')");
+    await mouse("document.querySelector('input[type=url]')");
+    await key('End');
+    await typeText('/draft');
+    await cdp.evaluate(`${checked}.focus()`);
+    await key('ArrowRight');
+    await cdp.waitFor("document.querySelector('.toast-action')");
+    assert.equal(await cdp.evaluate(`${checked}.textContent`), 'Pi', "dirty draft refuses the target switch");
+    assert.ok(await cdp.evaluate(`document.activeElement === ${checked}`), "a refused switch keeps focus on the actual target");
+    assert.deepEqual(await posts(), []);
+  }, { seed: async (_api, agentDir) => {
+    const modelFile = path.join(agentDir, 'models.json');
+    const data = JSON.parse(fs.readFileSync(modelFile, 'utf8'));
+    data.providers['zz-last'] = data.providers['single-router'];
+    fs.writeFileSync(modelFile, JSON.stringify(data));
+    fs.writeFileSync(path.join(agentDir, 'settings.json'), JSON.stringify({ defaultProvider: 'zz-last', defaultModel: 'only/model' }));
   } });
 });

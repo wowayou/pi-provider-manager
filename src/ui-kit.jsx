@@ -38,11 +38,17 @@ export function useScrollEdges(ref, signal) {
 // its credential is stored, and the copy/delete actions. Each target fills the
 // slots; the anatomy and the two actions stay one implementation, so a target
 // cannot drift into its own button styles again.
-export function ProviderSummary({ icon, name, badge, address, children, credential, onDuplicate, duplicateTitle, onDelete }) {
+export function ProviderSummary({ icon, name, badge, address, addressLabel = "API 地址", onEditAddress, children, credential, onDuplicate, duplicateTitle, onDelete }) {
   return (
     <div className="gateway-summary">
       <span className="summary-icon">{icon}</span>
-      <div><strong>{name}</strong>{badge}{address}{children}</div>
+      <div className="gateway-info">
+        <div className="gateway-name"><strong>{name}</strong>{badge}</div>
+        <p className="gateway-address"><span>{addressLabel}</span>{onEditAddress
+          ? <button type="button" className="gateway-address-button mono" onClick={onEditAddress} title={address || undefined}>{address || "尚未填写"}</button>
+          : <code>{address || "尚未填写"}</code>}</p>
+        {children}
+      </div>
       <div className="gateway-side">
         <div className="saved-credential"><ShieldCheck size={29} weight="duotone" /><span><strong>{credential.title}</strong><small>{credential.detail}</small></span></div>
         {onDuplicate && (
@@ -192,13 +198,7 @@ export function PasswordInput({ value, onChange, placeholder, inputRef, ariaInva
   );
 }
 
-export function titleFromId(id) {
-  return String(id)
-    .split(/[-_.]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
+export { titleFromId } from "./model-draft.mjs";
 
 export function createRadioKeyHandler({ refs, values, selectedIndex, onSelect }) {
   return (event) => {
@@ -206,18 +206,11 @@ export function createRadioKeyHandler({ refs, values, selectedIndex, onSelect })
     if (!step) return;
     event.preventDefault();
     const next = (selectedIndex + step + values.length) % values.length;
-    onSelect(values[next]);
-    refs.current[next]?.focus();
+    if (onSelect(values[next]) !== false) refs.current[next]?.focus();
   };
 }
 
-export async function readApiResponse(response, fallbackMessage) {
-  const data = await response.json();
-  if (response.ok) return data;
-  const error = new Error(data.error || fallbackMessage);
-  error.status = response.status;
-  throw error;
-}
+export { readApiResponse } from "./api-client.mjs";
 
 // What every dialog owes the keyboard: Escape closes it, Tab stays inside
 // it, and focus goes back to the control that opened it once it is gone.

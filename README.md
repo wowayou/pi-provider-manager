@@ -6,11 +6,13 @@ Pi Provider Manager is a local native-configuration manager for **Pi, the Codex 
 
 It does not carry inference traffic and is not an API aggregation gateway. When Codex needs an upstream that exposes only Chat Completions, an optional local LiteLLM process can bridge it; this project only writes that process's configuration and supervises it.
 
+[Try the interactive demo](https://wowayou.github.io/pi-provider-manager/). Switch sample providers for Pi, Codex CLI, and Claude Code. Refresh the page to restore the examples.
+
 **User guide:** [docs/usage.zh-CN.md](docs/usage.zh-CN.md) · **Architecture:** [docs/architecture.md](docs/architecture.md) · **Compatibility:** [docs/compatibility.md](docs/compatibility.md) · **Claude Code:** [docs/claude-code.md](docs/claude-code.md)
 
 ## Project status
 
-The current version is `0.5.6`. This is a frozen personal tool: future work is limited to defects found in real use, security fixes, and Pi, Codex, or Claude Code compatibility changes. There is no new-target, feature-expansion, or CC Switch parity roadmap.
+The current version is `0.5.6`. This is the owner's backup provider manager, not a CC Switch parity project. Real defects, security, and compatibility come first. The local UI supports switching to standby providers directly from the list. [Refactor plan and acceptance results (Chinese)](docs/plans/personal-provider-manager.zh-CN.md)
 
 For a broader Pi workflow, [CC Switch](https://github.com/farion1231/cc-switch) is usually the better choice. Its [v4.0.6 native contract](https://github.com/farion1231/cc-switch/blob/v4.0.6/docs/pi-native-contract-zh.md) reads Pi's global `defaultProvider` / `defaultModel` for warnings but does not write them, and it does not read or write Pi's `auth.json`. This project keeps the boundary CC Switch leaves open: direct management of Pi credentials, defaults, consistency across the three native files, and global instruction files beside them. When both tools use the same Pi files, reload an already-open page after the other tool saves.
 
@@ -77,6 +79,8 @@ npm test
 ```
 
 The development server accesses real configuration. For local development or tests, set `PI_CODING_AGENT_DIR`, `PI_PROVIDER_MANAGER_CODEX_DIR`, and `PI_PROVIDER_MANAGER_CLAUDE_DIR` to temporary directories; `/?demo=1` is the non-writing UI demo.
+
+For a GitHub Pages showcase, `npm run build:showcase` produces **only static assets** in `artifacts/showcase/`. The showcase always uses in-memory samples and resets on refresh; never enter real keys. `npm run test:showcase` checks the publishable files, switching targets, and restoring the sample on reload in a local browser.
 
 Read [docs/compatibility.md](docs/compatibility.md) before compatibility changes. Use [docs/architecture.md](docs/architecture.md) for ownership and design boundaries, [design-qa.md](design-qa.md) for dated verification evidence, and [CHANGELOG.md](CHANGELOG.md) for release history.
 

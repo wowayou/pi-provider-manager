@@ -107,6 +107,7 @@ async function saveThroughServer(codexDir, payload, options = {}) {
       body: JSON.stringify({ ...payload, revision: state.codex.revision }),
     });
     assert.equal(response.status, 200, await response.text());
+    if (options.afterProviderSave) await options.afterProviderSave(baseUrl);
     if (options.start) {
       const started = await fetch(`${baseUrl}/api/codex/bridge/start`, {
         method: "POST",
@@ -295,10 +296,19 @@ test("codex exec reaches a manager-configured gateway with the stored key", { sk
       baseUrl: `http://127.0.0.1:${gatewayPort}/v1`,
       requiresAuth: true,
       credential: { mode: "new", apiKey: savedKey },
-      models: [{ id: "fake-responses-model", reasoningEffort: "medium" }],
+      models: [{ id: "fake-responses-model", reasoningEffort: "high" }],
       defaultModelId: "fake-responses-model",
       setActive: true,
-    });
+    }, { afterProviderSave: async (url) => {
+      const file = path.join(codexDir, "config.toml");
+      fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace('model = "fake-responses-model"', 'model = "native-model"'));
+      const { codex } = await (await fetch(`${url}/api/state`)).json();
+      const reply = await fetch(`${url}/api/codex/settings`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revision: codex.revision, reasoningEffort: "medium" }),
+      });
+      assert.equal(reply.status, 200, await reply.text());
+    } });
 
     // Codex prints its resolved provider, model and effort on stderr and the
     // model's answer on stdout, so both are needed.
@@ -314,13 +324,14 @@ test("codex exec reaches a manager-configured gateway with the stored key", { sk
 
     // Codex used the provider, model and effort the manager wrote.
     assert.match(output, /provider: custom/);
-    assert.match(output, /model: fake-responses-model/);
+    assert.match(output, /model: native-model/);
     assert.match(output, /reasoning effort: medium/);
     // And it completed a turn against that gateway.
     assert.match(output, /PONG from the fake Responses gateway\./);
 
     const turns = fs.readFileSync(requestLog, "utf8").trim().split("\n").map((line) => JSON.parse(line));
     const authorized = turns.find((turn) => turn.authorization);
+    assert.equal(authorized.model, "native-model");
     assert.equal(authorized.authorization, `Bearer ${savedKey}`, "Codex did not send the credential the manager stored");
     assert.equal(authorized.url.startsWith("/v1/responses"), true);
   } finally {

@@ -22,6 +22,7 @@ const server = http.createServer((request, response) => {
       fs.appendFileSync(RECORD, `${JSON.stringify({
         url: request.url,
         authorization: request.headers.authorization || null,
+        model: JSON.parse(body || "{}").model,
         bodyPreview: body.slice(0, 400),
       })}\n`);
     }

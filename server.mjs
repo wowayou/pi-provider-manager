@@ -1,3 +1,4 @@
+import { providerRoutes } from "./lib/provider-routes.mjs";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -1546,6 +1547,25 @@ function jsonContentType(request) {
     && value.split(";")[0].trim().toLowerCase() === "application/json";
 }
 
+const configRoutes = providerRoutes({
+  pi: { saveProvider, setDefaultModel, deleteProvider, deleteProvidersBulk, saveSettings },
+  codex, claude, checkClaudeDirectory, publicState,
+  afterCodexWrite(saved) {
+    if (saved?.renamedFrom) {
+      // Runtime state, outside the config revision: a failure to relabel must
+      // not report a committed rename as failed.
+      try {
+        bridge.relabel(saved.renamedFrom, saved.providerId);
+      } catch (error) {
+        try {
+          fs.appendFileSync(bridge.logPath, `\n[pi-provider-manager] 无法更新桥的供应商记录：${error.message}\n`);
+        } catch {}
+      }
+    }
+    syncBridgeConfig();
+  },
+});
+
 const server = http.createServer(async (request, response) => {
   try {
     const isApi = typeof request.url === "string" && request.url.startsWith("/api/");
@@ -1561,24 +1581,9 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, publicState());
       return;
     }
-    if (request.method === "POST" && request.url === "/api/providers") {
-      saveProvider(await readBody(request));
-      sendJson(response, 200, { ok: true, state: publicState() });
-      return;
-    }
-    if (request.method === "POST" && request.url === "/api/providers/set-default") {
-      setDefaultModel(await readBody(request));
-      sendJson(response, 200, { ok: true, state: publicState() });
-      return;
-    }
-    if (request.method === "POST" && request.url === "/api/providers/delete") {
-      deleteProvider(await readBody(request));
-      sendJson(response, 200, { ok: true, state: publicState() });
-      return;
-    }
-    if (request.method === "POST" && request.url === "/api/providers/delete-bulk") {
-      deleteProvidersBulk(await readBody(request));
-      sendJson(response, 200, { ok: true, state: publicState() });
+    const configAction = request.method === "POST" && configRoutes.get(request.url);
+    if (configAction) {
+      sendJson(response, 200, configAction(await readBody(request)));
       return;
     }
     if (request.method === "POST" && request.url === "/api/update/check") {
@@ -1644,67 +1649,6 @@ const server = http.createServer(async (request, response) => {
           } catch {}
         });
       });
-      return;
-    }
-    if (request.method === "POST" && request.url === "/api/settings") {
-      saveSettings(await readBody(request));
-      sendJson(response, 200, { ok: true, state: publicState() });
-      return;
-    }
-    if (request.method === "POST" && request.url.startsWith("/api/claude/")) {
-      const actions = new Map([
-        ["/api/claude/providers", claude.saveProvider],
-        ["/api/claude/providers/delete", claude.deleteProvider],
-        ["/api/claude/activate", claude.activate],
-        ["/api/claude/settings", claude.saveSettings],
-      ]);
-      const action = actions.get(request.url);
-      if (action) {
-        checkClaudeDirectory();
-        const result = action(await readBody(request));
-        sendJson(response, 200, { ok: true, result, state: publicState() });
-        return;
-      }
-    }
-    if (request.method === "POST" && request.url === "/api/codex/providers") {
-      const saved = codex.saveProvider(await readBody(request));
-      if (saved.renamedFrom) {
-        // Runtime state, outside the config revision: a failure to relabel must
-        // not report a committed rename as failed.
-        try {
-          bridge.relabel(saved.renamedFrom, saved.providerId);
-        } catch (error) {
-          try {
-            fs.appendFileSync(bridge.logPath, `\n[pi-provider-manager] 无法更新桥的供应商记录：${error.message}\n`);
-          } catch {}
-        }
-      }
-      syncBridgeConfig();
-      sendJson(response, 200, { ok: true, state: publicState() });
-      return;
-    }
-    if (request.method === "POST" && request.url === "/api/codex/providers/delete") {
-      codex.deleteProvider(await readBody(request));
-      syncBridgeConfig();
-      sendJson(response, 200, { ok: true, state: publicState() });
-      return;
-    }
-    if (request.method === "POST" && request.url === "/api/codex/providers/delete-bulk") {
-      codex.deleteProvidersBulk(await readBody(request));
-      syncBridgeConfig();
-      sendJson(response, 200, { ok: true, state: publicState() });
-      return;
-    }
-    if (request.method === "POST" && request.url === "/api/codex/activate") {
-      codex.activate(await readBody(request));
-      syncBridgeConfig();
-      sendJson(response, 200, { ok: true, state: publicState() });
-      return;
-    }
-    if (request.method === "POST" && request.url === "/api/codex/settings") {
-      codex.saveSettings(await readBody(request));
-      syncBridgeConfig();
-      sendJson(response, 200, { ok: true, state: publicState() });
       return;
     }
     if (request.method === "POST" && request.url === "/api/codex/bridge/start") {

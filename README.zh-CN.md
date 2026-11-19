@@ -6,11 +6,13 @@ Pi Provider Manager 是一个面向 **Pi、Codex CLI 和 Claude Code** 的本地
 
 它不承载推理流量，也不是 API 聚合网关。Codex 遇到只有 Chat Completions 的上游时，可选用 LiteLLM 作为本机第三方桥接程序；本项目只生成配置并看管进程，仍不经过模型请求。
 
+[打开在线演示](https://wowayou.github.io/pi-provider-manager/)，可试用 Pi、Codex CLI 和 Claude Code 的供应商切换，刷新即可恢复样例。
+
 **使用手册：** [docs/usage.zh-CN.md](docs/usage.zh-CN.md) · **架构：** [docs/architecture.md](docs/architecture.md) · **兼容性：** [docs/compatibility.md](docs/compatibility.md) · **Claude Code：** [docs/claude-code.md](docs/claude-code.md)
 
 ## 项目状态
 
-当前版本是 `0.5.6`。这是一个为作者本人维护的冻结工具：后续只处理真实使用中的缺陷、安全修复，以及 Pi、Codex 或 Claude Code 的兼容变化，不再扩展新的目标、功能路线或 CC Switch 功能追平。
+当前版本是 `0.5.6`。这是作者自用的备用供应商管理器，不追求与 CC Switch 功能对齐。维护优先处理真实缺陷、安全和三端兼容；本地已支持从供应商列表直接切换备用项。[重构方案与验收记录](docs/plans/personal-provider-manager.zh-CN.md)
 
 对需要更完整 Pi 工作流的人，[CC Switch](https://github.com/farion1231/cc-switch) 通常更合适。按其 [v4.0.6 原生契约](https://github.com/farion1231/cc-switch/blob/v4.0.6/docs/pi-native-contract-zh.md)，它会读取 Pi 全局 `defaultProvider` / `defaultModel` 用于提醒，但不会写入；也不读写 Pi 的 `auth.json`。本项目保留的差异是直接管理 Pi 凭据、默认项和三份原生文件的一致性，并管理其旁边的全局提示词文件。两个工具共用 Pi 文件时，另一个工具保存后，已经打开的页面需要重新读取。
 
@@ -77,6 +79,8 @@ npm test
 ```
 
 开发服务器会访问真实配置。进行本地开发或测试时，请把 `PI_CODING_AGENT_DIR`、`PI_PROVIDER_MANAGER_CODEX_DIR` 和 `PI_PROVIDER_MANAGER_CLAUDE_DIR` 指向临时目录；`/?demo=1` 只用于不写配置的界面演示。
+
+**公开展示构建：** `npm run build:showcase` 生成可放在 GitHub Pages 仓库子路径的 `artifacts/showcase/`。它强制使用样例、刷新即还原，不运行管理 API；请勿输入真实密钥。`npm run test:showcase` 使用本机浏览器检查发布文件、三端切换与刷新还原。普通 `npm run build` 用于本地应用和 Sites。
 
 兼容性变更前先阅读 [docs/compatibility.md](docs/compatibility.md)，架构和所有权问题见 [docs/architecture.md](docs/architecture.md)。带日期的验证记录在 [design-qa.md](design-qa.md)，发布历史在 [CHANGELOG.md](CHANGELOG.md)。
 

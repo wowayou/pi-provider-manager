@@ -334,3 +334,11 @@ export function duplicateCodexForm(form, takenIds) {
     defaultRowId: (models.find((model) => model.id === sourceDefault?.id) || models[0]).rowId,
   };
 }
+
+export function titleFromId(id) {
+  return String(id)
+    .split(/[-_.]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}

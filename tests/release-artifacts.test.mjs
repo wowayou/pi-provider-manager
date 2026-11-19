@@ -15,6 +15,7 @@ test("release staging contains runnable launchers and no local Pi data", () => {
     "server.mjs",
     "lib/atomic-files.mjs",
     "lib/codex-config.mjs",
+    "lib/provider-routes.mjs",
     "lib/claude-config.mjs",
     "lib/claude-runs.mjs",
     "lib/toml-document.mjs",
