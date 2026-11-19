@@ -4924,6 +4924,30 @@ const seedCodexForReview = async (api, { stripKeyOf = "codex-nokey", agentDir })
   fs.writeFileSync(storePath, JSON.stringify(store, null, 2));
 };
 
+test("Codex wizard keeps an adopted TOML bearer while saving a model edit", { timeout: 90_000 }, async () => {
+  await withReviewBrowser(async ({ cdp, mouse, byText, codexDir, key, typeText }) => {
+    await mouse(byText(".target-switch button", "Codex"));
+    await cdp.waitFor("document.querySelector('.model-row.is-codex')");
+    await mouse("document.querySelectorAll('.stepper .step')[1]");
+    await cdp.waitFor("document.querySelector('.section-heading')?.textContent.includes('experimental_bearer_token')");
+    assert.ok(await cdp.evaluate("!!document.querySelector('.credential-status')?.textContent.includes('凭据已安全保存')"));
+    assert.equal(await cdp.evaluate("document.body.innerText.includes('dummy-browser-token') || [...document.querySelectorAll('input,textarea')].some(el => el.value.includes('dummy-browser-token'))"), false);
+    await mouse("document.querySelectorAll('.stepper .step')[2]");
+    const id = "document.querySelector('.model-row.is-codex input[type=text], .model-row.is-codex input:not([type])')";
+    await mouse(id); await key("End"); await typeText("-edited");
+    await mouse(byText(".wizard-footer button", "保存更改"));
+    await cdp.waitFor("document.querySelector('.success-page')");
+    const written = fs.readFileSync(path.join(codexDir, "config.toml"), "utf8");
+    assert.match(written, /^experimental_bearer_token = "dummy-browser-token"$/m);
+    assert.match(written, /^model = "bearer-model-edited"$/m);
+    assert.equal(fs.existsSync(path.join(codexDir, "auth.json")), false);
+  }, { seed: async (_api, agentDir) => {
+    const dir = isolatedCodexDir(agentDir);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "config.toml"), 'model_provider = "custom"\nmodel = "bearer-model"\n[model_providers.custom]\nname = "Bearer"\nbase_url = "https://bearer.example/v1"\nwire_api = "responses"\nrequires_openai_auth = false\nexperimental_bearer_token = "dummy-browser-token"\n');
+  } });
+});
+
 test("Codex Settings preserves the native model and refreshes the wizard after save", { timeout: 90_000 }, async () => {
   await withReviewBrowser(async ({ cdp, mouse, byText, row, files }) => {
     await mouse(byText(".target-switch button", "Codex"));

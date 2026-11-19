@@ -52,7 +52,6 @@ if [[ -z "$node_bin" ]]; then
   node_bin="$(command -v node || true)"
 fi
 open_browser="${PI_PROVIDER_MANAGER_OPEN_BROWSER:-1}"
-log_file="$agent_dir/pi-provider-manager-ui.log"
 
 if [[ -z "$node_bin" || ! -x "$node_bin" ]]; then
   echo "Node.js executable not found. Set PI_PROVIDER_MANAGER_NODE explicitly." >&2
@@ -126,9 +125,25 @@ if [[ ! -f "$project_dir/dist/client/index.html" ]]; then
   exit 1
 fi
 
-is_manager_port() {
-  curl --silent --fail --max-time 1 "http://127.0.0.1:$1/api/state" 2>/dev/null |
-    grep --quiet '"configMode":"preserve-unknown-fields"'
+# Read the whole response before deciding. A matching service marker alone
+# cannot tell a temporary test workspace from the user's normal workspace.
+manager_report() {
+  curl --noproxy '*' --silent --fail --max-time 2 "http://127.0.0.1:$1/api/state" 2>/dev/null |
+    "$node_bin" -e '
+      const path = require("node:path");
+      (async () => {
+        let text = "";
+        process.stdin.setEncoding("utf8");
+        for await (const chunk of process.stdin) text += chunk;
+        const state = JSON.parse(text);
+        const info = state.compatibility;
+        if (info?.configMode !== "preserve-unknown-fields") process.exit(1);
+        const dirs = [state.agentDir, state.codex?.dir, state.claude?.dir];
+        if (!dirs.every((dir, i) => dir === path.resolve(process.argv[i + 1]))) process.exit(1);
+        console.log(info.appVersion || "");
+        if (Number.isSafeInteger(info.servicePid) && info.servicePid > 0) console.log(info.servicePid);
+      })().catch(() => process.exit(1));
+    ' -- "$agent_dir" "$codex_dir" "$claude_dir"
 }
 
 # Asks Node whether the port can be bound rather than whether it can be
@@ -146,21 +161,32 @@ port_in_use() {
   ' "$1" >/dev/null 2>&1
 }
 
+# Resolve relative overrides against the calling shell, including when WSL
+# starts the detached process in another working directory.
+[[ "$agent_dir" = /* ]] || agent_dir="$PWD/$agent_dir"
+[[ "$codex_dir" = /* ]] || codex_dir="$PWD/$codex_dir"
+[[ "$claude_dir" = /* ]] || claude_dir="$PWD/$claude_dir"
+
+reused=0
 if [[ -n "${PI_PROVIDER_MANAGER_PORT:-}" ]]; then
   port="$PI_PROVIDER_MANAGER_PORT"
   if [[ ! "$port" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
     echo "PI_PROVIDER_MANAGER_PORT must be an integer between 1 and 65535." >&2
     exit 1
   fi
-  if port_in_use "$port" && ! is_manager_port "$port"; then
-    echo "Port $port is already used by another application. Choose a different PI_PROVIDER_MANAGER_PORT." >&2
-    exit 1
+  if port_in_use "$port"; then
+    if ! running="$(manager_report "$port")"; then
+      echo "Port $port is occupied by another application or a manager with different config directories. Choose a different PI_PROVIDER_MANAGER_PORT." >&2
+      exit 1
+    fi
+    reused=1
   fi
 else
   port=""
   for candidate in $(seq 43127 43146); do
-    if port_in_use "$candidate" && is_manager_port "$candidate"; then
+    if port_in_use "$candidate" && running="$(manager_report "$candidate")"; then
       port="$candidate"
+      reused=1
       break
     fi
   done
@@ -180,14 +206,9 @@ fi
 
 url="http://127.0.0.1:${port}/"
 
-# Reusing an already-running manager is the point of the port scan, but saying
-# nothing about it made "restart it" an instruction nobody could carry out: the
-# launcher printed the same lines either way, so a manager still running with a
-# stale view of the machine looked freshly started.
-reused=0
-if is_manager_port "$port"; then reused=1; fi
-
 if [[ "$reused" -eq 0 ]]; then
+  log_file="$agent_dir/pi-provider-manager-ui.log"
+  mkdir -p -m 700 -- "$agent_dir"
   if [[ -n "${WSL_DISTRO_NAME:-}" ]] && command -v powershell.exe >/dev/null 2>&1; then
     escaped_project_dir=${project_dir//\'/\'\'}
     escaped_agent_dir=${agent_dir//\'/\'\'}
@@ -218,7 +239,7 @@ if [[ "$reused" -eq 0 ]]; then
 
   ready=0
   for _ in $(seq 1 40); do
-    if is_manager_port "$port"; then
+    if manager_report "$port" >/dev/null; then
       ready=1
       break
     fi
@@ -227,7 +248,9 @@ if [[ "$reused" -eq 0 ]]; then
 
   if [[ "$ready" -ne 1 ]]; then
     echo "Pi Provider Manager failed to start." >&2
-    echo "Run manually: PI_PROVIDER_MANAGER_PORT='$port' PI_PROVIDER_MANAGER_SERVE_UI=1 PI_CODING_AGENT_DIR='$agent_dir' PI_PROVIDER_MANAGER_CODEX_DIR='$codex_dir' '$node_bin' '$project_dir/server.mjs'" >&2
+    echo "Check the startup log: $log_file" >&2
+    printf 'Run manually: PI_PROVIDER_MANAGER_PORT=%q PI_PROVIDER_MANAGER_SERVE_UI=1 PI_CODING_AGENT_DIR=%q PI_PROVIDER_MANAGER_CODEX_DIR=%q PI_PROVIDER_MANAGER_CLAUDE_DIR=%q %q %q\n' \
+      "$port" "$agent_dir" "$codex_dir" "$claude_dir" "$node_bin" "$project_dir/server.mjs" >&2
     exit 1
   fi
 fi
@@ -239,27 +262,8 @@ fi
 # before anything is saved.
 echo "Pi Provider Manager is ready: $url"
 if [[ "$reused" -eq 1 ]]; then
-  # A reused server is using whatever it was started with, which need not match
-  # this shell. Report what it says about itself rather than what we computed,
-  # or the directory lines would be a confident guess.
-  running="$(curl --silent --fail --max-time 2 "http://127.0.0.1:$port/api/state" 2>/dev/null |
-    "$node_bin" -e '
-      let s = "";
-      process.stdin.on("data", (c) => { s += c; }).on("end", () => {
-        try {
-          const state = JSON.parse(s);
-          process.stdout.write([
-            state.compatibility?.appVersion || "",
-            state.agentDir || "",
-            state.codex?.dir || "",
-            state.compatibility?.servicePid || "",
-            state.claude?.dir || "",
-          ].join("\n"));
-        } catch {}
-      });
-    ' 2>/dev/null || true)"
   running_version="$(printf '%s' "$running" | sed -n 1p)"
-  running_pid="$(printf '%s' "$running" | sed -n 4p)"
+  running_pid="$(printf '%s' "$running" | sed -n 2p)"
   # An instance older than 0.3.0 does not report its process id. Ask the kernel
   # who holds the port instead — anything else is a guess, and the guess this
   # used to print named *this* launcher's directory, which is exactly the
@@ -268,9 +272,9 @@ if [[ "$reused" -eq 1 ]]; then
     running_pid="$(ss -ltnpH "sport = :$port" 2>/dev/null | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2)"
   fi
   echo "  (reused the instance already running on this port${running_version:+, version $running_version})"
-  echo "  Pi config:    $(printf '%s' "$running" | sed -n 2p)"
-  echo "  Codex config: $(printf '%s' "$running" | sed -n 3p)"
-  echo "  Claude config: $(printf '%s' "$running" | sed -n 5p)"
+  echo "  Pi config:    $agent_dir"
+  echo "  Codex config: $codex_dir"
+  echo "  Claude config: $claude_dir"
   # Not "restart it to pick up a newly installed LiteLLM": the bridge resolves
   # that binary on every read precisely so an install made after the manager was
   # opened is noticed without one. What a restart is actually for is everything

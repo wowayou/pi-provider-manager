@@ -7,7 +7,7 @@
 // Everything here drives the real script.
 
 import assert from "node:assert/strict";
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -159,7 +159,7 @@ test("starts, then says so rather than pretending to restart", { skip: process.p
   }
 });
 
-test("a reused instance is described by itself, not by this shell", { skip: process.platform === "win32" ? "bash launcher" : false }, async (t) => {
+test("an explicit port refuses a mismatch in any one of the three config directories", { skip: process.platform === "win32" ? "bash launcher" : false }, async (t) => {
   if (builtUiGate(t)) return;
   const runningPi = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-launch-live-pi-"));
   const runningCodex = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-launch-live-codex-"));
@@ -168,25 +168,42 @@ test("a reused instance is described by itself, not by this shell", { skip: proc
   const port = await freePort();
 
   try {
-    assert.equal(run({
+    const env = {
       PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(runningPi, "claude"), PI_CODING_AGENT_DIR: runningPi,
       PI_PROVIDER_MANAGER_CODEX_DIR: runningCodex,
       PI_PROVIDER_MANAGER_PORT: String(port),
-    }).status, 0);
-
-    // Same port, different directories: what gets printed must describe the
-    // instance holding the port, not what this invocation would have used.
-    const reused = run({
-      PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(otherPi, "claude"), PI_CODING_AGENT_DIR: otherPi,
-      PI_PROVIDER_MANAGER_CODEX_DIR: otherCodex,
-      PI_PROVIDER_MANAGER_PORT: String(port),
-    });
-    assert.equal(reused.status, 0, reused.stderr);
-    assert.match(reused.stdout, new RegExp(`Pi config:\\s+${runningPi}`));
-    assert.match(reused.stdout, new RegExp(`Codex config:\\s+${runningCodex}`));
-    assert.match(reused.stdout, new RegExp(`Claude config:\\s+${path.join(runningPi, "claude")}`));
-    assert.equal(reused.stdout.includes(otherPi), false, "this shell's directories are not the running instance's");
-    assert.equal(reused.stdout.includes(otherCodex), false);
+    };
+    const first = run(env);
+    assert.equal(first.status, 0, first.stderr);
+    for (const override of [
+      { PI_CODING_AGENT_DIR: otherPi },
+      { PI_PROVIDER_MANAGER_CODEX_DIR: otherCodex },
+      { PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(otherPi, "claude") },
+    ]) {
+      const refused = run({ ...env, ...override });
+      assert.equal(refused.status, 1, refused.stderr);
+      assert.match(refused.stderr, /different config directories/);
+      assert.doesNotMatch(refused.stdout, /is ready/);
+    }
+    // Exercise automatic selection without probing any real user's port.
+    const secondPort = await freePort();
+    const seq = execFileSync("sh", ["-c", "command -v seq"], { encoding: "utf8" }).trim();
+    fs.writeFileSync(path.join(otherPi, "seq"), `#!/bin/sh\nif [ "$*" = "43127 43146" ]; then echo ${port}; echo ${secondPort}; else exec "${seq}" "$@"; fi\n`, { mode: 0o700 });
+    const auto = { ...env, PI_PROVIDER_MANAGER_PORT: "", PI_CODING_AGENT_DIR: path.join(otherPi, "new"), PATH: `${otherPi}:${process.env.PATH}` };
+    try {
+      const fresh = run(auto);
+      assert.equal(fresh.status, 0, fresh.stderr);
+      assert.ok(fresh.stdout.includes(`ready: http://127.0.0.1:${secondPort}/`));
+      assert.doesNotMatch(fresh.stdout, /reused/);
+      const again = run(auto);
+      assert.equal(again.status, 0, again.stderr);
+      assert.match(again.stdout, /reused the instance/);
+      assert.ok(again.stdout.includes(`ready: http://127.0.0.1:${secondPort}/`));
+    } finally {
+      for (const pid of pidsOn(secondPort)) {
+        try { process.kill(Number(pid), "SIGTERM"); } catch {}
+      }
+    }
   } finally {
     for (const pid of pidsOn(port)) {
       try { process.kill(Number(pid), "SIGTERM"); } catch {}
@@ -349,65 +366,62 @@ function windowsPath(target) {
 
 test("the PowerShell launcher describes a reused instance too", { skip: windowsPowerShell ? false : "no Windows PowerShell on this machine" }, async (t) => {
   if (builtUiGate(t)) return;
-  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-pwsh-pi-"));
-  const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-pwsh-codex-"));
-  t.after(() => {
-    fs.rmSync(agentDir, { recursive: true, force: true });
-    fs.rmSync(codexDir, { recursive: true, force: true });
-  });
-  const port = await freePort();
-
-  // Started directly rather than through the launcher: what is under test is the
-  // report about an instance that is already running, and starting it from Node
-  // keeps a Windows node out of the picture.
-  const running = spawn(process.execPath, [path.join(projectRoot, "server.mjs")], {
-    cwd: projectRoot,
-    env: {
-      ...process.env,
-      PI_PROVIDER_MANAGER_CLAUDE_DIR: path.join(agentDir, "claude"), PI_CODING_AGENT_DIR: agentDir,
-      PI_PROVIDER_MANAGER_CODEX_DIR: codexDir,
-      PI_PROVIDER_MANAGER_PORT: String(port),
-      PI_PROVIDER_MANAGER_SERVE_UI: "1",
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  t.after(() => running.kill());
-
-  const deadline = Date.now() + 20_000;
-  let state;
-  while (Date.now() < deadline) {
-    try {
-      state = await (await fetch(`http://127.0.0.1:${port}/api/state`)).json();
-      break;
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    }
-  }
-  assert.ok(state, "the manager under test never came up");
-
+  // Allocate the fixture port on the same Windows network stack as Node.
+  // A WSL server reports POSIX paths
+  // and cannot be the instance for a Windows workspace.
   const script = `
     $ErrorActionPreference = 'Stop'
-    $local = Join-Path $env:TEMP ('ppm-launcher-test-' + [guid]::NewGuid().ToString('N') + '.ps1')
-    Copy-Item -LiteralPath '${windowsPath(path.join(projectRoot, "bin", "pi-provider-manager.ps1"))}' -Destination $local
+    $root = New-Item -Type Directory (Join-Path $env:TEMP ('ppm-win-' + [guid]::NewGuid().ToString('N')))
+    $local = Join-Path $root 'launcher.ps1'
+    $server = $null
     try {
-      $env:PI_PROVIDER_MANAGER_PROJECT_DIR = '${windowsPath(projectRoot)}'
+      $checkout = '${windowsPath(projectRoot).replaceAll("'", "''")}'
+      $env:PI_PROVIDER_MANAGER_PROJECT_DIR = Join-Path $root 'checkout'
+      New-Item -Type Directory $env:PI_PROVIDER_MANAGER_PROJECT_DIR | Out-Null
+      foreach ($entry in @('package.json', 'server.mjs', 'lib', 'bin', 'dist')) {
+        Copy-Item -LiteralPath (Join-Path $checkout $entry) -Destination $env:PI_PROVIDER_MANAGER_PROJECT_DIR -Recurse
+      }
+      Copy-Item -LiteralPath (Join-Path $env:PI_PROVIDER_MANAGER_PROJECT_DIR 'bin\\pi-provider-manager.ps1') -Destination $local
+      $env:PI_CODING_AGENT_DIR = Join-Path $root 'fixture-pi'
+      $env:PI_PROVIDER_MANAGER_CODEX_DIR = Join-Path $root 'fixture-codex'
+      $env:PI_PROVIDER_MANAGER_CLAUDE_DIR = Join-Path $root 'fixture-claude'
       $env:PI_PROVIDER_MANAGER_OPEN_BROWSER = '0'
-      $env:PI_PROVIDER_MANAGER_PORT = '${port}'
-      & $local
-    } finally { Remove-Item -LiteralPath $local -Force -ErrorAction SilentlyContinue }
+      $env:PI_PROVIDER_MANAGER_SERVE_UI = '1'
+      $probe = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+      $probe.Start()
+      $port = $probe.LocalEndpoint.Port
+      $probe.Stop()
+      $env:PI_PROVIDER_MANAGER_PORT = [string]$port
+      $serverPath = Join-Path $env:PI_PROVIDER_MANAGER_PROJECT_DIR 'server.mjs'
+      $errFile = Join-Path $root 'fixture-stderr.txt'
+      $server = Start-Process node -ArgumentList ([char]34 + $serverPath + [char]34) -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardError $errFile
+      $deadline = [datetime]::UtcNow.AddSeconds(20)
+      do {
+        try { $state = Invoke-RestMethod "http://127.0.0.1:$port/api/state" -TimeoutSec 1 } catch { Start-Sleep -Milliseconds 100 }
+      } until ($state -or $server.HasExited -or [datetime]::UtcNow -gt $deadline)
+      if ($state.compatibility.servicePid -ne $server.Id) {
+        $code = [regex]::Match([string](Get-Content -Raw -LiteralPath $errFile), 'ERR_[A-Z_]+|MODULE_NOT_FOUND|EADDRINUSE|EACCES').Value
+        throw "fixture server did not start (exited=$($server.HasExited), error=$code)"
+      }
+      $report = & $local | Out-String
+      if (-not $report.Contains("Stop-Process -Id $($server.Id)")) { throw 'wrong restart pid' }
+      if (-not $report.Contains("version $($state.compatibility.appVersion)")) { throw 'wrong version' }
+      Write-Output $report
+      $env:PI_PROVIDER_MANAGER_CLAUDE_DIR = Join-Path $root 'other-claude'
+      try { & $local; throw 'accepted the wrong workspace' } catch {
+        if ($_.Exception.Message -notmatch 'different config directories') { throw }
+      }
+    } finally {
+      if ($server -and -not $server.HasExited) { $server.Kill(); $server.WaitForExit() }
+      Remove-Item -LiteralPath $root -Recurse -Force
+    }
   `;
   const reused = spawnSync(windowsPowerShell, ["-NoProfile", "-Command", script], { encoding: "utf8", timeout: 120_000 });
   const output = `${reused.stdout || ""}${reused.stderr || ""}`;
   assert.equal(reused.status, 0, output);
 
-  // Reported from what the instance says about itself, not from what this shell
-  // computed: during an upgrade those are different answers, and the launcher's
-  // own directory is the wrong one.
   assert.match(output, /reused the instance already running/);
-  assert.ok(output.includes(`version ${state.compatibility.appVersion}`), output);
-  assert.ok(output.includes(agentDir), output);
-  assert.ok(output.includes(codexDir), output);
-  assert.match(output, new RegExp(`Stop-Process -Id ${state.compatibility.servicePid}\\b`));
+  for (const dir of ["fixture-pi", "fixture-codex", "fixture-claude"]) assert.ok(output.includes(dir), output);
   // A byte-identical copy is not a stale copy.
   assert.equal(/not the one in the checkout/.test(output), false, output);
 });

@@ -11,13 +11,15 @@ function Test-ProjectDirectory([string]$Path) {
     }
 }
 
-function Test-ManagerPort([int]$Port) {
+function Get-MatchingManager([int]$Port) {
     try {
-        $state = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/state" -TimeoutSec 1
-        return $state.compatibility.configMode -eq "preserve-unknown-fields"
-    } catch {
-        return $false
-    }
+        $state = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/state" -TimeoutSec 2
+        if ($state.compatibility.configMode -ceq "preserve-unknown-fields" -and
+            $state.agentDir.TrimEnd('\', '/') -ceq $agentDir.TrimEnd('\', '/') -and
+            $state.codex.dir.TrimEnd('\', '/') -ceq $codexDir.TrimEnd('\', '/') -and
+            $state.claude.dir.TrimEnd('\', '/') -ceq $claudeDir.TrimEnd('\', '/')) { return $state }
+    } catch { }
+    return $null
 }
 
 # Set-StrictMode turns a reference to a property an object does not carry into a
@@ -176,21 +178,28 @@ if (-not (Test-Path -LiteralPath $clientPath -PathType Leaf)) {
     throw "Built UI not found. Download a release archive or run 'npm ci' and 'npm run build' in: $projectDir"
 }
 
+$running = $null
 if ($env:PI_PROVIDER_MANAGER_PORT) {
     $parsedPort = 0
     if (-not [int]::TryParse($env:PI_PROVIDER_MANAGER_PORT, [ref]$parsedPort) -or $parsedPort -lt 1 -or $parsedPort -gt 65535) {
         throw "PI_PROVIDER_MANAGER_PORT must be an integer between 1 and 65535."
     }
     $port = $parsedPort
-    if ((Test-PortInUse $port) -and -not (Test-ManagerPort $port)) {
-        throw "Port $port is already used by another application. Choose a different PI_PROVIDER_MANAGER_PORT."
+    if (Test-PortInUse $port) {
+        $running = Get-MatchingManager $port
+        if (-not $running) {
+            throw "Port $port is occupied by another application or a manager with different config directories. Choose a different PI_PROVIDER_MANAGER_PORT."
+        }
     }
 } else {
     $port = 0
     foreach ($candidate in 43127..43146) {
-        if ((Test-PortInUse $candidate) -and (Test-ManagerPort $candidate)) {
-            $port = $candidate
-            break
+        if (Test-PortInUse $candidate) {
+            $running = Get-MatchingManager $candidate
+            if ($running) {
+                $port = $candidate
+                break
+            }
         }
     }
     if ($port -eq 0) {
@@ -213,7 +222,7 @@ $url = "http://127.0.0.1:$port/"
 # browser, so a blocked browser bridge left no port and no error on screen. The
 # bash launcher reports both; someone who moves between WSL and PowerShell reads
 # the two as one command.
-$reused = Test-ManagerPort $port
+$reused = [bool]$running
 if (-not $reused) {
     New-Item -ItemType Directory -Path $agentDir -Force | Out-Null
     $logOut = Join-Path $agentDir "pi-provider-manager-ui.log"
@@ -244,7 +253,7 @@ if (-not $reused) {
 
     $ready = $false
     foreach ($attempt in 1..40) {
-        if (Test-ManagerPort $port) {
+        if (Get-MatchingManager $port) {
             $ready = $true
             break
         }
@@ -257,13 +266,6 @@ if (-not $reused) {
 
 Write-Output "Pi Provider Manager is ready: $url"
 if ($reused) {
-    # A reused server is using whatever it was started with, which need not match
-    # this shell. Report what it says about itself rather than what we computed,
-    # or the directory lines would be a confident guess.
-    $running = $null
-    try {
-        $running = Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/state" -TimeoutSec 2
-    } catch {}
     $compatibility = Read-Field $running "compatibility"
     $runningVersion = [string](Read-Field $compatibility "appVersion")
     $runningPid = [string](Read-Field $compatibility "servicePid")

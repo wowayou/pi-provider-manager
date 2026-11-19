@@ -133,8 +133,7 @@ Pi Provider Manager is ready: http://127.0.0.1:43127/
 写任何东西之前看到路径才发现得了。
 
 端口在 `43127-43146` 里自动选，专用段是为了避开 Vite 常用的 `4173` 上残留的 Service
-Worker 和站点缓存。**再次运行同一条命令不会起第二个进程**：它先用 `/api/state` 确认端口上那
-个确实是本管理器，然后复用，并明确告诉你复用了谁：
+Worker 和站点缓存。启动器读取 `/api/state`，只有服务标记和 Pi、Codex、Claude 三个配置目录都匹配才复用实例。自动选端口时会跳过目录不同或无法确认的实例，优先找匹配项，其次找空闲端口。显式指定的端口被占用且无法确认匹配时，启动器会报错退出。复用成功时会看到：
 
 ```
   (reused the instance already running on this port, version <运行中那个实例的版本>)
@@ -169,7 +168,7 @@ WSL 下会自动打开 Windows 默认浏览器。不想开浏览器就 `PI_PROVI
 | `pi-provider-manager-bridge.json` | 仅用托管桥时：桥的运行时记录 |
 | `pi-provider-manager-bridge.log` | 仅用托管桥时：LiteLLM 自己的输出，权限 `0600` |
 
-`config.toml` 里的注释、无关键、你手写的其它供应商表，**逐字节保留**。
+受管供应商表的写入范围见[单表模式](#单表模式)。
 
 ### 从列表切换到备用供应商
 
@@ -383,7 +382,7 @@ Release。启动、构建、打开页面都不外联，也没有任何定时检�
 
 Codex 的形态和 Pi 很不一样，三件事决定了这里的所有设计：
 
-1. **只有一个凭据槽**。`auth.json` 里只放得下一个 `OPENAI_API_KEY`。
+1. **新建直连供应商默认使用 `auth.json`**。它的 `OPENAI_API_KEY` 槽一次保存一个 key。已有供应商也可以直接在 TOML 中配置令牌。
 2. **只说 Responses API**。2026 年 2 月起 `wire_api = "chat"` 被移除，写进去会让**整份**
    `config.toml` 加载失败。
 3. **配置只在启动时读一次**。切换供应商影响的是**新开的会话**，正在跑的 `codex` 不受影响。
@@ -416,14 +415,9 @@ wire_api = "responses"
 requires_openai_auth = true
 ```
 
-切换供应商 = 重写这一张表 + 换掉 `auth.json` 里的 key。因为 Codex 没有地方放"当前没在用"的
-供应商，其余供应商的地址、模型和 key 存在 `pi-provider-manager-store.json`。没改表单就点
-「保存并设为当前生效」，或用侧栏行菜单的「设为当前生效」，都按库里已存的条目切换，不重新提交表单。
-停在成功页时从侧栏切换失败（例如目标没有 key，或文件被外部改过），成功页保留上一次真实结果，
-并在页面上显示错误；冲突时横幅里有「重新读取」。
+管理器把备用项存在 `pi-provider-manager-store.json`。启用时重建同一张供应商表，目标需要 `auth.json` 凭据时才更新 key。侧栏的「设为当前生效」直接使用已存条目。顶层 `model_provider` 选中受管表时，界面按原生地址匹配供应商，读取原生模型和推理强度。「已接管」表示管理器从文件读出了一个新条目。
 
-**`config.toml` 仍然是"Codex 实际会怎么做"的事实来源**；供应商库是"你还配了些什么"的事实来源。
-只有顶层 `model_provider` 指向受管表时，该表才是「生效中」。此时原生 `model` 和推理强度优先于库里的旧值；无法匹配已存网关时，界面才标注「已接管」。若使用手写供应商或内建默认，设置页保留这项选择，不会把第一个备用供应商自动启用。
+**沿用原生凭据。** 如果当前受管表使用 `experimental_bearer_token`，向导会显示凭据已配置。保存模型、修改令牌或切回该供应商时，令牌写回 `config.toml`。切走时，管理器用私有库保存当前令牌。若在外部更新了 TOML 令牌或生效项的 `auth.json` API key，重新读取后选择「保留现有 key」即可沿用新值。受管表使用 `env_key`、认证助手或手写请求头时，请在原生文件中维护这项认证，管理器会拒绝替换该表。
 
 **看起来没有生效时：** 先看设置页的「配置目录」是否与启动 Codex 的 `CODEX_HOME` 对应（尤其注意 Windows 与 WSL），再确认是「只保存」还是「设为当前生效」。只改偏好不会重写供应商表、模型选择或凭据。切换后，在同一配置目录下新开一次 `codex`，不带 `--profile`、`-m` 或 `-c`，用 `/model` 核对；无需关闭原终端。使用托管桥的供应商还需确认桥已启动。这些步骤不需要发送付费测试消息。
 
@@ -544,9 +538,7 @@ pipx install 'litellm[proxy]'
 
 提示条上会出现「重新读取」按钮。这不是失败，是它在替你避免覆盖别人的修改。
 
-**未知字段保留**：编辑已知字段时，Pi 那边未知的 provider / model / settings 字段会原样保留，
-Codex 那边不认识的键、注释、你手写的其它供应商表也逐字节保留。这样上游加了新字段，你用旧版管理器
-编辑也不会把它们抹掉。
+**未知字段保留**：Pi 保留未识别的 provider / model / settings 字段。Codex 保留其它手写供应商表及无关配置；受管表本身按[单表模式](#单表模式)重建。
 
 ## 十、环境变量
 
@@ -610,7 +602,7 @@ PI_CODING_AGENT_DIR=/tmp/pi-try CODEX_HOME=/tmp/codex-try PI_PROVIDER_MANAGER_CL
 | `Built UI not found. Run 'npm ci && npm run build'` | 只 clone 没构建。跑 `npm run setup` |
 | `Warning: the launcher you ran is not the one in the checkout` | 你在跑一份过期副本。`npm run install:launcher` 换成转发脚本 |
 | `Pi Provider Manager is no longer at:` | 转发脚本指向的仓库被移动或删除了。在新位置重跑 `npm run install:launcher` |
-| `Port N is already used by another application.` | 你指定的端口被别的程序占了。换一个，或者别指定让它自动选 |
+| `Port N is occupied by another application or a manager with different config directories.` | 指定端口上的服务与本次目录不匹配，或无法确认身份。检查三个配置目录，或者取消指定端口，让启动器自动选择 |
 | `No free port found in 43127-43146.` | 20 个端口全被占。用 `PI_PROVIDER_MANAGER_PORT` 指一个 |
 | `Pi Provider Manager failed to start.` | 服务起不来。它会打印一条可以直接粘贴的手动启动命令，前台跑一遍就能看到真正的报错；日志在 `$PI_CODING_AGENT_DIR/pi-provider-manager-ui.log` |
 | `启动失败：无法监听 127.0.0.1:43127：端口已被占用（EADDRINUSE）` | 端口被别人占了。它会重试一秒再放弃，然后写入日志并退出（不会半死在那里）。换一个端口，或先停掉占用它的进程 |

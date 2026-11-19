@@ -800,7 +800,7 @@ function publicState() {
       name: titleFromId(id),
       baseUrl: typeof config.baseUrl === "string" ? config.baseUrl : "",
       api: typeof config.api === "string" ? config.api : "",
-      compat: isObject(config.compat) ? config.compat : {},
+      compat: cleanCompat(config.api, config.compat) || {},
       models: Array.isArray(config.models) ? config.models.filter(isObject).map(publicModel) : [],
       userAgent: readUserAgent(config.headers),
       hasModelUserAgentOverride: hasModelUserAgentOverride(config),
@@ -905,12 +905,13 @@ function normalizeModel(model) {
   return normalized;
 }
 
+const anthropicCompatKeys = ["supportsEagerToolInputStreaming", "supportsLongCacheRetention", "supportsCacheControlOnTools", "supportsStrictTools"];
+const openAICompatKeys = ["supportsDeveloperRole", "supportsLongCacheRetention", "supportsStrictMode", "supportsStore", "supportsReasoningEffort", "supportsUsageInStreaming"];
+const managedCompatKeys = new Set([...anthropicCompatKeys, ...openAICompatKeys]);
+
 function cleanCompat(api, compat) {
   if (!isObject(compat)) return undefined;
-  const allowed =
-    api === "anthropic-messages"
-      ? ["supportsEagerToolInputStreaming", "supportsLongCacheRetention", "supportsCacheControlOnTools", "supportsStrictTools"]
-      : ["supportsDeveloperRole", "supportsLongCacheRetention", "supportsStrictMode", "supportsStore", "supportsReasoningEffort", "supportsUsageInStreaming"];
+  const allowed = api === "anthropic-messages" ? anthropicCompatKeys : openAICompatKeys;
   const result = {};
   for (const key of allowed) {
     if (typeof compat[key] === "boolean") result[key] = compat[key];
@@ -1043,7 +1044,10 @@ function saveProvider(payload) {
   // cleanCompat would reject them for the new api, so filter what we keep too.
   const keptCompat = cleanCompat(api, existingProvider.compat) || {};
   const submittedCompat = cleanCompat(api, payload.compat) || {};
-  const mergedCompat = { ...keptCompat, ...submittedCompat };
+  const diskOnlyCompat = isObject(existingProvider.compat)
+    ? Object.fromEntries(Object.entries(existingProvider.compat).filter(([key]) => !managedCompatKeys.has(key)))
+    : {};
+  const mergedCompat = { ...diskOnlyCompat, ...keptCompat, ...submittedCompat };
   if (Object.keys(mergedCompat).length > 0) providerConfig.compat = mergedCompat;
   else delete providerConfig.compat;
   if (renaming) {
