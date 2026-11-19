@@ -3,8 +3,8 @@
 Claude Code is a third target in the same sidebar and three-step wizard. This
 adapter manages user-level Anthropic Messages gateways with static credentials,
 a default model, optional `sonnet` / `opus` / `haiku` / `fable` mappings, basic
-reply preferences, and the global `CLAUDE.md` instruction file. It does not add
-model discovery, a traffic proxy, cloud-provider login, or a session browser.
+reply preferences, and the global `CLAUDE.md` instruction file. Traffic proxies,
+cloud-provider login and session browsing are outside its scope.
 
 ## User workflow
 
@@ -15,6 +15,8 @@ model discovery, a traffic proxy, cloud-provider login, or a session browser.
    can be retained, including while renaming the provider; they never return to
    the browser. Duplicating a provider always asks for a new credential.
 3. Enter a default model ID or alias and, if needed, expand the alias mappings.
+   To use the gateway catalogue, choose the destination field under **填入位置**,
+   click **获取模型**, select one ID and apply it. The change can be undone before saving.
    **保存供应商** stores a provider and gives its terminal command without changing
    the global default. **保存并设为全局默认** also updates user `settings.json`.
 

@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, Asterisk, CaretDown, CheckCircle, Copy, Info, Pl
 import { CLAUDE_ALIASES, CLAUDE_EFFORTS, claudeFollowCommand, claudeLaunchCommand, validateClaudeConnection, validateClaudeProvider, validateClaudeCredential } from "../lib/claude-shared.mjs";
 import { draftSignature, providerDraftIdentity } from "./model-draft.mjs";
 import { ErrorBanner, KeyValueList, PasswordInput, ProviderSummary, Spinner, WizardFooter, useDialog } from "./ui-kit.jsx";
+import { ModelDiscovery, requestCatalogue } from "./model-discovery.jsx";
 import { ManagerCard } from "./manager-card.jsx";
 
 export const blankClaudeForm = () => ({ providerId: "", name: "", baseUrl: "", authType: "token", model: "sonnet", aliases: {}, credentialMode: "new", apiKey: "" });
@@ -118,8 +119,21 @@ export function useClaude({ state, setState, setView, setError, reportRequestErr
 const STEP_LABELS = [["接入方式", "确认协议与认证方式"], ["填写凭据", "填写地址与访问凭据"], ["确认模型", "默认模型与别名映射"]];
 const AUTH_LABELS = { token: "Bearer Token · 令牌认证", "api-key": "API Key · 密钥认证" };
 
-export function ClaudeWizard({ flow, saving, error, conflict, onCopy }) {
+export function ClaudeWizard({ flow, saving, error, conflict, onCopy, demoMode, onNotify }) {
   const { claude, form, setForm, step, focus, identity } = flow;
+  const [slot, setSlot] = useState("model");
+  const destination = slot === "model" ? "默认模型" : `${slot} 别名`;
+  const discover = path => requestCatalogue({ target: "claude", api: "anthropic-messages", baseUrl: form.baseUrl.trim(), path,
+    authType: form.authType, credential: { mode: form.credentialMode, providerId: identity.ownerId,
+      apiKey: form.credentialMode === "new" ? form.apiKey : undefined },
+  }, demoMode);
+  const importModel = ([entry]) => {
+    const previous = slot === "model" ? form.model : form.aliases[slot] || "";
+    const fill = value => setForm(current => slot === "model" ? { ...current, model: value } : { ...current, aliases: { ...current.aliases, [slot]: value } });
+    if (slot !== "model") aliasesRef.current.open = true;
+    fill(entry.id);
+    onNotify(`已填入${destination}，保存后写入`, "success", { label: "撤销", onAction: () => fill(previous) });
+  };
   const inputs = useRef({});
   const aliasesRef = useRef(null);
   useEffect(() => {
@@ -151,6 +165,9 @@ export function ClaudeWizard({ flow, saving, error, conflict, onCopy }) {
         </div>
       </> : <>
         <ProviderSummary icon={<Asterisk size={34} />} name={form.name || form.providerId} badge={owner ? <button type="button" className="protocol-badge protocol-badge-button" onClick={() => flow.goStep(1)} title="回到第一步改认证方式">{AUTH_LABELS[form.authType]}</button> : <span className="protocol-badge">{AUTH_LABELS[form.authType]}</span>} address={form.baseUrl} onEditAddress={owner ? () => flow.goStep(2) : undefined} credential={form.credentialMode === "keep" ? { title: "凭据已安全保存", detail: "浏览器无法读取旧 key" } : { title: "凭据将在保存时写入", detail: "当前草稿尚未保存" }} onDuplicate={existing ? () => flow.duplicate(form.providerId.trim()) : undefined} duplicateTitle="以当前配置为模板新建：模型与别名照搬，凭据需要另填" onDelete={owner ? () => flow.openDelete(owner.id) : undefined} />
+        <div className="models-header"><label>填入位置 <select value={slot} onChange={event => setSlot(event.target.value)}><option value="model">默认模型</option>{CLAUDE_ALIASES.map(alias => <option key={alias} value={alias}>{alias} 别名</option>)}</select></label>
+          <ModelDiscovery baseUrl={form.baseUrl.trim()} api="anthropic-messages" single destination={destination} onDiscover={discover} onImport={importModel} />
+        </div>
         <div className="form-grid">{input("model", "默认模型 ID 或别名", "sonnet")}</div>
         <details className="advanced-panel" ref={aliasesRef}><summary><span>模型别名映射（按网关需要填写）</span><CaretDown size={18} /></summary><p className="field-hint">例如把 <code>sonnet</code> 指向网关的模型 ID；留空使用 Claude Code 自身映射。</p><div className="form-grid">{CLAUDE_ALIASES.map((alias) => <label key={alias}><span><code>{alias}</code> 对应的模型 ID</span><input className="mono" name={alias} ref={(node) => { inputs.current[alias] = node; }} value={form.aliases[alias] || ""} onChange={(event) => set("aliases", { ...form.aliases, [alias]: event.target.value })} aria-invalid={validationField === alias || undefined} spellCheck={false} /></label>)}</div></details>
         {owner && !flow.dirty && <ClaudeLaunchCard claude={claude} providerId={owner.id} onCopy={onCopy} />}

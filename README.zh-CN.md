@@ -26,7 +26,7 @@ Pi Provider Manager 是一个面向 **Pi、Codex CLI 和 Claude Code** 的本地
 | Codex CLI | 当前供应商、凭据、模型和推理设置；可选的本机 LiteLLM 桥 | `config.toml`、`auth.json`；其余供应商在管理器私有库 |
 | Claude Code | 静态 Anthropic 网关、两种认证方式、模型别名、回复偏好、全局 `CLAUDE.md`、每终端固定供应商命令 | `settings.json`、管理器私有库、`CLAUDE.md` |
 
-三个目标共用侧栏、三步向导和设置页，但配置文件、修订号和运行语义彼此独立。Pi 的模型发现只在用户明确点击「获取模型」时进行；Codex 不提供模型发现。
+三个目标共用侧栏、三步向导和设置页，各自读取原生配置。第三步的「获取模型」按需查询网关清单。Pi 和 Codex 可多选导入，Claude Code 可选择一个模型填入默认项或指定别名。模型调用权限由网关分组决定。
 
 ## 凭据与安全边界
 
@@ -34,7 +34,7 @@ Pi Provider Manager 是一个面向 **Pi、Codex CLI 和 Claude Code** 的本地
 - 服务端只监听 `127.0.0.1`，写请求还会校验 loopback Host 和 JSON 内容类型。
 - 保存前会校验并以原子方式写入；并发修改会返回 `409`，不会用旧页面覆盖 CC Switch、文本编辑器或其他标签页的修改。
 - Pi、Codex 和 Claude 的原生文件仍是运行时事实来源；管理器私有库只保存它确实需要额外保存的数据。
-- 启动和打开页面不会自动请求上游。版本检查、Pi 模型发现和可选桥接都由用户主动触发。
+- 启动和打开页面不会自动请求上游。版本检查、模型发现和可选桥接都由用户主动触发。
 - 不要把 `auth.json`、真实 API key 或私有供应商库上传到 issue。漏洞披露规则见 [SECURITY.md](SECURITY.md)。
 
 ## 安装

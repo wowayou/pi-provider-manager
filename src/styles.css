@@ -397,7 +397,14 @@ code { color: var(--ink); background: transparent; }
 .brand-icon { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; color: var(--on-primary); background: var(--orange-strong); }
 .brand-icon img { width: 42px; height: 42px; display: block; border-radius: 50%; }
 .showcase-notice { display: block; color: var(--ink-2); font-size: var(--text-xs); font-weight: 500; letter-spacing: 0; }
-.sidebar-actions { flex: none; display: grid; }
+.sidebar-actions { flex: none; display: flex; align-items: center; gap: var(--space-2); }
+.sidebar-actions .target-switch { flex: 1; margin: 0; }
+.sidebar-actions .add-provider { gap: var(--space-1); padding-inline: var(--space-2); font-size: var(--text-md); }
+.add-provider-noun { display: none; }
+.provider-toolbar { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-4) 2px var(--space-2); min-height: var(--button-sm); }
+.provider-toolbar .provider-search { flex: 1; min-width: 0; margin: 0; }
+.provider-toolbar .count-pill { margin: 0; }
+.provider-toolbar .select-toggle { min-height: var(--button-sm); }
 /* Not the solid brand fill: the primary CTA (保存并设为默认) keeps that. 添加
    供应商 is frequent chrome, so it is a soft tinted button — pale fill, brand
    text, hairline — which reads as the add entry without a heavy colour block.
@@ -407,7 +414,7 @@ code { color: var(--ink); background: transparent; }
 .add-provider:hover { background: var(--orange-soft-hover); border-color: var(--orange-edge); }
 .add-provider:active { transform: translateY(1px); }
 
-.sidebar-label { margin: 28px 5px 12px; color: var(--ink-2); font-size: var(--text-sm); font-weight: 650; display: flex; align-items: center; gap: 8px; }
+.sidebar-label { margin: 0; color: var(--ink-2); font-size: var(--text-sm); font-weight: 650; display: flex; align-items: center; gap: 8px; }
 .count-pill { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 8px; border-radius: var(--radius-pill); background: var(--chip); color: var(--ink-2); font-size: var(--text-xs); font-weight: 700; font-family: var(--mono); }
 /* The bulk-delete affordances: an entry into selection mode beside the count, a
    check box the row grows in that mode, and a bottom bar carrying the count and
@@ -499,19 +506,13 @@ code { color: var(--ink); background: transparent; }
    base by the provider list's flex:1. Grouping them keeps that anchor whether or
    not the beginner tip is present, instead of each control relying on its own
    margin. */
-.sidebar-footer { flex: none; display: flex; flex-direction: column; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); }
-.footer-nav { display: flex; flex-direction: column; gap: 2px; }
-.settings-button { border: 0; background: transparent; color: var(--ink-2); height: 40px; display: flex; align-items: center; gap: 10px; border-radius: var(--radius-md); padding: 0 12px; font-size: var(--text-md); transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
-.settings-button:hover, .settings-button.is-active { background: var(--surface-hover); color: var(--orange-dark); }
-.settings-button.is-active { font-weight: 650; }
-/* A utility row balanced at the two ends: the support link left, the appearance
-   toggle right. Divider above separates it from the nav items. */
-.footer-utility { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--divider); }
-.sidebar-support { display: inline-flex; align-items: center; height: 36px; gap: 11px; padding: 0 13px; line-height: 20px; border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--ink-3); text-decoration: none; transition: color var(--fast) var(--ease), background var(--fast) var(--ease); }
-.sidebar-support svg { flex: none; width: 18px; height: 18px; color: var(--red); }
-.sidebar-support:hover { color: var(--orange-dark); background: var(--surface-hover); }
-.theme-cycle-icon { flex: none; width: 36px; height: 36px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--ink-3); display: grid; place-items: center; cursor: pointer; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
-.theme-cycle-icon:hover { background: var(--surface-hover); color: var(--orange-dark); }
+.sidebar-footer { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-2); margin-top: auto; padding-top: var(--space-2); border-top: 1px solid var(--line); }
+.footer-nav, .footer-utility { flex: 1 0 auto; display: grid; grid-template-columns: 42% minmax(0, 1fr); }
+.sidebar-footer :is(button, a) { display: inline-flex; align-items: center; justify-content: flex-start; gap: var(--space-2); min-height: var(--button-md); padding: 0 var(--space-2); white-space: nowrap; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--ink-2); text-decoration: none; font-size: var(--text-md); transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
+.sidebar-footer svg { flex: none; }
+.footer-utility :is(button, a) { min-height: var(--button-sm); font-size: var(--text-sm); color: var(--ink-3); }
+.sidebar-footer :is(button, a):hover { background: var(--surface-hover); color: var(--orange-dark); }
+.footer-nav button[aria-current="page"] { background: var(--row-selected); color: var(--orange-dark); font-weight: 650; }
 .agent-path { margin: 6px 10px 0; color: var(--agent-path); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
 
 /* ---------- workspace shell ---------- */
@@ -879,7 +880,9 @@ input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
    all, so once the path field was added the actions row sat below the fold on
    a short window with nothing to scroll — the bottom of the dialog was simply
    gone. The delete dialog already had the same guard. */
-.discover-modal { width: min(640px, 100%); max-height: calc(100dvh - 48px); display: flex; flex-direction: column; min-height: 0; }
+.discover-options { flex: none; margin-top: 10px; color: var(--muted); font-size: var(--text-sm); }
+.discover-options summary { cursor: pointer; min-height: 24px; }
+.discover-modal { width: min(640px, 100%); overflow-y: auto; max-height: calc(100dvh - 48px); display: flex; flex-direction: column; min-height: 0; }
 .discover-modal .modal-heading, .discover-modal .discover-path, .discover-modal .discover-filter, .discover-modal .discover-status, .discover-modal .error-banner, .discover-modal .modal-actions { flex: none; }
 .discover-modal .modal-heading p code { font-family: var(--mono); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .discover-modal .modal-heading > div { min-width: 0; }
@@ -1146,18 +1149,18 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
   .sidebar-actions .target-switch { flex: 1 1 190px; margin: 0; }
   .target-switch button { flex: 1 1 auto; }
   .sidebar-actions .add-provider { flex: 1 0 auto; height: var(--button-lg); padding-inline: var(--space-3); gap: var(--space-1); font-size: var(--text-md); }
-  .sidebar-label { margin: var(--space-2) 2px; }
+  .provider-toolbar { margin-block: var(--space-2); }
+  .sidebar-actions .add-provider-noun { display: inline; margin-left: calc(-1 * var(--space-1)); }
   .provider-search { margin-bottom: 8px; }
   /* keep provider switching reachable on narrow screens: a scrollable chip rail */
   .provider-list { flex: none; min-height: 48px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; scrollbar-gutter: auto; flex-direction: row; gap: 8px; padding-bottom: 4px; scrollbar-width: thin; }
   .provider-item { width: auto; max-width: 100%; flex: none; border: 1px solid var(--line); }
   .provider-select { grid-template-columns: 28px auto auto; padding: 8px 12px 8px 8px; }
   .row-menu { display: none; }
-  .sidebar .sidebar-footer { flex-direction: row; align-items: center; flex-wrap: wrap; gap: var(--space-1); padding-top: var(--space-1); }
-  .sidebar .footer-nav, .sidebar .footer-utility { flex-direction: row; align-items: center; gap: var(--space-1); }
-  .sidebar .footer-utility { margin: 0 0 0 auto; padding: 0; border: 0; }
-  .sidebar .settings-button { margin: 0; padding-inline: var(--space-2); gap: var(--space-1); }
-  .sidebar .sidebar-support { padding-inline: var(--space-1); gap: var(--space-1); }
+  .sidebar-footer { column-gap: var(--space-1); padding-top: var(--space-1); }
+  .footer-nav, .footer-utility { display: flex; align-items: center; gap: 0; }
+  .footer-utility { flex-grow: 0; }
+  .sidebar-footer :is(button, a) { min-height: var(--button-lg); padding-inline: var(--space-1); gap: var(--space-1); }
   /* Horizontal rail: a vertical fade would mask the wrong edge. */
   .provider-list.has-more-above, .provider-list.has-more-below,
   .provider-list.has-more-above.has-more-below { -webkit-mask-image: none; mask-image: none; }
@@ -1167,7 +1170,6 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
   .provider-icon svg { width: 17px; height: 17px; }
   .provider-copy strong { font-size: var(--text-sm); }
   .provider-copy small { font-size: var(--text-xs); }
-  .settings-button { margin-top: 10px; }
   .workspace { height: auto; padding: 12px; }
   .stepper { padding: var(--space-3) var(--space-2); }
   .step { gap: var(--space-1); }
@@ -1229,6 +1231,12 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
   .models-actions { flex-wrap: nowrap; justify-content: flex-end; }
   .models-actions > * { flex: 0 0 var(--button-md); width: var(--button-md); padding-inline: 0; }
   .models-actions .button-label { display: none; }
+  .models-actions .discover-trigger { width: auto; flex-basis: auto; padding-inline: var(--space-3); }
+  .models-actions .discover-trigger .button-label { display: inline; }
+}
+
+@media (max-width: 380px) {
+  .footer-nav, .footer-utility { flex-basis: 100%; display: grid; }
 }
 
 @media (max-width: 520px) {
@@ -1253,8 +1261,7 @@ kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-rad
 }
 
 @media (min-width: 861px) and (max-height: 760px) {
-  .brand { margin-bottom: 18px; }
-  .sidebar-label { margin-top: 18px; }
+  .brand { margin-bottom: var(--space-3); }
   .beginner-tip { display: none; }
 }
 

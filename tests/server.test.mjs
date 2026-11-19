@@ -666,6 +666,31 @@ test("discovers a gateway's models with the credential a save would use, and nev
     assert.equal(kept.text.includes("gateway-secret"), false, "the gateway body was relayed");
     assert.equal(seen.at(-1).headers.authorization, `Bearer ${STORED_KEY}`, "the stored key was not the one sent");
 
+    const codexDir = path.join(agentDir, "codex");
+    fs.mkdirSync(codexDir, { recursive: true });
+    fs.writeFileSync(path.join(codexDir, "config.toml"), `model_provider = "custom"\n[model_providers.custom]\nname = "Native"\nbase_url = "${gatewayUrl}/v1"\nexperimental_bearer_token = "${TYPED_KEY}"\n`);
+    fs.writeFileSync(path.join(codexDir, "pi-provider-manager-store.json"), JSON.stringify({ providers: {
+      native: { name: "Native", baseUrl: `${gatewayUrl}/v1`, credential: { key: STORED_KEY } },
+      relay: { baseUrl: "http://127.0.0.1:1/v1", bridge: { upstreamBaseUrl: `${gatewayUrl}/v1`, credential: { key: STORED_KEY } } },
+    } }));
+    const codexRequest = { target: "codex", upstream: "direct", baseUrl: `${gatewayUrl}/v1`, credential: { mode: "keep", providerId: "native" } };
+    assert.equal((await discover(codexRequest)).status, 200);
+    assert.equal(seen.at(-1).headers.authorization, `Bearer ${TYPED_KEY}`, "native token wins over dormant store");
+    const bridgeRequest = { ...codexRequest, upstream: "bridge", credential: { mode: "keep", providerId: "relay" } };
+    assert.equal((await discover(bridgeRequest)).status, 200);
+    assert.equal(seen.at(-1).headers.authorization, `Bearer ${STORED_KEY}`);
+    const requestsBeforeRefusal = seen.length;
+    assert.equal((await discover({ ...bridgeRequest, upstream: "direct" })).status, 400);
+    const foreign = await discover({ ...codexRequest, baseUrl: "http://127.0.0.1:1" });
+    assert.match(foreign.text, /更换来源/);
+    assert.equal(seen.length, requestsBeforeRefusal);
+    assert.equal((await discover({ ...codexRequest, requiresAuth: false })).status, 400, "this gateway refuses unauthenticated requests");
+    assert.equal(seen.at(-1).headers.authorization, undefined);
+    const claudeTyped = { target: "claude", authType: "token", baseUrl: `${gatewayUrl}/anthropic`, credential: { mode: "new", apiKey: TYPED_KEY } };
+    assert.equal((await discover(claudeTyped)).status, 200);
+    assert.equal(seen.at(-1).headers.authorization, `Bearer ${TYPED_KEY}`);
+    assert.equal((await discover({ ...claudeTyped, credential: codexRequest.credential })).status, 400, "same ID cannot borrow another target's key");
+
     const typed = await discover({ baseUrl: `${gatewayUrl}/anthropic`, api: "anthropic-messages", credential: { mode: "new", apiKey: TYPED_KEY } });
     assert.equal(typed.status, 200, typed.text);
     assert.deepEqual(JSON.parse(typed.text).models, [{ id: "claude-x", name: "Claude X" }]);

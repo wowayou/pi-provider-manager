@@ -26,7 +26,7 @@ For a broader Pi workflow, [CC Switch](https://github.com/farion1231/cc-switch) 
 | Codex CLI | Active provider, credentials, model and reasoning settings; optional local LiteLLM bridge | `config.toml`, `auth.json`; other providers in the manager's private store |
 | Claude Code | Static Anthropic gateways, both auth modes, model aliases, reply preferences, global `CLAUDE.md`, and per-terminal pinned-provider commands | `settings.json`, the manager's private store, `CLAUDE.md` |
 
-All three targets share the sidebar, three-step wizard, and settings screen, but have separate files, revisions, and runtime semantics. Pi model discovery runs only after the user explicitly chooses **获取模型**; Codex discovery is out of scope.
+All three targets share the sidebar, three-step wizard, and settings screen. Each reads its own native configuration. In step 3, **获取模型** requests the gateway catalogue. Pi and Codex can import multiple entries. Claude Code can fill its default model or a selected alias. The gateway controls inference permissions for each group.
 
 ## Credentials and security boundary
 
@@ -34,7 +34,7 @@ All three targets share the sidebar, three-step wizard, and settings screen, but
 - The server listens on `127.0.0.1` only; writes also validate an allowlisted loopback Host and JSON content type.
 - Saves validate first and use atomic replacement; concurrent edits return `409` instead of overwriting changes from CC Switch, a text editor, or another tab.
 - Each agent's native files remain the runtime source of truth. The manager's private stores contain only data the manager must retain separately.
-- Startup and page load do not contact upstream services. Version checks, Pi discovery, and the optional bridge are user-triggered.
+- Startup and page load do not contact upstream services. Version checks, model discovery, and the optional bridge are user-triggered.
 - Do not attach `auth.json`, real API keys, or private provider stores to issues. See [SECURITY.md](SECURITY.md) for disclosure and threat-boundary details.
 
 ## Install

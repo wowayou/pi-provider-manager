@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -2926,7 +2927,10 @@ test("production UI imports the models a gateway lists, and explains a gateway i
     // it. The dialog states which URL answered rather than leaving the user to
     // guess whether the override took effect.
     await clickText(".models-actions button", "获取模型");
-    await cdp.waitFor("document.querySelector('.discover-modal .discover-path input')");
+    await cdp.waitFor("document.querySelector('.discover-options summary')");
+    assert.equal(await cdp.evaluate("document.querySelector('.discover-options').open"), false);
+    await clickText(".discover-options summary", "模型列表路径");
+    await cdp.waitFor("document.querySelector('.discover-options[open] .discover-path input')");
     assert.equal(await cdp.evaluate("document.querySelector('.discover-path input').placeholder"), "/models", "the field offers the protocol default");
     assert.equal(await cdp.evaluate("document.querySelector('.discover-path input').value"), "", "an override is opt-in");
     await cdp.evaluate(`(() => {
@@ -2936,7 +2940,7 @@ test("production UI imports the models a gateway lists, and explains a gateway i
       input.dispatchEvent(new Event('input', { bubbles: true }));
     })()`);
     await clickText(".discover-path-row button", "用这个路径重试");
-    await cdp.waitFor("document.querySelector('.discover-modal .modal-heading code').textContent.includes('limit=5')");
+    await cdp.waitFor("document.querySelector('.discover-modal .discover-row') && document.querySelector('.discover-modal .modal-heading code').textContent.includes('limit=5')");
     assert.match(gatewayOutput, /GET \/v1\/models\?limit=5/, "the override was not the URL asked for");
 
     // Same origin is the boundary: this request carries a stored credential, so
@@ -4682,6 +4686,55 @@ test("Claude Code production workflow: create, rename, duplicate, switch, delete
 // does: CDP mouse and keyboard input rather than DOM .click() alone, and
 // Fetch-domain pauses on real responses rather than fixed sleeps.
 // ---------------------------------------------------------------------------
+test("Codex and Claude import from their own gateway into the selected draft field", { timeout: 90_000 }, async () => {
+  const requests = [];
+  const gateway = http.createServer((req, res) => {
+    requests.push({ path: req.url, bearer: req.headers.authorization, key: req.headers['x-api-key'] });
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ data: [{ id: 'gateway-new' }] }));
+  });
+  await new Promise(resolve => gateway.listen(0, '127.0.0.1', resolve));
+  const root = `http://127.0.0.1:${gateway.address().port}`;
+  try {
+    await withReviewBrowser(async ({ cdp, mouse, byText, files, state }) => {
+      const open = async () => {
+        await mouse("document.querySelector('button[aria-label=获取模型]')");
+        await cdp.waitFor("document.querySelector('.discover-row input')");
+        await mouse("document.querySelector('.discover-row input')");
+        await mouse("document.querySelector('.discover-modal .primary-button')");
+        await cdp.waitFor("!document.querySelector('.discover-modal')");
+      };
+      await mouse(byText('.target-switch button', 'Codex'));
+      await cdp.waitFor("document.querySelector('.model-row') && document.querySelector('.target-switch [aria-checked=true]').textContent.includes('Codex')");
+      assert.equal(requests.length, 0);
+      const before = files.codex();
+      await open();
+      assert.deepEqual(files.codex(), before);
+      assert.equal(await cdp.evaluate("[...document.querySelectorAll('.model-row input')].some(node => node.value === 'gateway-new')"), true);
+      await mouse(byText('.wizard-footer button', '保存更改'));
+      await cdp.waitFor("document.querySelector('.next-step-card')");
+      assert.ok((await state()).codex.providers[0].models.some(m => m.id === 'gateway-new'));
+      await mouse(byText('.target-switch button', 'Claude Code'));
+      await cdp.waitFor("document.querySelector('input[name=model]')");
+      const original = files.claude();
+      await cdp.evaluate("(() => { const s = document.querySelector('.models-header select'); s.value = 'haiku'; s.dispatchEvent(new Event('change', {bubbles:true})); })()");
+      await open();
+      assert.equal(files.claude(), original);
+      assert.equal(await cdp.evaluate("document.querySelector('input[name=haiku]').value"), 'gateway-new');
+      assert.equal(await cdp.evaluate("document.querySelector('input[name=model]').value"), 'sonnet');
+      await mouse(byText('.toast button', '撤销'));
+      assert.equal(await cdp.evaluate("document.querySelector('input[name=haiku]').value"), '');
+      assert.deepEqual(requests, [
+        { path: '/v1/models', bearer: 'Bearer dummy-codex', key: undefined },
+        { path: '/v1/models?limit=1000', bearer: undefined, key: 'dummy-claude' },
+      ]);
+    }, { seed: async api => {
+      await api.codex({ providerId: 'catalogue', name: 'Catalogue', baseUrl: `${root}/v1`, models: [{ id: 'original' }], defaultModelId: 'original', credential: { mode: 'new', apiKey: 'dummy-codex' }, setActive: true });
+      await api.claude({ providerId: 'catalogue', name: 'Catalogue', baseUrl: root, authType: 'api-key', model: 'sonnet', credential: { mode: 'new', value: 'dummy-claude' }, setActive: true });
+    } });
+  } finally { gateway.closeAllConnections(); await new Promise(resolve => gateway.close(resolve)); }
+});
+
 async function withReviewBrowser(run, { demo = false, seed } = {}) {
   requireFreshBuiltUi();
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-ui-review-"));

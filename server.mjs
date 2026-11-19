@@ -36,6 +36,7 @@ import {
 import { detectCodexVersion, detectPiVersion, liveVersion } from "./lib/version-detect.mjs";
 import { applyUserAgent, readUserAgent } from "./lib/pi-user-agent.mjs";
 import { applyAnthropicBeta, readAnthropicBeta, normalizeAnthropicBeta } from "./lib/pi-anthropic-beta.mjs";
+import { validateClaudeCredential } from "./lib/claude-shared.mjs";
 import { describeDiscoveryStatus, discoveryRequest, parseModelList } from "./lib/model-discovery.mjs";
 import { publicModelHints, recordModelHints } from "./lib/model-hints.mjs";
 import { normalizeModelBaseUrl, readModelBaseUrl } from "./lib/pi-endpoints.mjs";
@@ -1417,14 +1418,38 @@ async function readBounded(response, limit) {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+function catalogueRequest(payload) {
+  const { target = "pi", baseUrl, credential, path } = payload;
+  if (target === "pi") {
+    if (!ALLOWED_APIS.has(payload.api)) throw new Error("请选择受支持的接口协议。");
+    const key = discoveryCredential(credential, readJson(AUTH_PATH));
+    return discoveryRequest(payload.api, baseUrl, key, path);
+  }
+  const isCodex = target === "codex";
+  if (!isCodex && target !== "claude") throw new Error("不支持此配置目标。");
+  const api = isCodex ? "openai-responses" : "anthropic-messages";
+  if (isCodex && !["bridge", "direct"].includes(payload.upstream)) throw new Error("请选择 Codex 接入方式。");
+  if (!isCodex && !["token", "api-key"].includes(payload.authType)) throw new Error("请选择 Claude 认证方式。");
+  if (isCodex && payload.upstream === "direct" && payload.requiresAuth === false) {
+    return discoveryRequest(api, baseUrl, "", path, "none");
+  }
+  let key;
+  if (credential?.mode === "new") {
+    key = validateClaudeCredential(credential.apiKey);
+  } else if (credential?.mode === "keep") {
+    const source = isCodex ? codex.catalogueSource(credential.providerId, payload.upstream) : claude.catalogueSource(credential.providerId);
+    if (!source?.key) throw new Error("无法使用已保存凭据，请在第二步输入新凭据。");
+    if (new URL(normalizeUrl(source.baseUrl)).origin !== new URL(normalizeUrl(baseUrl)).origin) {
+      throw new Error("API 地址已更换来源，请在第二步输入新凭据后获取模型。");
+    }
+    key = source.key;
+  } else throw new Error("请选择凭据来源。");
+  return discoveryRequest(api, baseUrl, key, path, isCodex ? "token" : payload.authType);
+}
+
 async function discoverModels(payload) {
   if (!isObject(payload)) throw new Error("请求内容无效。");
-  const api = String(payload.api || "");
-  if (!ALLOWED_APIS.has(api)) throw new Error("请选择受支持的接口协议。");
-  const key = discoveryCredential(payload.credential, readJson(AUTH_PATH));
-  // An override is resolved against the baseUrl and refused if it would leave that
-  // origin or climb above its path — this request carries a stored credential.
-  const { url, headers } = discoveryRequest(api, payload.baseUrl, key, payload.path);
+  const { url, headers } = catalogueRequest(payload);
   let response;
   try {
     response = await fetch(url, { headers, redirect: "manual", signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS) });

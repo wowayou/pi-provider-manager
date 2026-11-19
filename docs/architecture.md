@@ -9,7 +9,7 @@ The project does not:
 - proxy model traffic or sit between an agent and its inference endpoint
 - replace Pi's model selector, session state, or runtime
 - copy Pi source code or depend on a Pi package at runtime
-- fetch remote model catalogs automatically; Pi discovery runs only on an explicit user request, and Codex discovery is out of scope
+- fetch remote model catalogs automatically. All three targets fetch only on an explicit user request
 - expose the local management API beyond loopback
 
 ## Vocabulary
@@ -104,7 +104,7 @@ Renaming a provider is a save carrying `renameFrom`, the stored source ID. On Pi
 
 The bridge's runtime record is outside that configuration transaction and revision. After a successful Codex rename, the server relabels a matching runtime record without signalling or restarting the process; its PID and port stay unchanged. A relabel error is recorded in the bridge log, and the runtime status continues to report the actual record rather than pretending it moved.
 
-The wizard keeps source identity separate from the editable target ID. Source identity determines existing credentials throughout typing, including an empty intermediate ID, and is used for Pi discovery and Codex bridge controls before saving. Target occupancy never turns a saved-provider rename into an overwrite: the wizard marks the ID invalid and refuses progression or saving, and the server independently refuses conflicting or stale writes. New and duplicated drafts have no stored source and retain the existing overwrite warning and save behavior.
+The wizard keeps source identity separate from the editable target ID. Source identity determines existing credentials throughout typing, including an empty intermediate ID, and is used for model discovery and Codex bridge controls before saving. Target occupancy never turns a saved-provider rename into an overwrite: the wizard marks the ID invalid and refuses progression or saving, and the server independently refuses conflicting or stale writes. New and duplicated drafts have no stored source and retain the existing overwrite warning and save behavior.
 
 
 ### Claude Code and dedicated terminal launches
