@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **移动端导航与摘要打磨。** 目标选择和添加入口在空间足够时并排；短窗口允许整页滚动，保留供应商筛选和底部操作。三端摘要完整展示可换行的网关地址，已保存的 Codex 地址也可返回凭据步骤。
+- **键盘与列表定位。** 连续方向键切换目标时保持选择器焦点；有未保存草稿时不提前移动焦点。横向供应商列表自动露出当前默认项，定位只滚动列表，不拉动整页。
+
 ## 0.5.6 - 2026-10-10
 
 - **Validated release:** full `npm test` passed 318 of 320 tests, with 0 failures and 2 Windows-only Claude launcher skips reserved for the required CI Windows job. Real binaries passed Codex 5/5, Pi 3/3, and Claude Code 10/10. The production build no longer emits Vite's large-JavaScript-chunk warning.

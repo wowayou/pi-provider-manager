@@ -577,6 +577,7 @@ function ProviderRowMenu({ provider, activateLabel, disabled = false, onActivate
 
 function Sidebar({ state, target, locked = false, loading, loadFailed, onTarget, onReload, onSelect, onAdd, onSettings, onPrompts, activeView, theme, onTheme, onActivate, onDuplicate, onDelete, canBulkDelete, selectMode, selectedForDelete, onEnterSelect, onExitSelect, onToggleSelect, onReplaceSelection, onBulkDelete, selectedId }) {
   const [query, setQuery] = useState("");
+  useEffect(() => { setQuery(""); }, [target]);
   // The shell appears before /api/state. Navigation must not initialise a
   // draft from that empty state or let the late read overwrite a new one.
   // A pending provider write locks it as well (see runWrite in App).
@@ -608,16 +609,26 @@ function Sidebar({ state, target, locked = false, loading, loadFailed, onTarget,
   const visible = keyword ? providers.filter((provider) => provider.keywords.toLowerCase().includes(keyword)) : providers;
   // Only auto-locate an unfiltered list: while the user is typing a filter, the
   // scroll position is theirs to control.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (keyword || !activeId) return;
     const row = activeRowRef.current;
     const list = listRef.current;
     if (!row || !list) return;
-    const rowBox = row.getBoundingClientRect();
-    const listBox = list.getBoundingClientRect();
-    if (rowBox.top < listBox.top || rowBox.bottom > listBox.bottom) {
-      row.scrollIntoView({ block: "nearest" });
-    }
+    // Move the list only. The same row can be below a desktop fold or beyond
+    // the end of a phone rail, even while the page is scrolled into a form.
+    const reveal = () => {
+      const r = row.getBoundingClientRect();
+      const box = list.getBoundingClientRect();
+      list.scrollBy({
+        left: Math.min(0, r.left - box.left) || Math.max(0, r.right - box.right),
+        top: Math.min(0, r.top - box.top) || Math.max(0, r.bottom - box.bottom),
+      });
+    };
+    // Position at commit, before the user can scroll toward another row.
+    // A deferred observer's initial callback could undo that deliberate scroll.
+    reveal();
+    window.addEventListener("resize", reveal);
+    return () => window.removeEventListener("resize", reveal);
   }, [target, activeId, keyword]);
   // Re-measured whenever the rendered rows change, since a filtered list
   // changes scrollHeight without resizing the container.
@@ -629,10 +640,12 @@ function Sidebar({ state, target, locked = false, loading, loadFailed, onTarget,
         <span className="brand-icon"><img src={`${import.meta.env.BASE_URL}favicon.png`} alt="" /></span>
         <span>Pi Provider Manager{import.meta.env.MODE === "showcase" && <small className="showcase-notice">样例演示 · 请勿输入真实密钥</small>}</span>
       </div>
-      <TargetSwitch target={target} disabled={navigationDisabled} onTarget={(value) => { setQuery(""); onTarget(value); }} />
-      <button type="button" className="add-provider" disabled={navigationDisabled} onClick={() => { setQuery(""); onAdd(); }}>
-        <Plus size={22} weight="bold" />添加供应商
-      </button>
+      <div className="sidebar-actions">
+        <TargetSwitch target={target} disabled={navigationDisabled} onTarget={(value) => value === target || onTarget(value)} />
+        <button type="button" className="add-provider" disabled={navigationDisabled} onClick={() => { setQuery(""); onAdd(); }}>
+          <Plus size={22} weight="bold" />添加供应商
+        </button>
+      </div>
       <p className="sidebar-label">
         {target === "claude" ? "Claude Code 供应商" : isCodex ? "Codex 供应商" : "我的供应商 / API 网关"}
         {providers.length > 0 && <span className="count-pill">{providers.length}</span>}
@@ -640,7 +653,7 @@ function Sidebar({ state, target, locked = false, loading, loadFailed, onTarget,
           <button type="button" className="select-toggle" disabled={locked} onClick={onEnterSelect}>选择</button>
         )}
       </p>
-      {providers.length > 6 && (
+      {(providers.length > 6 || query) && (
         <div className="provider-search">
           <MagnifyingGlass size={16} aria-hidden="true" />
           <input
@@ -722,7 +735,7 @@ function Sidebar({ state, target, locked = false, loading, loadFailed, onTarget,
           </p>
         )}
         {providers.length > 0 && visible.length === 0 && (
-          <p className="list-empty">没有名称或 ID 包含“{query.trim()}”的供应商。</p>
+          <p className="list-empty">没有与“{query.trim()}”匹配的供应商。</p>
         )}
       </nav>
       {selectMode && (() => {
@@ -1342,7 +1355,8 @@ function ModelsStep({ form, setForm, error, conflict, saving, onBack, onSave, on
           icon={<ProviderIcon api={form.api} size={34} />}
           name={titleFromId(form.providerId || "new-provider")}
           badge={isExistingProvider ? <button type="button" className="protocol-badge protocol-badge-button" onClick={onEditProtocol} title="回到第一步改协议">{currentApi.title}</button> : <span className="protocol-badge">{currentApi.title}</span>}
-          address={isExistingProvider ? <p>API 地址　<button type="button" className="gateway-address-button mono" onClick={onEditGateway} title={form.baseUrl || undefined}>{form.baseUrl || "尚未填写"}</button></p> : <p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p>}
+          address={form.baseUrl}
+          onEditAddress={isExistingProvider ? onEditGateway : undefined}
           credential={form.credentialMode === "keep" ? { title: "凭据已安全保存", detail: "浏览器无法读取旧 key" } : { title: "凭据将在保存时写入", detail: "当前草稿尚未写入 Pi 配置" }}
           onDuplicate={isExistingProvider ? onDuplicate : undefined}
           duplicateTitle="以当前配置为模板新建：模型与兼容设置照搬，凭据需要另填"
@@ -2112,10 +2126,11 @@ export function App() {
   // first, and only proceeds through the toast's action — the same rule the
   // prompts screen already applied to its own document switches.
   const guardLeave = useCallback((proceed) => {
-    if (writeLockRef.current) return;
-    if (!currentDirty) { proceed(); return; }
+    if (writeLockRef.current) return false;
+    if (!currentDirty) { proceed(); return true; }
     // The action re-checks the lock: the toast outlives the click that made it.
     showToast("当前草稿有未保存的修改", "error", { label: "放弃修改并离开", onAction: () => { if (!writeLockRef.current) proceed(); } });
+    return false;
   }, [currentDirty, showToast]);
   // Any unsaved draft — in either target or in a settings/prompts screen — arms
   // the browser's native leave confirmation, covering a tab close or a reload
@@ -2136,6 +2151,10 @@ export function App() {
   // the refused field focused but scrolled off screen.
   useLayoutEffect(() => {
     document.querySelector(".step-scroll, .settings-scroll, .success-page")?.scrollTo({ top: 0, behavior: "instant" });
+    // In a short window the document scrolls. A footer action further down
+    // the form should open the new step at the start of the workspace.
+    const workspace = document.querySelector(".workspace");
+    if (window.scrollY > 0 && workspace?.getBoundingClientRect().top < 0) workspace.scrollIntoView({ block: "start", behavior: "instant" });
   }, [view, step, target, codexFlow.step, claudeFlow.step]);
   const firstViewRender = useRef(true);
   useEffect(() => {
@@ -2150,7 +2169,7 @@ export function App() {
       // focus trap owns focus now; do not move Cancel back into the workspace.
       if (document.querySelector('[role="dialog"]')) return;
       const active = document.activeElement;
-      const alreadyPlaced = active && active !== document.body && active.closest(".workspace");
+      const alreadyPlaced = active?.closest(".workspace, .target-switch");
       if (alreadyPlaced) return;
       const heading = document.querySelector(".workspace h1");
       if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }

@@ -642,9 +642,9 @@ function CodexModelsStep({ form, setForm, codex, error, conflict, saving, onBack
           icon={isBridge || isLocalAddress(form.baseUrl) ? <Plugs size={34} weight="duotone" /> : <PlugsConnected size={34} weight="duotone" />}
           name={form.name || titleFromId(form.providerId || "new-provider")}
           badge={<span className="protocol-badge">{isBridge ? "托管桥" : isLocalAddress(form.baseUrl) ? "本机地址" : "Responses 直连"}</span>}
-          address={isBridge
-            ? <p title={form.bridgeUpstreamUrl || undefined}>上游地址　<code>{form.bridgeUpstreamUrl || "尚未填写"}</code></p>
-            : <p title={form.baseUrl || undefined}>API 地址　<code>{form.baseUrl || "尚未填写"}</code></p>}
+          address={isBridge ? form.bridgeUpstreamUrl : form.baseUrl}
+          addressLabel={isBridge ? "上游地址" : "API 地址"}
+          onEditAddress={canDuplicateProvider ? onBack : undefined}
           credential={{
             title: isBridge ? "上游 key 交给本地桥" : !form.requiresAuth ? "无需凭据" : form.credentialMode === "keep" ? "凭据已安全保存" : "凭据将在保存时写入",
             detail: isBridge ? "不写入 Codex 的配置" : !form.requiresAuth ? "Codex 不会带 Authorization" : form.credentialMode === "keep" ? "浏览器无法读取旧 key" : "当前草稿尚未写入 Codex 配置",

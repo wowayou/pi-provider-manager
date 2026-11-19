@@ -36,6 +36,36 @@ Manual page/API checks use `PI_PROVIDER_MANAGER_SERVE_UI=1` with separate tempor
 See [AGENTS.md](AGENTS.md) for the detached-runner workaround if a controlling
 terminal stops a browser suite before it prints a complete summary.
 
+## Local UI polish — 2026-11-19 (unpublished)
+
+- Retains the existing light orange / dark neutral themes. At 390×844 with the
+  showcase fixture, navigation height fell from 372px to 306px and the form's
+  visible scroll area grew from 265px to 363px. At 320px the target selector and
+  Add button wrap onto separate lines rather than overlap. Short windows use
+  document scrolling so search and wizard actions remain reachable.
+- All three summaries wrap the full gateway address. Saved Codex addresses now
+  return to the credentials step as Pi and Claude addresses do. Arrow navigation
+  keeps focus on the target selector, including when the dirty-draft guard refuses
+  a switch. Locating the live provider scrolls only its list, horizontally or
+  vertically, at commit and on window resize.
+- `npm run build` and `npm run build:showcase` succeeded. The complete production
+  browser suite passed **49/49**, no skips, using isolated agent directories.
+  This includes initial loading/failure, missing credentials, write locks, 409
+  recovery, draft guards, all three native switch paths, theme contrast and the
+  new short-window/keyboard regressions. An earlier run exposed delayed list
+  positioning moving a shortcut between pointer events; positioning now runs at
+  commit and the final complete run passed.
+- Showcase, style-token and Sites tests passed **9/9**, no skips. The static
+  showcase still switches all targets offline and resets its fixtures on refresh.
+- Chromium previews inspected at 320, 390, 1024 and 1440×844, plus 667×375, in
+  both themes. A stale preview connection reported `ERR_NETWORK_CHANGED`; final
+  captures used a local static server created in the browser-check process, as
+  the showcase suite does. Local screenshots, measurements and the complete UI
+  log are in ignored `artifacts/ui-polish-2026-11-19/`.
+- This is browser/layout and functional evidence, not physical touchscreen or
+  usability validation. No CLI/backend behavior changed; real CLI wire tests
+  were not rerun. These changes have not been published to GitHub Pages.
+
 ## v0.5.5 Published Verification — 2026-10-10
 
 - [PR #165](https://github.com/wowayou/pi-provider-manager/pull/165) passed the

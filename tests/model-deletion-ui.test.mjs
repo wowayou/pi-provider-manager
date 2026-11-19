@@ -5533,3 +5533,91 @@ test("standby rows switch through the native action on mobile and desktop", { ti
     for (const id of ['claude-a', 'claude-b']) await api.claude({ providerId: id, name: id, baseUrl: `https://${id}.example`, authType: 'token', model: 'sonnet', aliases: {}, credential: { mode: 'new', value: 'dummy-shortcut-key' }, setActive: id === 'claude-a' });
   } });
 });
+
+test("short viewports keep provider search, the full gateway address and wizard actions reachable", { timeout: 60_000 }, async () => {
+  const longUrl = `https://router.example/${"gateway-segment".repeat(10)}/v1`;
+  await withReviewBrowser(async ({ cdp, key, byText, mouse, typeText, recordPosts, posts }) => {
+    await recordPosts();
+    for (const width of [320, 390]) {
+      await cdp.send("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: false });
+      assert.ok(await cdp.evaluate(`(() => {
+        const buttons = [...document.querySelectorAll('.sidebar-actions button')].map(e => e.getBoundingClientRect());
+        return buttons.every((r, i) => r.left >= 0 && r.right <= innerWidth && buttons.slice(i + 1).every(b => r.right <= b.left || r.left >= b.right || r.bottom <= b.top || r.top >= b.bottom));
+      })()`), `target and add buttons do not overlap at ${width}px`);
+    }
+    const fullAddressFits = await cdp.evaluate(`(() => {
+      const address = document.querySelector('.gateway-address-button');
+      const line = address.parentElement.getBoundingClientRect();
+      const text = document.createRange(); text.selectNodeContents(address);
+      return address.textContent === ${JSON.stringify(longUrl)} && [...text.getClientRects()].every(r => r.left >= line.left - 1 && r.right <= line.right + 1);
+    })()`);
+    assert.ok(fullAddressFits, "every line of the gateway URL fits inside its summary");
+
+    await mouse("document.querySelector('.provider-search input')");
+    await typeText("missing-gateway");
+    await cdp.waitFor("document.querySelector('.provider-list .list-empty')");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 667, height: 375, deviceScaleFactor: 1, mobile: false });
+    assert.ok(await cdp.evaluate("document.querySelector('.provider-search input').getBoundingClientRect().height > 0"), "an applied filter stays reachable after rotation");
+    await key("Escape");
+    await cdp.waitFor("document.querySelectorAll('.provider-item').length === 7");
+
+    // Scroll as a user would. scrollIntoView() alone also scrolls overflow:hidden
+    // ancestors, so a scripted click could pass while the footer was clipped.
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: 4, y: 350, deltaX: 0, deltaY: 3000 });
+    await cdp.waitFor(`(() => {
+      const back = document.querySelector('.wizard-footer > button');
+      const r = back.getBoundingClientRect();
+      return r.top >= 0 && r.bottom <= innerHeight && back.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+    })()`);
+    await mouse(byText(".wizard-footer button", "上一步"));
+    await cdp.waitFor("document.querySelector('.form-step')");
+    assert.ok(await cdp.evaluate("document.querySelector('.workspace h1').getBoundingClientRect().top >= 0 && document.querySelector('.workspace h1').getBoundingClientRect().bottom <= innerHeight"), "Back brings the new step into view");
+    assert.deepEqual(await posts(), []);
+  }, { seed: async (_api, agentDir) => {
+    const file = path.join(agentDir, "models.json");
+    const data = JSON.parse(fs.readFileSync(file, "utf8"));
+    data.providers['review-router'].baseUrl = longUrl;
+    for (const id of ['extra-a', 'extra-b', 'extra-c', 'extra-d']) data.providers[id] = data.providers['single-router'];
+    fs.writeFileSync(file, JSON.stringify(data));
+  } });
+});
+
+test("returning to a target reveals its live row on the horizontal rail and keeps arrow navigation", { timeout: 60_000 }, async () => {
+  await withReviewBrowser(async ({ cdp, key, row, mouse, typeText, recordPosts, posts }) => {
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
+    await recordPosts();
+    const checked = "document.querySelector('.target-switch [aria-checked=true]')";
+    await cdp.evaluate(`${checked}.focus()`);
+    for (const target of ['Codex', 'Claude Code', 'Pi']) {
+      await key('ArrowRight');
+      await cdp.waitFor(`${checked}.textContent === ${JSON.stringify(target)}`);
+      // The screen heading normally takes focus on the next animation frame.
+      await cdp.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+      assert.ok(await cdp.evaluate(`document.activeElement === ${checked}`), `${target} keeps focus for the next arrow`);
+    }
+    const inRail = await cdp.evaluate(`(() => {
+      const rail = document.querySelector('.provider-list');
+      const box = rail.getBoundingClientRect();
+      const live = ${row('zz-last')}.getBoundingClientRect();
+      return rail.scrollWidth > rail.clientWidth && live.left >= box.left - 1 && live.right <= box.right + 1;
+    })()`);
+    assert.ok(inRail, "the returning target reveals its off-screen default without a swipe");
+    await mouse("document.querySelector('.gateway-address-button')");
+    await cdp.waitFor("document.querySelector('.form-step')");
+    await mouse("document.querySelector('input[type=url]')");
+    await key('End');
+    await typeText('/draft');
+    await cdp.evaluate(`${checked}.focus()`);
+    await key('ArrowRight');
+    await cdp.waitFor("document.querySelector('.toast-action')");
+    assert.equal(await cdp.evaluate(`${checked}.textContent`), 'Pi', "dirty draft refuses the target switch");
+    assert.ok(await cdp.evaluate(`document.activeElement === ${checked}`), "a refused switch keeps focus on the actual target");
+    assert.deepEqual(await posts(), []);
+  }, { seed: async (_api, agentDir) => {
+    const modelFile = path.join(agentDir, 'models.json');
+    const data = JSON.parse(fs.readFileSync(modelFile, 'utf8'));
+    data.providers['zz-last'] = data.providers['single-router'];
+    fs.writeFileSync(modelFile, JSON.stringify(data));
+    fs.writeFileSync(path.join(agentDir, 'settings.json'), JSON.stringify({ defaultProvider: 'zz-last', defaultModel: 'only/model' }));
+  } });
+});
