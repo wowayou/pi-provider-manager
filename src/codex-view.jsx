@@ -86,7 +86,7 @@ export function parseCodexSnippet(text) {
     providerId: idSlug(names[0]),
     name: typeof keys.name === "string" && keys.name ? keys.name : titleFromId(names[0]),
     baseUrl: typeof keys.base_url === "string" ? keys.base_url : "",
-    requiresAuth: keys.requires_openai_auth !== false,
+    requiresAuth: typeof keys.experimental_bearer_token === "string" || keys.requires_openai_auth !== false,
     model: typeof model === "string" ? model : "",
     reasoningEffort: CODEX_REASONING_EFFORTS.includes(effort) || adoptableEffort(effort) ? effort : "high",
   };
@@ -311,7 +311,9 @@ function CodexCredentialsStep({ form, setForm, codex, selectedId, error, conflic
             <p>
               {isBridge
                 ? "上游的 key 由本管理器保管并交给本地桥，不会写入 Codex 的配置；保存后不会再显示。"
-                : "key 由本管理器保管，生效时写入 Codex 的 auth.json；保存后不会再显示。"}
+                : existing?.tomlBearer && form.requiresAuth
+                  ? "生效时沿用 config.toml 中的 experimental_bearer_token。留用或更换令牌都会保存在原位置。"
+                  : "需要 key 时，生效后写入 Codex 的 auth.json。"}
             </p>
           </div>
           <button type="button" className="help-link" aria-expanded={showSnippet} aria-controls="snippet-panel" onClick={() => setShowSnippet((value) => !value)}>
@@ -320,7 +322,7 @@ function CodexCredentialsStep({ form, setForm, codex, selectedId, error, conflic
         </div>
         {showSnippet && (
           <div className="hint-panel" id="snippet-panel">
-            <p>把供应商文档里的那段 TOML 贴进来，会自动填好下面的字段。支持语法检查与格式化。</p>
+            <p>从厂商片段填入地址和模型。请省略令牌，新增供应商的 key 在下方单独填写。</p>
             <ConfigEditor
               value={snippet}
               onChange={setSnippet}

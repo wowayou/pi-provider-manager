@@ -228,6 +228,7 @@ test("writes router-style providers without exposing credentials", async () => {
         baseUrl: "https://old.example/v1",
         api: "openai-completions",
         futureProviderField: "keep-provider",
+        compat: { supportsStore: true, supportsStrictTools: true, futureRouting: { mode: "disk-only" } },
         models: [
           {
             id: "anthropic/claude-opus",
@@ -283,6 +284,7 @@ test("writes router-style providers without exposing credentials", async () => {
         baseUrl: "https://router.example/v1",
         api: "openai-completions",
         credential: { mode: "new", apiKey: "test-secret-not-real" },
+        compat: { supportsStore: false, futureRouting: { mode: "from-client" }, unknownFlag: true },
         models: [
           {
             id: "anthropic/claude-opus",
@@ -329,6 +331,8 @@ test("writes router-style providers without exposing credentials", async () => {
     assert.equal(models.providers["any-router"].models.length, 2);
     assert.equal(models.providers["any-router"].models[0].api, "anthropic-messages");
     assert.equal(models.providers["any-router"].futureProviderField, "keep-provider");
+    assert.deepEqual(models.providers["any-router"].compat, { supportsStore: false, futureRouting: { mode: "disk-only" } });
+    assert.deepEqual(createBody.state.providers[0].compat, { supportsStore: false });
     assert.equal(models.providers["any-router"].models[0].futureModelField, "keep-model");
     assert.deepEqual(models.providers["any-router"].models[0].cost, { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 });
     assert.equal(settings.defaultProvider, "any-router");

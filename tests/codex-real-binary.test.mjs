@@ -340,6 +340,72 @@ test("codex exec reaches a manager-configured gateway with the stored key", { sk
   }
 });
 
+test("rotated native credentials follow their own provider across saves and switches on the wire", { skip: installed ? false : "codex is not installed" }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ppm-codex-rotation-"));
+  const processes = [];
+  const config = path.join(dir, "config.toml");
+  const auth = path.join(dir, "auth.json");
+  const tokens = ["dummy-native-original", "dummy-native-rotated", "dummy-auth-original", "dummy-auth-rotated"];
+  async function gateway(name) {
+    const port = await freePort();
+    const url = `http://127.0.0.1:${port}/v1`;
+    const log = path.join(dir, `${name}.jsonl`);
+    processes.push(spawn(process.execPath, [path.join(projectRoot, "tests/fixtures/fake-responses-gateway.mjs"), String(port), log], { stdio: "ignore" }));
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      try { await fetch(`${url}/responses`, { method: "POST", body: "{}" }); break; }
+      catch (error) { if (Date.now() >= deadline) throw error; await new Promise(resolve => setTimeout(resolve, 100)); }
+    }
+    return { url, log };
+  }
+  function turn(target, model, key) {
+    fs.writeFileSync(target.log, "");
+    const env = { ...process.env, CODEX_HOME: dir };
+    for (const field of ["OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"]) delete env[field];
+    const run = spawnSync("codex", ["exec", "--skip-git-repo-check", "hi"], { cwd: dir, env, shell: process.platform === "win32", stdio: "ignore", timeout: 40_000 });
+    assert.equal(run.status, 0);
+    const calls = fs.readFileSync(target.log, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse).filter(call => call.url.startsWith("/v1/responses"));
+    assert.ok(calls.length > 0 && calls.every(call => call.model === model && call.authorization === `Bearer ${key}`), "wrong model, gateway or credential");
+  }
+  try {
+    const a = await gateway("a");
+    const b = await gateway("b");
+    fs.writeFileSync(config, `model_provider = "custom"\nmodel = "model-a"\n[model_providers.custom]\nname = "A"\nbase_url = "${a.url}"\nwire_api = "responses"\nrequires_openai_auth = false\nexperimental_bearer_token = "${tokens[0]}"\n`);
+    const draft = { providerId: "a", name: "A", baseUrl: a.url, models: [{ id: "model-a" }], defaultModelId: "model-a", requiresAuth: true, credential: { mode: "keep" } };
+    await saveThroughServer(dir, draft, { afterProviderSave: async url => {
+      async function post(route, body) {
+        const { codex } = await (await fetch(`${url}/api/state`)).json();
+        const result = await fetch(`${url}/api/codex/${route}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, revision: codex.revision }) });
+        const text = await result.text();
+        assert.ok(tokens.every(key => !text.includes(key) && !JSON.stringify(codex).includes(key)));
+        assert.equal(result.status, 200, text);
+      }
+      turn(a, "model-a", tokens[0]);
+      assert.equal(fs.existsSync(auth), false);
+      fs.writeFileSync(config, fs.readFileSync(config, "utf8").replace(tokens[0], tokens[1]));
+      await post("providers", { ...draft, providerId: "b", name: "B", baseUrl: b.url, models: [{ id: "model-b" }], defaultModelId: "model-b", credential: { mode: "new", apiKey: tokens[2] }, setActive: true });
+      assert.doesNotMatch(fs.readFileSync(config, "utf8"), /experimental_bearer_token/);
+      turn(b, "model-b", tokens[2]);
+      const rotated = JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: tokens[3], preserved: true });
+      fs.writeFileSync(auth, rotated);
+      await post("providers", { ...draft, providerId: "b", name: "B", baseUrl: b.url, models: [{ id: "model-b" }], defaultModelId: "model-b" });
+      turn(b, "model-b", tokens[3]);
+      const nativeAuth = fs.readFileSync(auth, "utf8");
+      await post("activate", { providerId: "a" });
+      assert.equal(fs.readFileSync(auth, "utf8"), nativeAuth);
+      turn(a, "model-a", tokens[1]);
+      await post("activate", { providerId: "b" });
+      turn(b, "model-b", tokens[3]);
+    } });
+  } finally {
+    await Promise.all(processes.map(child => new Promise(resolve => {
+      if (child.exitCode !== null || child.signalCode !== null) return resolve();
+      child.once("exit", resolve); child.kill();
+    })));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("codex reaches a chat-completions-only upstream through the managed bridge", {
   skip: !installed ? "codex is not installed" : !litellmAvailable() ? "litellm is not installed" : false,
 }, async () => {

@@ -686,8 +686,8 @@ test("an external selection stays selected until the user explicitly switches", 
 });
 
 test("editing settings does not demand a key for the provider already in use", async () => {
-  // The adopted provider has no stored credential, because config.toml cannot
-  // carry one. Changing an unrelated setting must not be blocked by that.
+  // This fixture requests API-key auth but has no auth.json. Changing a
+  // preference is independent of whether that file exists.
   await withServer(HAND_WRITTEN, async (api) => {
     const before = await api.state();
     assert.equal(before.codex.providers[0].credentialConfigured, false);
@@ -699,6 +699,79 @@ test("editing settings does not demand a key for the provider already in use", a
     // invents one.
     assert.equal(fs.existsSync(api.authPath), false);
   });
+});
+
+test("the destination keeps its credential file on replacement and copy, and stale edits cannot restore a token", async () => {
+  const native = HAND_WRITTEN.replace("requires_openai_auth = true", `requires_openai_auth = false\nexperimental_bearer_token = "${SECRET}"`);
+  await withServer(native, async api => {
+    const initial = (await api.state()).codex;
+    const active = initial.providers.find(item => item.isActive);
+    assert.ok(active.requiresAuth && active.tomlBearer && active.credentialConfigured);
+    assert.ok(!JSON.stringify(initial).includes(SECRET));
+    assert.equal(api.config(), native);
+    assert.equal(fs.existsSync(api.storePath), false);
+    const stale = initial.revision;
+    const standby = newProvider({ setActive: false, credential: { mode: "migrate", fromProvider: active.id } });
+    assert.equal((await api.post("/api/codex/providers", standby)).status, 200);
+    assert.equal(api.store().providers.packy.credential.type, "api_key");
+    const edit = newProvider({ providerId: "renamed", renameFrom: active.id, baseUrl: active.baseUrl, credential: { mode: "new", apiKey: OTHER_SECRET } });
+    assert.equal((await api.post("/api/codex/providers", edit, stale)).status, 409);
+    const reply = await api.post("/api/codex/providers", edit);
+    assert.equal(reply.status, 200);
+    assert.ok(!(await reply.text()).includes(OTHER_SECRET));
+    assert.ok(api.config().includes(`experimental_bearer_token = "${OTHER_SECRET}"`));
+    assert.equal(fs.existsSync(api.authPath), false);
+    assert.equal((await api.post("/api/codex/providers", { ...edit, renameFrom: "", credential: { mode: "migrate", fromProvider: "packy" } })).status, 200);
+    assert.ok(api.config().includes(`experimental_bearer_token = "${SECRET}"`));
+    assert.equal((await api.post("/api/codex/settings", { ownedProviderId: "mygateway" })).status, 200);
+    assert.match(api.config(), /^\[model_providers\.mygateway\]$/m);
+    assert.ok(api.config().includes(`experimental_bearer_token = "${SECRET}"`));
+    assert.equal(fs.existsSync(api.authPath), false);
+  });
+});
+
+test("same-address accounts keep separate keys after an external change of the named provider", async () => {
+  await withServer(null, async api => {
+    for (const draft of [newProvider(), newProvider({ providerId: "second", name: "Second account", credential: { mode: "new", apiKey: OTHER_SECRET }, setActive: false })]) {
+      assert.equal((await api.post("/api/codex/providers", draft)).status, 200);
+    }
+    fs.writeFileSync(api.configPath, api.config().replace('name = "PackyCode"', 'name = "Second account"'));
+    fs.writeFileSync(api.authPath, JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "second-account-rotated" }));
+    assert.equal((await api.state()).codex.activeProviderId, "second");
+    assert.equal((await api.post("/api/codex/activate", { providerId: "packy" })).status, 200);
+    assert.equal(api.auth().OPENAI_API_KEY, SECRET);
+    assert.equal(api.store().providers.second.credential.key, "second-account-rotated");
+  });
+});
+
+test("a no-auth gateway never adopts a leftover auth.json key, and a removed key stays removed", async () => {
+  await withServer(HAND_WRITTEN.replace("requires_openai_auth = true", "requires_openai_auth = false"), async api => {
+    fs.writeFileSync(api.authPath, JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: OTHER_SECRET }));
+    assert.equal((await api.state()).codex.providers[0].credentialConfigured, false);
+    await api.post("/api/codex/providers", newProvider());
+    assert.equal(Object.values(api.store().providers).some(p => p.credential?.key === OTHER_SECRET), false);
+    fs.unlinkSync(api.authPath);
+    assert.equal((await api.state()).codex.providers.find(p => p.isActive).credentialConfigured, false);
+    assert.equal((await api.post("/api/codex/providers", newProvider({ credential: { mode: "keep" } }))).status, 400);
+    assert.equal(fs.existsSync(api.authPath), false);
+  });
+});
+
+test("a native auth helper or headers block table replacement before disk", async () => {
+  for (const field of ['env_key = "SAMPLE_KEY"', `[model_providers.custom.http_headers]\nAuthorization = "${SECRET}"`]) {
+    const native = HAND_WRITTEN.replace("requires_openai_auth = true", `requires_openai_auth = false\nexperimental_bearer_token = "${OTHER_SECRET}"\n${field}`);
+    await withServer(native, async api => {
+      const state = (await api.state()).codex;
+      assert.equal(state.activeProviderId, "");
+      assert.ok(!JSON.stringify(state).includes(SECRET) && !JSON.stringify(state).includes(OTHER_SECRET));
+      const reply = await api.post("/api/codex/providers", newProvider());
+      assert.equal(reply.status, 400);
+      assert.match((await reply.json()).error, /手写的认证或请求头/);
+      assert.equal(api.config(), native);
+      assert.equal(fs.existsSync(api.storePath), false);
+      assert.equal(fs.existsSync(api.authPath), false);
+    });
+  }
 });
 
 test("switching to a provider whose key is missing is still refused", async () => {

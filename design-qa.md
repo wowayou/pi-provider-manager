@@ -6,6 +6,11 @@ Current behavior belongs in [the usage guide](docs/usage.zh-CN.md), maintenance 
 in [AGENTS.md](AGENTS.md), and verification requirements in
 [the architecture guide](docs/architecture.md#verification-matrix).
 
+## Local configuration and launcher acceptance · 2026-11-19
+
+- Isolated offline `npm run setup` with npm 11.16.0 produced all three Sites entries and an executable shim despite the esbuild review warning. The launcher workspace and Pi `compat` regressions each failed before the fixes. Launcher 8/8 (including WSL and Windows), server and related suites 91/91, production-browser flows 2/2. Real CLI loopback cases passed for Pi (3), Codex (5) and four selected Claude flows.
+- **Codex 0.170.0 credential audit and fix.** Before the fix a successful provider save removed the active TOML bearer, and a fresh-revision save restored a stale `auth.json` key after external rotation. Real `codex exec` now makes five turns against two loopback gateways through saves, external rotations and switches in both directions. Each recorded request carries the expected gateway's model and current credential. A production-browser model edit keeps the native token in TOML. See the [single-table guide](docs/usage.zh-CN.md#单表模式).
+
 ## Sources and visual direction
 
 - Shipped versions: [GitHub Releases](https://github.com/wowayou/pi-provider-manager/releases) and tags.
